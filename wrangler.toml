@@ -1,0 +1,68 @@
+# nemar-observability — SCCN Cloudflare account.
+# All ops via cfman: npx cfman wrangler --account sccn -c wrangler.toml
+name = "nemar-observability"
+main = "src/index.ts"
+compatibility_date = "2024-12-01"
+compatibility_flags = ["nodejs_compat"]
+
+# Mount at dashboard.nemar.org/observability* as a Worker ROUTE layered over the
+# `nemar-dashboard` Pages project (Worker routes take precedence per-path, so the
+# legacy /citations stays on Pages, untouched). NOT a custom_domain — that
+# hostname is already claimed by the Pages project.
+routes = [
+  { pattern = "dashboard.nemar.org/observability*", zone_name = "nemar.org" }
+]
+# workers.dev fallback so the worker is reachable for dev/testing.
+workers_dev = true
+
+# Hourly snapshot recompute, offset 17 past the hour from nemar-cli's "0 3 * * *"
+# cleanup so the two crons never hammer the shared nemar-db at once.
+[triggers]
+crons = ["17 * * * *"]
+
+# Source DB: nemar-cli's D1, READ-ONLY (SELECT only in code). NO migrations_dir —
+# nemar-cli owns its schema; this worker must never migrate it.
+[[d1_databases]]
+binding = "NEMAR_DB"
+database_name = "nemar-db"
+database_id = "009b1a44-a385-4ecf-812d-ec8341587cb5"
+
+# Own DB: snapshot history + pushed pipeline sections. database_id is filled at
+# first deploy (Phase 6): `cfman wrangler --account sccn d1 create nemar-observability-db`.
+[[d1_databases]]
+binding = "OBS_DB"
+database_name = "nemar-observability-db"
+database_id = "REPLACE_AT_DEPLOY"
+migrations_dir = "src/db/migrations"
+
+[vars]
+ENVIRONMENT = "production"
+NEMAR_API_BASE = "https://api.nemar.org"
+CF_ACCOUNT_ID = "da8d7a2a8680dab01592bbbc6f67f12c"
+AE_DATASET = "nemar_access_metrics"
+
+# Secrets (npx cfman wrangler --account sccn secret put <NAME> -c wrangler.toml):
+# - CF_ANALYTICS_TOKEN  (Bearer w/ Account Analytics Read; reads the AE SQL API)
+# - OBS_INGEST_TOKEN    (Bearer external pipelines present to POST /api/sections/:key)
+
+[env.dev]
+name = "nemar-observability-dev"
+workers_dev = true
+routes = []
+
+[[env.dev.d1_databases]]
+binding = "NEMAR_DB"
+database_name = "nemar-db-dev"
+database_id = "017d8f4e-a591-4a3d-944b-01b5ffe5101d"
+
+[[env.dev.d1_databases]]
+binding = "OBS_DB"
+database_name = "nemar-observability-db-dev"
+database_id = "REPLACE_AT_DEPLOY_DEV"
+migrations_dir = "src/db/migrations"
+
+[env.dev.vars]
+ENVIRONMENT = "development"
+NEMAR_API_BASE = "https://nemar-api-dev.sccn-org.workers.dev"
+CF_ACCOUNT_ID = "da8d7a2a8680dab01592bbbc6f67f12c"
+AE_DATASET = "nemar_access_metrics_dev"
