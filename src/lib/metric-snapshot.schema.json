@@ -1,0 +1,54 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://dashboard.nemar.org/observability/metric-snapshot.schema.json",
+  "title": "NEMAR MetricSnapshot",
+  "description": "Versioned contract for the NEMAR observability dashboard. Mirror of src/lib/schema.ts (Zod is the source of truth). A pipeline contributes a Section conforming to $defs/section, either computed by the dashboard cron (pull) or POSTed to /api/sections/:key (push).",
+  "type": "object",
+  "required": ["schema_version", "generated_at", "sections"],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": { "const": "1.0" },
+    "generated_at": { "type": "string", "format": "date-time" },
+    "sections": { "type": "array", "items": { "$ref": "#/$defs/section" } }
+  },
+  "$defs": {
+    "severity": { "enum": ["ok", "warn", "error", "info"] },
+    "breakdownItem": {
+      "type": "object",
+      "required": ["label", "value"],
+      "additionalProperties": false,
+      "properties": {
+        "label": { "type": "string" },
+        "value": { "type": "number" }
+      }
+    },
+    "metric": {
+      "type": "object",
+      "required": ["key", "label", "value"],
+      "additionalProperties": false,
+      "properties": {
+        "key": { "type": "string", "minLength": 1, "description": "Stable namespaced id, e.g. archive.missing" },
+        "label": { "type": "string", "minLength": 1 },
+        "value": { "type": "number", "description": "Headline number" },
+        "total": { "type": "number", "description": "Denominator for a percent (value/total)" },
+        "unit": { "type": "string", "default": "datasets", "description": "datasets | bytes | percent | count | ..." },
+        "severity": { "$ref": "#/$defs/severity", "default": "info" },
+        "drilldown": { "type": "string", "description": "Admin drill-down key resolving to the list behind the number" },
+        "breakdown": { "type": "array", "items": { "$ref": "#/$defs/breakdownItem" } },
+        "hint": { "type": "string" }
+      }
+    },
+    "section": {
+      "type": "object",
+      "required": ["key", "label", "source", "metrics", "updated_at"],
+      "additionalProperties": false,
+      "properties": {
+        "key": { "type": "string", "minLength": 1 },
+        "label": { "type": "string", "minLength": 1 },
+        "source": { "type": "string", "minLength": 1, "description": "Producer id: nemar-cli, access, or a pipeline id" },
+        "metrics": { "type": "array", "items": { "$ref": "#/$defs/metric" } },
+        "updated_at": { "type": "string", "format": "date-time" }
+      }
+    }
+  }
+}
