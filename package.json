@@ -2,6 +2,7 @@
   "name": "nemar-observability",
   "version": "0.1.0",
   "private": true,
+  "license": "CC-BY-NC-ND-4.0",
   "type": "module",
   "scripts": {
     "dev": "wrangler dev -c wrangler.toml --env dev",

@@ -117,5 +117,9 @@ npx cfman wrangler --account sccn deploy -c wrangler.toml --env dev
 
 Prereqs in nemar-cli (epic nemarOrg/nemar-cli#695): the `nemar_access_metrics` Analytics Engine dataset (written by the data-plane) and the `archive_status` columns. Both ship dark in nemar-cli ahead of this dashboard.
 
+## License
+
+Creative Commons Attribution-NonCommercial-NoDerivatives 4.0 International (CC BY-NC-ND 4.0). See [LICENSE](LICENSE). Same license as the rest of the NEMAR product suite (nemar-cli, website).
+
 ---
 Part of epic **nemarOrg/nemar-cli#695**. See `AGENTS.md` for full development instructions.
