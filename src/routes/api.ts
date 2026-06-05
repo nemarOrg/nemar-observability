@@ -9,7 +9,7 @@ import { Hono } from "hono";
 import { resolveAdmin } from "../lib/auth";
 import { isKnownDrilldown, runDrilldown } from "../lib/drilldown";
 import { buildSnapshot } from "../lib/metrics";
-import { SectionIngestSchema } from "../lib/schema";
+import { BUILTIN_SECTION_KEYS, SectionIngestSchema } from "../lib/schema";
 import {
   loadLatestSnapshot,
   loadMetricHistory,
@@ -22,19 +22,35 @@ export const apiRoutes = new Hono<{ Bindings: Bindings }>();
 
 const PUBLIC_CACHE = "public, max-age=60, s-maxage=300, stale-while-revalidate=600";
 
+/** Constant-time string compare (avoids leaking the ingest token via timing). */
+function safeEqual(a: string, b: string): boolean {
+  const enc = new TextEncoder();
+  const ab = enc.encode(a);
+  const bb = enc.encode(b);
+  if (ab.length !== bb.length) return false;
+  let diff = 0;
+  for (let i = 0; i < ab.length; i++) diff |= ab[i] ^ bb[i];
+  return diff === 0;
+}
+
 // Latest snapshot. If none has been computed yet (fresh deploy before the first
 // cron), compute one on the fly and store it so the first visitor isn't empty.
 apiRoutes.get("/snapshot", async (c) => {
-  let snapshot = await loadLatestSnapshot(c.env.OBS_DB);
-  if (!snapshot) {
-    snapshot = await buildSnapshot(c.env);
-    try {
-      await saveSnapshot(c.env.OBS_DB, snapshot);
-    } catch (err) {
-      console.error("[api] saving first snapshot failed:", err);
-    }
+  const snapshot = await loadLatestSnapshot(c.env.OBS_DB);
+  if (snapshot) return c.json(snapshot, 200, { "Cache-Control": PUBLIC_CACHE });
+
+  // No stored snapshot yet (fresh deploy before the first cron): compute one on
+  // the fly and persist it. If the persist fails (OBS_DB broken/unmigrated),
+  // serve the computed result but DON'T cache it -- caching a never-persisted
+  // snapshot would hammer NEMAR_DB + AE on every request until the cron runs.
+  const fresh = await buildSnapshot(c.env);
+  try {
+    await saveSnapshot(c.env.OBS_DB, fresh);
+  } catch (err) {
+    console.error("[api] OBS_DB write failed on first snapshot (is it migrated?):", err);
+    return c.json(fresh, 200, { "Cache-Control": "no-store" });
   }
-  return c.json(snapshot, 200, { "Cache-Control": PUBLIC_CACHE });
+  return c.json(fresh, 200, { "Cache-Control": PUBLIC_CACHE });
 });
 
 // Trend history for one metric key (oldest -> newest), for sparklines.
@@ -64,9 +80,15 @@ apiRoutes.post("/sections/:key", async (c) => {
   if (!expected) return c.json({ error: "Section ingest is not configured" }, 503);
   const auth = c.req.header("Authorization") ?? "";
   const token = /^Bearer\s+(.+)$/i.exec(auth.trim())?.[1]?.trim();
-  if (!token || token !== expected) return c.json({ error: "Invalid ingest token" }, 401);
+  if (!token || !safeEqual(token, expected)) return c.json({ error: "Invalid ingest token" }, 401);
 
   const key = c.req.param("key");
+  // Reject a built-in key at ingest (409) instead of accepting it, storing it,
+  // and silently dropping it at snapshot-assembly time (which would 200 a push
+  // that never appears and pollute ingested_sections).
+  if (BUILTIN_SECTION_KEYS.has(key)) {
+    return c.json({ error: "Cannot shadow a built-in section key" }, 409);
+  }
   let body: unknown;
   try {
     body = await c.req.json();

@@ -132,13 +132,16 @@ async function datasetsSection(db: D1Database, now: string): Promise<Section> {
 }
 
 async function archiveSection(db: D1Database, now: string): Promise<Section> {
+  // All archive metrics are scoped to PUBLISHED (public + concept DOI) so the
+  // denominator is consistent and `ready` can never exceed `published` -- a
+  // published dataset is the only thing that should have a generated archive.
   const c = await counts<"published" | "ready" | "pending" | "failed" | "missing">(
     db,
     `SELECT
        (SELECT COUNT(*) FROM datasets WHERE ${PUBLISHED}) as published,
-       (SELECT COUNT(*) FROM datasets WHERE ${PUBLIC_MANAGED} AND archive_status = 'ready') as ready,
-       (SELECT COUNT(*) FROM datasets WHERE ${PUBLIC_MANAGED} AND archive_status = 'pending') as pending,
-       (SELECT COUNT(*) FROM datasets WHERE ${PUBLIC_MANAGED} AND archive_status = 'failed') as failed,
+       (SELECT COUNT(*) FROM datasets WHERE ${PUBLISHED} AND archive_status = 'ready') as ready,
+       (SELECT COUNT(*) FROM datasets WHERE ${PUBLISHED} AND archive_status = 'pending') as pending,
+       (SELECT COUNT(*) FROM datasets WHERE ${PUBLISHED} AND archive_status = 'failed') as failed,
        (SELECT COUNT(*) FROM datasets WHERE ${PUBLISHED} AND (archive_status IS NULL OR archive_status != 'ready')) as missing`,
   );
   const published = c.published ?? 0;
@@ -366,13 +369,16 @@ async function usersSection(db: D1Database, now: string): Promise<Section> {
 /**
  * Compute the full snapshot: all built-in sections (parallel) + the access
  * section (Analytics Engine) + any pushed pipeline sections, merged in order.
- * A section that throws is dropped (logged) rather than failing the whole
- * snapshot — one broken source shouldn't blank the dashboard.
+ * A section that throws is recorded in `section_errors` (not silently dropped)
+ * so the dashboard can show a visible "unavailable" signal instead of just
+ * fewer tiles — one broken source shouldn't blank the whole dashboard, but it
+ * also shouldn't hide that it's broken.
  */
 export async function buildSnapshot(env: Bindings): Promise<MetricSnapshot> {
   const now = new Date().toISOString();
   const db = env.NEMAR_DB;
 
+  const labels = ["datasets", "archive", "zarr", "sync", "publication", "access", "users"];
   const builtins = await Promise.allSettled([
     datasetsSection(db, now),
     archiveSection(db, now),
@@ -384,10 +390,16 @@ export async function buildSnapshot(env: Bindings): Promise<MetricSnapshot> {
   ]);
 
   const sections: Section[] = [];
-  for (const r of builtins) {
-    if (r.status === "fulfilled") sections.push(r.value);
-    else console.error("[metrics] section failed:", r.reason);
-  }
+  const sectionErrors: { key: string; error: string }[] = [];
+  builtins.forEach((r, i) => {
+    if (r.status === "fulfilled") {
+      sections.push(r.value);
+    } else {
+      const key = labels[i] ?? `section_${i}`;
+      console.error(`[metrics] section "${key}" failed:`, r.reason);
+      sectionErrors.push({ key, error: String(r.reason).slice(0, 300) });
+    }
+  });
 
   // Merge pushed pipeline sections (push mode). Skip any whose key collides
   // with a built-in so a pipeline can't shadow core metrics.
@@ -398,7 +410,13 @@ export async function buildSnapshot(env: Bindings): Promise<MetricSnapshot> {
     }
   } catch (err) {
     console.error("[metrics] loading pushed sections failed:", err);
+    sectionErrors.push({ key: "pushed", error: String(err).slice(0, 300) });
   }
 
-  return { schema_version: SCHEMA_VERSION, generated_at: now, sections };
+  return {
+    schema_version: SCHEMA_VERSION,
+    generated_at: now,
+    sections,
+    ...(sectionErrors.length ? { section_errors: sectionErrors } : {}),
+  };
 }

@@ -86,6 +86,13 @@ function tile(metric) {
 function renderSnapshot(snap) {
   const root = document.getElementById("sections");
   root.textContent = "";
+  if (snap.section_errors && snap.section_errors.length) {
+    const bar = el("div", "errbar");
+    bar.appendChild(el("strong", null, "Some sections failed to load: "));
+    bar.appendChild(el("span", null, snap.section_errors.map(function (e) { return e.key; }).join(", ")));
+    bar.appendChild(el("span", " errbar-hint", " (data shown may be incomplete)"));
+    root.appendChild(bar);
+  }
   snap.sections.forEach(function (section) {
     const card = el("section", "card");
     const head = el("div", "card-head");
@@ -114,9 +121,15 @@ function datasetLink(item) {
   wrap.appendChild(a);
   if (item.github_repo) {
     const g = el("a", "dl-gh", "repo");
-    g.href = "https://github.com/" + item.github_repo;
-    g.target = "_blank"; g.rel = "noopener";
-    wrap.appendChild(g);
+    // Build via URL so a stray scheme (e.g. javascript:) in github_repo can't
+    // become the href scheme -- it lands in the pathname, encoded.
+    try {
+      const u = new URL("https://github.com/");
+      u.pathname = "/" + item.github_repo;
+      g.href = u.href;
+      g.target = "_blank"; g.rel = "noopener";
+      wrap.appendChild(g);
+    } catch (e) { /* skip a malformed repo */ }
   }
   return wrap;
 }
@@ -244,6 +257,9 @@ main { padding: 20px 24px 60px; max-width: 1200px; margin: 0 auto; }
 .bd-val { text-align: right; color: var(--fg); }
 .bd-more { color: var(--muted); font-size: 11px; margin-top: 2px; }
 .muted { color: var(--muted); }
+.errbar { background: rgba(248,81,73,.12); border: 1px solid var(--error); color: #ffd7d4;
+  border-radius: 10px; padding: 10px 14px; margin-bottom: 16px; font-size: 13px; }
+.errbar-hint { color: var(--muted); }
 #drawer { position: fixed; top: 0; right: 0; height: 100%; width: min(460px, 92vw);
   background: var(--panel); border-left: 1px solid var(--border); transform: translateX(100%);
   transition: transform .18s ease; z-index: 20; display: flex; flex-direction: column; }

@@ -55,19 +55,36 @@ export const SectionSchema = z.object({
   key: z.string().min(1),
   label: z.string().min(1),
   source: z.string().min(1),
-  metrics: z.array(MetricSchema),
+  metrics: z.array(MetricSchema).min(1),
   /** ISO-8601 of when this section's data was computed/received. */
-  updated_at: z.string(),
+  updated_at: z.string().datetime(),
 });
 export type Section = z.infer<typeof SectionSchema>;
+
+/** A built-in section that failed to compute this run (surfaced in the UI). */
+export const SectionErrorSchema = z.object({ key: z.string(), error: z.string() });
+export type SectionError = z.infer<typeof SectionErrorSchema>;
 
 /** The full snapshot the dashboard renders. */
 export const MetricSnapshotSchema = z.object({
   schema_version: z.literal(SCHEMA_VERSION),
-  generated_at: z.string(),
+  generated_at: z.string().datetime(),
   sections: z.array(SectionSchema),
+  /** Sections that failed this run; empty/absent when all succeeded. */
+  section_errors: z.array(SectionErrorSchema).optional(),
 });
 export type MetricSnapshot = z.infer<typeof MetricSnapshotSchema>;
+
+/** Reserved keys the cron computes; a pushed section may not shadow these. */
+export const BUILTIN_SECTION_KEYS: ReadonlySet<string> = new Set([
+  "datasets",
+  "archive",
+  "zarr",
+  "sync",
+  "publication",
+  "access",
+  "users",
+]);
 
 /**
  * Payload a pipeline POSTs to /api/sections/:key (push mode). Same as a Section

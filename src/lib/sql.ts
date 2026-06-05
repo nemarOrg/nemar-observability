@@ -30,7 +30,12 @@ export async function scalar(db: D1Database, sql: string, ...binds: unknown[]): 
   return row?.n ?? 0;
 }
 
-/** Run a query whose single row is a map of name -> number, returning that map. */
+/**
+ * Run a query whose single row is a map of name -> number, returning that map.
+ * Throws on a null row: a `SELECT COUNT(*)...` always returns exactly one row,
+ * so null means a structural problem (wrong binding, table missing) that must
+ * surface as a failed section, not silently become all-zero "data".
+ */
 export async function counts<K extends string>(
   db: D1Database,
   sql: string,
@@ -40,5 +45,10 @@ export async function counts<K extends string>(
     .prepare(sql)
     .bind(...binds)
     .first()) as Record<K, number> | null;
-  return row ?? ({} as Record<K, number>);
+  if (row === null) {
+    throw new Error(
+      `counts() returned no row -- check NEMAR_DB binding/migrations: ${sql.slice(0, 120)}`,
+    );
+  }
+  return row;
 }

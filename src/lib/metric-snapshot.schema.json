@@ -2,14 +2,19 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://dashboard.nemar.org/observability/metric-snapshot.schema.json",
   "title": "NEMAR MetricSnapshot",
-  "description": "Versioned contract for the NEMAR observability dashboard. Mirror of src/lib/schema.ts (Zod is the source of truth). A pipeline contributes a Section conforming to $defs/section, either computed by the dashboard cron (pull) or POSTed to /api/sections/:key (push).",
+  "description": "Versioned contract for the NEMAR observability dashboard. Mirror of src/lib/schema.ts (Zod is the SOURCE OF TRUTH; this file is documentation). The push endpoint (/api/sections/:key) expects a $defs/sectionIngest body (a section WITHOUT updated_at, which the server stamps). Note: Zod strips unknown fields rather than rejecting them, so a payload with extra fields is accepted (the extras dropped) even though additionalProperties is false here.",
   "type": "object",
   "required": ["schema_version", "generated_at", "sections"],
   "additionalProperties": false,
   "properties": {
     "schema_version": { "const": "1.0" },
     "generated_at": { "type": "string", "format": "date-time" },
-    "sections": { "type": "array", "items": { "$ref": "#/$defs/section" } }
+    "sections": { "type": "array", "items": { "$ref": "#/$defs/section" } },
+    "section_errors": {
+      "type": "array",
+      "description": "Built-in sections that failed to compute this run (absent when all succeeded).",
+      "items": { "$ref": "#/$defs/sectionError" }
+    }
   },
   "$defs": {
     "severity": { "enum": ["ok", "warn", "error", "info"] },
@@ -38,6 +43,15 @@
         "hint": { "type": "string" }
       }
     },
+    "sectionError": {
+      "type": "object",
+      "required": ["key", "error"],
+      "additionalProperties": false,
+      "properties": {
+        "key": { "type": "string" },
+        "error": { "type": "string" }
+      }
+    },
     "section": {
       "type": "object",
       "required": ["key", "label", "source", "metrics", "updated_at"],
@@ -46,8 +60,20 @@
         "key": { "type": "string", "minLength": 1 },
         "label": { "type": "string", "minLength": 1 },
         "source": { "type": "string", "minLength": 1, "description": "Producer id: nemar-cli, access, or a pipeline id" },
-        "metrics": { "type": "array", "items": { "$ref": "#/$defs/metric" } },
+        "metrics": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/metric" } },
         "updated_at": { "type": "string", "format": "date-time" }
+      }
+    },
+    "sectionIngest": {
+      "description": "POST /api/sections/:key body: a section WITHOUT updated_at (server-stamped). `key` must equal the URL :key and must not be a built-in (datasets|archive|zarr|sync|publication|access|users).",
+      "type": "object",
+      "required": ["key", "label", "source", "metrics"],
+      "additionalProperties": false,
+      "properties": {
+        "key": { "type": "string", "minLength": 1 },
+        "label": { "type": "string", "minLength": 1 },
+        "source": { "type": "string", "minLength": 1 },
+        "metrics": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/metric" } }
       }
     }
   }

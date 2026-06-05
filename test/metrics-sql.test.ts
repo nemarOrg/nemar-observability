@@ -141,3 +141,24 @@ describe("status drill-down predicates", () => {
     expect(count(d, `${PUBLIC_MANAGED} AND archive_status = 'failed'`)).toBe(1);
   });
 });
+
+describe("access top-list public filter (privacy)", () => {
+  test("keeps only currently public+managed ids from a candidate list", () => {
+    // Mirrors filterPublic() in access.ts: an id that was public when accessed
+    // but is now private/sandbox/catalog must be dropped from the public list.
+    const d = db([
+      { dataset_id: "nm1", visibility: "public" },
+      { dataset_id: "nm2", visibility: "private" },
+      { dataset_id: "xx1", visibility: "public", is_sandbox: 1 },
+      { dataset_id: "cat1", visibility: "public", owner_user_id: -1 },
+    ]);
+    const ids = ["nm1", "nm2", "xx1", "cat1"];
+    const placeholders = ids.map(() => "?").join(",");
+    const rows = d
+      .query(
+        `SELECT dataset_id FROM datasets WHERE dataset_id IN (${placeholders}) AND ${PUBLIC_MANAGED}`,
+      )
+      .all(...ids) as { dataset_id: string }[];
+    expect(rows.map((r) => r.dataset_id)).toEqual(["nm1"]);
+  });
+});

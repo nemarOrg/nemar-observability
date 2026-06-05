@@ -32,3 +32,47 @@ describe("worker routing", () => {
     expect(res.headers.get("location")).toBe("/observability");
   });
 });
+
+// The section-ingest guards reject before any D1 access, so they are testable
+// with only the OBS_INGEST_TOKEN var set (no binding / no mocks).
+describe("section ingest guards", () => {
+  const ingestEnv = { OBS_INGEST_TOKEN: "secret-token" } as unknown as Bindings;
+  const post = (path: string, headers: Record<string, string> = {}, bodyKey = "qa") =>
+    worker.fetch(
+      new Request(`https://x${path}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...headers },
+        body: JSON.stringify({
+          key: bodyKey,
+          label: "QA",
+          source: "qa",
+          metrics: [{ key: "qa.x", label: "X", value: 1 }],
+        }),
+      }),
+      ingestEnv,
+      ctx,
+    );
+
+  test("503 when ingest is not configured", async () => {
+    const res = await worker.fetch(
+      new Request("https://x/observability/api/sections/qa", { method: "POST", body: "{}" }),
+      {} as Bindings,
+      ctx,
+    );
+    expect(res.status).toBe(503);
+  });
+
+  test("401 on a wrong bearer token", async () => {
+    const res = await post("/observability/api/sections/qa", { Authorization: "Bearer wrong" });
+    expect(res.status).toBe(401);
+  });
+
+  test("409 when shadowing a built-in section key", async () => {
+    const res = await post(
+      "/observability/api/sections/datasets",
+      { Authorization: "Bearer secret-token" },
+      "datasets",
+    );
+    expect(res.status).toBe(409);
+  });
+});

@@ -36,14 +36,20 @@ export async function resolveAdmin(
       headers: { Authorization: `Bearer ${token}` },
     });
   } catch (err) {
-    console.error("[auth] /users/me delegation failed:", err);
+    // Network/DNS error to the API (e.g. misconfigured NEMAR_API_BASE). Fail
+    // closed, but log loudly so a "can't sign in" report is diagnosable.
+    console.error("[auth] /users/me unreachable (check NEMAR_API_BASE):", env.NEMAR_API_BASE, err);
     return null;
   }
-  if (!res.ok) return null;
+  if (!res.ok) return null; // bad/expired token -- expected, no log
 
-  const json = (await res.json().catch(() => null)) as {
-    user?: { username?: string; role?: string };
-  } | null;
+  let json: { user?: { username?: string; role?: string } } | null;
+  try {
+    json = (await res.json()) as { user?: { username?: string; role?: string } };
+  } catch (err) {
+    console.error("[auth] /users/me returned unparseable JSON:", err);
+    return null;
+  }
   const user = json?.user;
   if (!user?.role || !ADMIN_ROLES.has(user.role)) return null;
   return { username: user.username ?? "unknown", role: user.role };

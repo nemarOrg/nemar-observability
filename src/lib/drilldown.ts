@@ -22,11 +22,11 @@ const DATASET_DRILLDOWNS: Record<string, { label: string; where: string }> = {
   },
   "archive.pending": {
     label: "Datasets with a pending archive",
-    where: `${PUBLIC_MANAGED} AND archive_status = 'pending'`,
+    where: `${PUBLISHED} AND archive_status = 'pending'`,
   },
   "archive.failed": {
     label: "Datasets with a failed archive",
-    where: `${PUBLIC_MANAGED} AND archive_status = 'failed'`,
+    where: `${PUBLISHED} AND archive_status = 'failed'`,
   },
   "zarr.pending": {
     label: "Datasets being converted to Zarr",
