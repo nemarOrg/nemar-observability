@@ -10,6 +10,9 @@ compatibility_flags = ["nodejs_compat"]
 # legacy /citations stays on Pages, untouched). NOT a custom_domain — that
 # hostname is already claimed by the Pages project.
 routes = [
+  # Root-only: serves the dashboard hub at dashboard.nemar.org/ . No wildcard,
+  # so it matches ONLY `/` -- /citations stays on the nemar-dashboard Pages project.
+  { pattern = "dashboard.nemar.org/", zone_name = "nemar.org" },
   { pattern = "dashboard.nemar.org/observability*", zone_name = "nemar.org" }
 ]
 # workers.dev fallback so the worker is reachable for dev/testing.

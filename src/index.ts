@@ -1,11 +1,13 @@
-// Worker entry: Hono app (UI + API) under /observability + the hourly cron.
-// Mounted at dashboard.nemar.org/observability* via a Worker route (see
-// wrangler.toml), layered over the legacy /citations Pages project.
+// Worker entry: Hono app for dashboard.nemar.org. Serves the dashboard hub at
+// the host root `/` (a root-only Worker route) and the observability dashboard
+// (UI + API + hourly cron) under `/observability*`. Both are layered over the
+// `nemar-dashboard` Pages project, which keeps serving `/citations`.
 
 import { Hono } from "hono";
 import { handleScheduled } from "./cron";
 import { loadCronStatus } from "./lib/store";
 import { apiRoutes } from "./routes/api";
+import { renderHubPage } from "./routes/hub";
 import { renderDashboardPage } from "./routes/ui";
 import type { Bindings } from "./types";
 
@@ -35,8 +37,9 @@ app.route("/observability/api", apiRoutes);
 app.get("/observability", (c) => c.html(renderDashboardPage()));
 app.get("/observability/", (c) => c.html(renderDashboardPage()));
 
-// Convenience for bare hits on the workers.dev host.
-app.get("/", (c) => c.redirect("/observability"));
+// Host root: the dashboard hub (lists the NEMAR dashboards). The root-only
+// Worker route in wrangler.toml sends only `/` here; `/citations` stays on Pages.
+app.get("/", (c) => c.html(renderHubPage()));
 
 export default {
   fetch: app.fetch,

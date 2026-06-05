@@ -26,10 +26,14 @@ describe("worker routing", () => {
     expect(html).toContain('"/observability/api"');
   });
 
-  test("bare root redirects to the dashboard", async () => {
+  test("root serves the dashboard hub listing both dashboards", async () => {
     const res = await worker.fetch(new Request("https://x/"), env, ctx);
-    expect(res.status).toBe(302);
-    expect(res.headers.get("location")).toBe("/observability");
+    expect(res.status).toBe(200);
+    expect(res.headers.get("content-type") ?? "").toContain("text/html");
+    const html = await res.text();
+    expect(html).toContain("NEMAR Dashboards");
+    expect(html).toContain('href="/observability"');
+    expect(html).toContain('href="/citations"');
   });
 });
 
