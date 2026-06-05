@@ -11,9 +11,9 @@
     "db:migrate:dev": "wrangler d1 migrations apply nemar-observability-db-dev -c wrangler.toml --env dev",
     "db:migrate:local": "wrangler d1 migrations apply nemar-observability-db -c wrangler.toml --local",
     "typecheck": "tsc --noEmit",
-    "lint": "biome check src/",
-    "lint:fix": "biome check --fix src/",
-    "format": "biome format --write src/",
+    "lint": "biome check src/ test/",
+    "lint:fix": "biome check --fix src/ test/",
+    "format": "biome format --write src/ test/",
     "test": "bun test"
   },
   "dependencies": {
