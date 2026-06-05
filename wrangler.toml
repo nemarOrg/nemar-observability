@@ -32,7 +32,7 @@ database_id = "009b1a44-a385-4ecf-812d-ec8341587cb5"
 [[d1_databases]]
 binding = "OBS_DB"
 database_name = "nemar-observability-db"
-database_id = "REPLACE_AT_DEPLOY"
+database_id = "3bcfb654-63a3-4e5a-9c03-5ce0c3e1bd66"
 migrations_dir = "src/db/migrations"
 
 [vars]
@@ -58,7 +58,7 @@ database_id = "017d8f4e-a591-4a3d-944b-01b5ffe5101d"
 [[env.dev.d1_databases]]
 binding = "OBS_DB"
 database_name = "nemar-observability-db-dev"
-database_id = "REPLACE_AT_DEPLOY_DEV"
+database_id = "77a5a390-5f4c-49c1-af74-8b7dce81ee10"
 migrations_dir = "src/db/migrations"
 
 [env.dev.vars]
