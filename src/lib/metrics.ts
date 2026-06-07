@@ -213,7 +213,7 @@ async function zarrSection(db: D1Database, now: string): Promise<Section> {
         value: c.ready ?? 0,
         total: universe,
         severity: "ok",
-        hint: "Public datasets with a built Zarr serving copy",
+        hint: "Public datasets with a built Zarr serving copy (of all public datasets)",
       }),
       metric({
         key: "zarr.pending",
@@ -326,33 +326,54 @@ async function publicationSection(db: D1Database, now: string): Promise<Section>
   );
 }
 
-async function usersSection(db: D1Database, now: string): Promise<Section> {
-  const c = await counts<"pending" | "approved" | "active_tokens">(
+// Exported for tests (run against a real SQLite engine). Not part of the
+// public snapshot API; buildSnapshot() is the only production caller.
+export async function usersSection(db: D1Database, now: string): Promise<Section> {
+  // Every user count excludes soft-deleted tombstones (`deleted_at IS NULL`,
+  // nemar-cli migration 0037). The status pin also drops the id=-1
+  // 'nemar-system' sentinel (it is status='revoked'), but deleted_at is the
+  // authoritative exclusion now that the column exists.
+  const c = await counts<"pending" | "verified" | "approved" | "active_tokens">(
     db,
     `SELECT
-       (SELECT COUNT(*) FROM users WHERE status = 'pending') as pending,
-       (SELECT COUNT(*) FROM users WHERE status = 'approved') as approved,
+       (SELECT COUNT(*) FROM users WHERE status = 'pending'  AND deleted_at IS NULL) as pending,
+       (SELECT COUNT(*) FROM users WHERE status = 'verified' AND deleted_at IS NULL) as verified,
+       (SELECT COUNT(*) FROM users WHERE status = 'approved' AND deleted_at IS NULL) as approved,
        (SELECT COUNT(*) FROM tokens WHERE revoked_at IS NULL) as active_tokens`,
   );
   const pending = c.pending ?? 0;
+  const verified = c.verified ?? 0;
   return section(
     "users",
     "Users",
     "nemar-cli",
     [
+      // Email-verified users are the actionable approval queue: nemar-cli's
+      // POST /admin/approve/:username only approves status='verified' (or
+      // re-approves 'revoked'); a 'pending' user gets 400 "needs to verify
+      // their email first". So this is the warn tile.
+      metric({
+        key: "users.verified",
+        label: "Awaiting approval",
+        value: verified,
+        severity: pendingSeverity(verified),
+        drilldown: "users.verified",
+        hint: "Email-verified users an admin can approve now (nemar approve)",
+      }),
       metric({
         key: "users.pending",
-        label: "Pending approval",
+        label: "Pending verification",
         value: pending,
-        severity: pendingSeverity(pending),
+        severity: "info",
         drilldown: "users.pending",
-        hint: "Verified users awaiting admin approval",
+        hint: "Signed up but not yet email-verified / web-onboarded — not one-click approvable",
       }),
       metric({
         key: "users.approved",
         label: "Approved users",
         value: c.approved ?? 0,
         severity: "info",
+        drilldown: "users.approved",
       }),
       metric({
         key: "users.active_tokens",
