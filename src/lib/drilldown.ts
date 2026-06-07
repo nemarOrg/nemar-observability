@@ -81,13 +81,11 @@ async function publicationDrilldown(
   label: string,
   where: string,
 ): Promise<DrilldownResult> {
-  // github_repo is built in SQL as `nemarDatasets/<dataset_id>`: dataset repos
-  // live under the nemarDatasets org and the repo name equals the dataset_id
-  // (nemar-cli github.ts ORG_NAME). The UI's githubDatasetLink() consumes it.
+  // The UI builds the GitHub link from dataset_id directly (githubDatasetLink ->
+  // github.com/nemarDatasets/<dataset_id>), so no github_repo column is needed.
   const rows = await db
     .prepare(
-      `SELECT dataset_id, 'nemarDatasets/' || dataset_id AS github_repo,
-              status, prescreen_status, requested_at, current_step, last_error
+      `SELECT dataset_id, status, prescreen_status, requested_at, current_step, last_error
        FROM publication_requests WHERE ${where} ORDER BY requested_at DESC LIMIT ${LIMIT}`,
     )
     .all<Record<string, unknown>>();

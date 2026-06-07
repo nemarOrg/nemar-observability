@@ -122,7 +122,7 @@ describe("user drill-downs", () => {
   });
 });
 
-describe("publication drill-down github_repo", () => {
+describe("publication drill-down dataset_id (UI builds the GitHub link)", () => {
   function pubDb(): D1Database {
     const d = new Database(":memory:");
     d.exec(PUBREQ_DDL);
@@ -133,11 +133,12 @@ describe("publication drill-down github_repo", () => {
     return asD1(d);
   }
 
-  test("returns github_repo = nemarDatasets/<dataset_id>", async () => {
+  test("returns dataset_id (client links to github.com/nemarDatasets/<id>)", async () => {
     const res = await runDrilldown(pubDb(), "publication.open");
     expect(res?.kind).toBe("publication");
     const item = res?.items[0] as Record<string, unknown>;
     expect(item.dataset_id).toBe("nm000132");
-    expect(item.github_repo).toBe("nemarDatasets/nm000132");
+    // No github_repo column is emitted — the UI builds the URL from dataset_id.
+    expect(item.github_repo).toBeUndefined();
   });
 });

@@ -289,7 +289,7 @@ function runPublishApprove(datasetId, fb, bar) {
   function step() {
     if (++iterations > MAX_ITERATIONS) {
       fb.err("Stopped after " + MAX_ITERATIONS + " steps without completing — re-open and retry.");
-      return;
+      return false;
     }
     fb.info("Publishing…");
     return fetch(API + "/actions/publish/" + encodeURIComponent(datasetId) + "/approve", {
@@ -309,7 +309,7 @@ function runPublishApprove(datasetId, fb, bar) {
         // GitHub secondary-rate-limit on ci_check: surface, don't blind-retry.
         if (res.status >= 500 && isCiCheckFailure(j)) {
           fb.err((j.error || "CI check failed") + " — likely GitHub rate limit. Retry later or skip CI.");
-          return;
+          return false;
         }
         // 426 + other 4xx are non-retryable; only 5xx (+ network) retry, bounded.
         const retryable = res.status >= 500 && transientRetries < MAX_TRANSIENT;
@@ -322,7 +322,7 @@ function runPublishApprove(datasetId, fb, bar) {
           return delay(1500 * transientRetries).then(step);
         }
         fb.err((j.error || ("Failed (" + res.status + ")")) + (j.step ? " at " + j.step : ""));
-        return;
+        return false;
       }
 
       transientRetries = 0; // a clean 2xx resets the transient budget
@@ -339,21 +339,26 @@ function runPublishApprove(datasetId, fb, bar) {
       }
 
       // No hasMore => terminal. Success iff published / "already completed".
+      // Fold any warning into the same success line so it doesn't clobber the
+      // confirmation (rowFeedback is a single slot).
       pb.done();
       if (j.status === "published" || /already completed/i.test(j.message || "")) {
-        fb.ok(j.message || "Published");
-        if (j.warning) fb.info(String(j.warning));
+        fb.ok((j.message || "Published") + (j.warning ? " — " + String(j.warning) : ""));
       } else {
         fb.ok(j.message || "Done");
       }
+      return true;
     }).catch(function () {
       if (transientRetries < MAX_TRANSIENT) {
         transientRetries++;
         fb.info("Network error, retrying " + transientRetries + "/" + MAX_TRANSIENT + "…");
-        body = { resume: true, skip_ci_check: skip_ci_check };
+        // Preserve the last continuation state (don't drop the s3_lock token on a
+        // network blip, or the server restarts object-locking from the start).
+        body = Object.assign({}, body, { resume: true });
         return delay(1500 * transientRetries).then(step);
       }
       fb.err("Network error — publication may be partially complete; re-open and retry.");
+      return false;
     });
   }
 
@@ -380,6 +385,7 @@ function publicationRow(item) {
   // Deny
   const deny = el("button", "btn btn-warn", "Deny");
   deny.addEventListener("click", function () {
+    if (APPROVE_BUSY) { fb.err("An approval is in progress — wait for it to finish."); return; }
     const reason = window.prompt("Reason for denying " + item.dataset_id + ":", "");
     if (reason === null || reason.trim() === "") return;
     deny.disabled = true; fb.info("Denying…");
@@ -403,9 +409,16 @@ function publicationRow(item) {
     if (typed.trim() !== item.dataset_id) { fb.err("Confirmation did not match — aborted."); return; }
     APPROVE_BUSY = true;
     appr.disabled = true; deny.disabled = true;
+    // runPublishApprove resolves true on success, false on a terminal failure.
+    // On success the row is done -> mask it; on failure re-enable both buttons so
+    // the admin can retry or Deny without reloading the panel.
     Promise.resolve(runPublishApprove(item.dataset_id, fb, bar)).then(
-      function () { APPROVE_BUSY = false; },
-      function () { APPROVE_BUSY = false; },
+      function (ok) {
+        APPROVE_BUSY = false;
+        if (ok) { maskRow(tr, "published"); }
+        else { appr.disabled = false; deny.disabled = false; }
+      },
+      function () { APPROVE_BUSY = false; appr.disabled = false; deny.disabled = false; },
     );
   });
   td3.appendChild(appr);

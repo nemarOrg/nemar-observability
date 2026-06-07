@@ -69,13 +69,14 @@ apiRoutes.get("/snapshot/history", async (c) => {
 // Admin drill-down: the list behind a tile. Bearer admin only (delegated to
 // nemar-cli /users/me). Never cached — it can contain private dataset ids.
 apiRoutes.get("/drilldown/:key", async (c) => {
+  const noStore = { "Cache-Control": "no-store" };
   const admin = await resolveAdmin(c.env, c.req.header("Authorization") ?? null);
-  if (!admin) return c.json({ error: "Admin authentication required" }, 401);
+  if (!admin) return c.json({ error: "Admin authentication required" }, 401, noStore);
   const key = c.req.param("key");
-  if (!isKnownDrilldown(key)) return c.json({ error: "Unknown drill-down key" }, 404);
+  if (!isKnownDrilldown(key)) return c.json({ error: "Unknown drill-down key" }, 404, noStore);
   const result = await runDrilldown(c.env.NEMAR_DB, key);
-  if (!result) return c.json({ error: "Unknown drill-down key" }, 404);
-  return c.json(result, 200, { "Cache-Control": "no-store" });
+  if (!result) return c.json({ error: "Unknown drill-down key" }, 404, noStore);
+  return c.json(result, 200, noStore);
 });
 
 // ---------------------------------------------------------------------------
@@ -105,6 +106,15 @@ async function relayToNemar(
   path: string,
   body?: unknown,
 ): Promise<Response> {
+  // Defensive: NEMAR_API_BASE is a deploy-time [vars] constant, but never relay
+  // an admin Bearer to a non-HTTPS target if it is ever misconfigured.
+  if (!base.startsWith("https://")) {
+    console.error("[actions] NEMAR_API_BASE is not https; refusing to relay");
+    return new Response(JSON.stringify({ error: "Upstream NEMAR API misconfigured" }), {
+      status: 502,
+      headers: { "Content-Type": "application/json", "Cache-Control": "no-store" },
+    });
+  }
   const init: RequestInit = {
     method,
     headers: {
