@@ -22,6 +22,10 @@ function setKey(v) { if (v) localStorage.setItem(KEY_STORE, v); else localStorag
 // ownerMiddleware). fetchMe() runs at bootstrap and after the key changes.
 let ME = null; // { username, role } or null
 function isOwner() { return !!ME && ME.role === "owner"; }
+// Only one publication approve loop at a time across all rows: each loop drives
+// the CI-check + GitHub-heavy orchestrator, and running several at once trips
+// GitHub's secondary rate limit (see bulk-approval guidance). MUST-FIX #5.
+let APPROVE_BUSY = false;
 function fetchMe() {
   const k = getKey();
   if (!k) { ME = null; return Promise.resolve(); }
@@ -393,11 +397,16 @@ function publicationRow(item) {
   // Approve (typed-confirmation gate → generic loop). The DOI is permanent.
   const appr = el("button", "btn btn-ok", "Approve");
   appr.addEventListener("click", function () {
+    if (APPROVE_BUSY) { fb.err("Another approval is in progress — wait for it to finish."); return; }
     const typed = window.prompt("Approving mints a PERMANENT DOI. Type the dataset id (" + item.dataset_id + ") to confirm:", "");
     if (typed === null) return;
     if (typed.trim() !== item.dataset_id) { fb.err("Confirmation did not match — aborted."); return; }
+    APPROVE_BUSY = true;
     appr.disabled = true; deny.disabled = true;
-    runPublishApprove(item.dataset_id, fb, bar);
+    Promise.resolve(runPublishApprove(item.dataset_id, fb, bar)).then(
+      function () { APPROVE_BUSY = false; },
+      function () { APPROVE_BUSY = false; },
+    );
   });
   td3.appendChild(appr);
   td3.appendChild(bar);
