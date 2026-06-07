@@ -81,6 +81,8 @@ async function publicationDrilldown(
   label: string,
   where: string,
 ): Promise<DrilldownResult> {
+  // The UI builds the GitHub link from dataset_id directly (githubDatasetLink ->
+  // github.com/nemarDatasets/<dataset_id>), so no github_repo column is needed.
   const rows = await db
     .prepare(
       `SELECT dataset_id, status, prescreen_status, requested_at, current_step, last_error
@@ -91,20 +93,43 @@ async function publicationDrilldown(
   return { key, label, kind: "publication", count: items.length, items };
 }
 
-async function usersPendingDrilldown(db: D1Database): Promise<DrilldownResult> {
+/**
+ * users-shaped drill-downs. Each key pins an exact status AND excludes
+ * soft-deleted rows via `deleted_at IS NULL` (nemar-cli migration 0037 adds the
+ * users.deleted_at tombstone column). The status pin also drops the id=-1
+ * 'nemar-system' sentinel (it is status='revoked'). The SELECT includes `id`
+ * (the owner-only Delete button keys on it) and `status`/`signup_source` (the
+ * Approve gate + identity display).
+ */
+const USER_DRILLDOWNS: Record<string, { label: string; where: string }> = {
+  "users.pending": {
+    label: "Users pending email verification",
+    where: "status = 'pending' AND deleted_at IS NULL",
+  },
+  "users.verified": {
+    label: "Users awaiting admin approval",
+    where: "status = 'verified' AND deleted_at IS NULL",
+  },
+  "users.approved": {
+    label: "Approved users",
+    where: "status = 'approved' AND deleted_at IS NULL",
+  },
+};
+
+async function userDrilldown(
+  db: D1Database,
+  key: string,
+  label: string,
+  where: string,
+): Promise<DrilldownResult> {
   const rows = await db
     .prepare(
-      `SELECT username, email, github_username, created_at FROM users WHERE status = 'pending' ORDER BY created_at DESC LIMIT ${LIMIT}`,
+      `SELECT id, username, email, github_username, status, signup_source, created_at
+       FROM users WHERE ${where} ORDER BY created_at DESC LIMIT ${LIMIT}`,
     )
     .all<Record<string, unknown>>();
   const items = rows.results ?? [];
-  return {
-    key: "users.pending",
-    label: "Users awaiting approval",
-    kind: "user",
-    count: items.length,
-    items,
-  };
+  return { key, label, kind: "user", count: items.length, items };
 }
 
 /** Resolve a drill-down key to its list, or null if the key is unknown. */
@@ -113,11 +138,12 @@ export async function runDrilldown(db: D1Database, key: string): Promise<Drilldo
   if (ds) return datasetDrilldown(db, key, ds.label, ds.where);
   const pub = PUBLICATION_DRILLDOWNS[key];
   if (pub) return publicationDrilldown(db, key, pub.label, pub.where);
-  if (key === "users.pending") return usersPendingDrilldown(db);
+  const usr = USER_DRILLDOWNS[key];
+  if (usr) return userDrilldown(db, key, usr.label, usr.where);
   return null;
 }
 
 /** Whether a drill-down key is known (used to 404 cleanly). */
 export function isKnownDrilldown(key: string): boolean {
-  return key in DATASET_DRILLDOWNS || key in PUBLICATION_DRILLDOWNS || key === "users.pending";
+  return key in DATASET_DRILLDOWNS || key in PUBLICATION_DRILLDOWNS || key in USER_DRILLDOWNS;
 }
