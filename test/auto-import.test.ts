@@ -140,6 +140,28 @@ describe("autoImportSection", () => {
     expect(byKey(section.metrics, "imports.failed").severity).toBe("ok");
     expect(byKey(section.metrics, "imports.auto_24h").value).toBe(0);
   });
+
+  test("rolled_back status falls into no bucket", async () => {
+    const section = await autoImportSection(
+      seedDb([{ dataset_id: "on000010", status: "rolled_back" }]),
+      "2026-06-17T00:00:00.000Z",
+    );
+    expect(byKey(section.metrics, "imports.active").value).toBe(0);
+    expect(byKey(section.metrics, "imports.failed").value).toBe(0);
+    expect(byKey(section.metrics, "imports.quarantined").value).toBe(0);
+    expect(byKey(section.metrics, "imports.complete").value).toBe(0);
+  });
+
+  test("auto_24h window: a dispatch inside 24h counts, one outside does not", async () => {
+    // 23h is inside the `>= datetime('now','-1 day')` window, 25h is outside.
+    // (An exact-second boundary row is not deterministic here: the row's
+    // datetime('now') and the query's datetime('now') are evaluated separately.)
+    const section = await autoImportSection(
+      seedDb([], ["-23 hours", "-25 hours"]),
+      "2026-06-17T00:00:00.000Z",
+    );
+    expect(byKey(section.metrics, "imports.auto_24h").value).toBe(1);
+  });
 });
 
 describe("importJobDrilldown", () => {
@@ -175,11 +197,22 @@ describe("importJobDrilldown", () => {
     expect(item).not.toHaveProperty("status");
   });
 
-  test("imports.quarantined lists parked jobs", async () => {
+  test("imports.quarantined lists parked jobs and surfaces last_error", async () => {
     const r = await runDrilldown(db(), "imports.quarantined");
     expect(r?.count).toBe(1);
     expect(r?.items?.[0]?.dataset_id).toBe("on000005");
     expect(r?.items?.[0]?.last_error).toBe("ambiguous orphan");
+    // Same detail:"error" path as failed -- status must be dropped so the
+    // detail cell falls through to last_error.
+    expect(r?.items?.[0]).not.toHaveProperty("status");
+  });
+
+  test("imports.failed with a null last_error still lists the job", async () => {
+    const db2 = seedDb([{ dataset_id: "on000099", status: "failed", last_error: null }]);
+    const r = await runDrilldown(db2, "imports.failed");
+    expect(r?.count).toBe(1);
+    expect(r?.items?.[0]?.dataset_id).toBe("on000099");
+    expect(r?.items?.[0]?.last_error).toBeNull();
   });
 
   test("import drill-down keys are known; an unknown key is not", () => {

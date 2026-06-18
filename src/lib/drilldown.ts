@@ -62,17 +62,20 @@ const PUBLICATION_DRILLDOWNS: Record<string, { label: string; where: string }> =
 /**
  * import_jobs-shaped drill-downs (OpenNeuro auto-import, epic #775). A status
  * filter over `import_jobs` (source='openneuro'). `detail` picks what the shared
- * dataset row renderer shows in its muted cell: the current stage for in-flight
- * jobs, or the failure reason for failed/quarantined ones.
+ * dataset row renderer shows in its muted cell: the lifecycle status
+ * (preparing/copying/finalizing) for in-flight jobs, or the failure reason
+ * (last_error) for failed/quarantined ones. `count` is items.length post-LIMIT,
+ * consistent with the other drill-downs; at the auto-import cadence (one every
+ * ~90 min) the LIMIT is never reached, so it matches the section tile.
  */
 const IMPORT_DRILLDOWNS: Record<
   string,
-  { label: string; statuses: string[]; detail: "stage" | "error" }
+  { label: string; statuses: string[]; detail: "status" | "error" }
 > = {
   "imports.active": {
     label: "OpenNeuro imports in flight",
     statuses: ["preparing", "copying", "finalizing"],
-    detail: "stage",
+    detail: "status",
   },
   "imports.failed": {
     label: "Failed OpenNeuro imports",
@@ -89,7 +92,7 @@ const IMPORT_DRILLDOWNS: Record<
 async function importJobDrilldown(
   db: D1Database,
   key: string,
-  spec: { label: string; statuses: string[]; detail: "stage" | "error" },
+  spec: { label: string; statuses: string[]; detail: "status" | "error" },
 ): Promise<DrilldownResult> {
   const placeholders = spec.statuses.map(() => "?").join(", ");
   const rows = await db
@@ -103,10 +106,10 @@ async function importJobDrilldown(
     .all<Record<string, unknown>>();
   // Shape each row so the existing kind:"dataset" renderer (datasetLink +
   // `item.status || item.last_error` detail cell) needs no UI change: in-flight
-  // rows keep `status` (the stage); failed/quarantined rows drop it so the
-  // detail cell falls through to `last_error` (the actual reason).
+  // rows keep `status` (the lifecycle stage shown in the cell); failed/quarantined
+  // rows drop it so the cell falls through to `last_error` (the actual reason).
   const items = (rows.results ?? []).map((r) =>
-    spec.detail === "stage"
+    spec.detail === "status"
       ? { dataset_id: r.dataset_id, status: r.status, auto_attempts: r.auto_attempts }
       : { dataset_id: r.dataset_id, last_error: r.last_error, auto_attempts: r.auto_attempts },
   );
