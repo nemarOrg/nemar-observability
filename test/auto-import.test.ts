@@ -37,6 +37,14 @@ const AUDIT_LOG_DDL = `CREATE TABLE audit_log (
   ip_address TEXT
 );`;
 
+// Minimal slice of nemar-db.datasets that the `imported` count touches. The true
+// "imported from OpenNeuro" total comes from here (source='openneuro'), not import_jobs.
+const DATASETS_DDL = `CREATE TABLE datasets (
+  dataset_id TEXT PRIMARY KEY,
+  source TEXT,
+  source_id TEXT
+);`;
+
 type Job = {
   dataset_id: string;
   source?: string;
@@ -47,10 +55,29 @@ type Job = {
   updated_at?: string; // SQL expression evaluated at insert (e.g. datetime('now'))
 };
 
-function seedDb(jobs: Job[], dispatchAges: string[] = []): D1Database {
+/** Rows for the `datasets` table (the imported-from-OpenNeuro source of truth). */
+type ImportedRow = { dataset_id?: string; source?: string; source_id?: string | null };
+
+function seedDb(
+  jobs: Job[],
+  dispatchAges: string[] = [],
+  imported: ImportedRow[] = [],
+): D1Database {
   const d = new Database(":memory:");
   d.exec(IMPORT_JOBS_DDL);
   d.exec(AUDIT_LOG_DDL);
+  d.exec(DATASETS_DDL);
+
+  const insDataset = d.prepare(
+    "INSERT INTO datasets (dataset_id, source, source_id) VALUES ($id, $source, $sid)",
+  );
+  imported.forEach((r, i) => {
+    insDataset.run({
+      $id: r.dataset_id ?? `nm${String(i).padStart(6, "0")}`,
+      $source: r.source ?? "openneuro",
+      $sid: r.source_id === undefined ? `ds${String(i).padStart(6, "0")}` : r.source_id,
+    });
+  });
 
   const insert = d.prepare(
     `INSERT INTO import_jobs (dataset_id, source, source_id, status, last_error, auto_attempts, updated_at)
@@ -105,6 +132,15 @@ describe("autoImportSection", () => {
         { dataset_id: "on000008", source: "manual", status: "complete" },
       ],
       ["-1 hour", "-3 hour", "-2 day"], // two within 24h, one outside
+      [
+        // The TRUE imported total: 4 openneuro datasets in `datasets`, plus a
+        // non-openneuro one that must be excluded by the source filter.
+        { source: "openneuro", source_id: "ds000132" },
+        { source: "openneuro", source_id: "ds000133" },
+        { source: "openneuro", source_id: "ds000134" },
+        { source: "openneuro", source_id: "ds000135" },
+        { source: "datalad", source_id: "x" },
+      ],
     );
 
     const section = await autoImportSection(db, "2026-06-17T00:00:00.000Z");
@@ -125,8 +161,9 @@ describe("autoImportSection", () => {
     expect(quarantined.value).toBe(1);
     expect(quarantined.severity).toBe("error");
 
-    // 'complete' counts only the openneuro-source row, not the manual one.
-    expect(byKey(section.metrics, "imports.complete").value).toBe(1);
+    // 'imported' is the TRUE total from `datasets` (source='openneuro'): the 4
+    // openneuro rows, NOT the import_jobs 'complete' count and NOT the datalad row.
+    expect(byKey(section.metrics, "imports.imported").value).toBe(4);
 
     const auto24h = byKey(section.metrics, "imports.auto_24h");
     expect(auto24h.value).toBe(2);
@@ -149,7 +186,7 @@ describe("autoImportSection", () => {
     expect(byKey(section.metrics, "imports.active").value).toBe(0);
     expect(byKey(section.metrics, "imports.failed").value).toBe(0);
     expect(byKey(section.metrics, "imports.quarantined").value).toBe(0);
-    expect(byKey(section.metrics, "imports.complete").value).toBe(0);
+    expect(byKey(section.metrics, "imports.imported").value).toBe(0); // no datasets seeded
   });
 
   test("auto_24h window: a dispatch inside 24h counts, one outside does not", async () => {

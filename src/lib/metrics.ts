@@ -252,13 +252,19 @@ async function zarrSection(db: D1Database, now: string): Promise<Section> {
  * engine is firing" signal once the flag is flipped (~16 dispatches/day).
  */
 export async function autoImportSection(db: D1Database, now: string): Promise<Section> {
-  const c = await counts<"active" | "failed" | "quarantined" | "complete" | "auto_24h">(
+  const c = await counts<"active" | "failed" | "quarantined" | "imported" | "auto_24h">(
     db,
+    // active/failed/quarantined are live pipeline states (import_jobs), but
+    // `imported` is the TRUE total of OpenNeuro datasets in NEMAR -- counted from
+    // the `datasets` table (source='openneuro'), NOT import_jobs. import_jobs only
+    // has rows for datasets that went through the new import-jobs pipeline (the
+    // recent manual ones + auto-imports), so its 'complete' count badly undercounts
+    // the ~530 OpenNeuro datasets imported before/outside that pipeline.
     `SELECT
        (SELECT COUNT(*) FROM import_jobs WHERE source = 'openneuro' AND status IN ('preparing','copying','finalizing')) as active,
        (SELECT COUNT(*) FROM import_jobs WHERE source = 'openneuro' AND status = 'failed') as failed,
        (SELECT COUNT(*) FROM import_jobs WHERE source = 'openneuro' AND status = 'quarantined') as quarantined,
-       (SELECT COUNT(*) FROM import_jobs WHERE source = 'openneuro' AND status = 'complete') as complete,
+       (SELECT COUNT(*) FROM datasets WHERE source = 'openneuro' AND source_id IS NOT NULL) as imported,
        (SELECT COUNT(*) FROM audit_log WHERE action = 'auto_import_dispatch' AND timestamp >= datetime('now','-1 day')) as auto_24h`,
   );
   const active = c.active ?? 0;
@@ -294,11 +300,11 @@ export async function autoImportSection(db: D1Database, now: string): Promise<Se
         hint: "Parked for admin review",
       }),
       metric({
-        key: "imports.complete",
+        key: "imports.imported",
         label: "Imported",
-        value: c.complete ?? 0,
+        value: c.imported ?? 0,
         severity: "ok",
-        hint: "Datasets imported from OpenNeuro",
+        hint: "Total OpenNeuro datasets in NEMAR (datasets.source='openneuro')",
       }),
       metric({
         key: "imports.auto_24h",
