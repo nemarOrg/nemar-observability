@@ -255,16 +255,18 @@ export async function autoImportSection(db: D1Database, now: string): Promise<Se
   const c = await counts<"active" | "failed" | "quarantined" | "imported" | "auto_24h">(
     db,
     // active/failed/quarantined are live pipeline states (import_jobs), but
-    // `imported` is the TRUE total of OpenNeuro datasets in NEMAR -- counted from
-    // the `datasets` table (source='openneuro'), NOT import_jobs. import_jobs only
-    // has rows for datasets that went through the new import-jobs pipeline (the
-    // recent manual ones + auto-imports), so its 'complete' count badly undercounts
-    // the ~530 OpenNeuro datasets imported before/outside that pipeline.
+    // `imported` is the TRUE count of properly-imported OpenNeuro datasets: the
+    // NEMAR-native `on######` rows in `datasets`. NOT import_jobs (only has rows
+    // for the new pipeline). NOT the full source='openneuro' total either -- that
+    // also includes ~461 legacy `ds######` rows from old NEMAR's indexing, which
+    // are being retired/migrated to `on` numbers (nemar-cli#793). The `dataset_id
+    // LIKE 'on%'` filter counts only the real imports and naturally grows toward
+    // the full set as #793 lands; drop the filter once the ds rows are gone.
     `SELECT
        (SELECT COUNT(*) FROM import_jobs WHERE source = 'openneuro' AND status IN ('preparing','copying','finalizing')) as active,
        (SELECT COUNT(*) FROM import_jobs WHERE source = 'openneuro' AND status = 'failed') as failed,
        (SELECT COUNT(*) FROM import_jobs WHERE source = 'openneuro' AND status = 'quarantined') as quarantined,
-       (SELECT COUNT(*) FROM datasets WHERE source = 'openneuro' AND source_id IS NOT NULL) as imported,
+       (SELECT COUNT(*) FROM datasets WHERE source = 'openneuro' AND dataset_id LIKE 'on%') as imported,
        (SELECT COUNT(*) FROM audit_log WHERE action = 'auto_import_dispatch' AND timestamp >= datetime('now','-1 day')) as auto_24h`,
   );
   const active = c.active ?? 0;
@@ -304,7 +306,7 @@ export async function autoImportSection(db: D1Database, now: string): Promise<Se
         label: "Imported",
         value: c.imported ?? 0,
         severity: "ok",
-        hint: "Total OpenNeuro datasets in NEMAR (datasets.source='openneuro')",
+        hint: "OpenNeuro datasets imported into NEMAR (on-numbered; legacy ds-numbered excluded, retiring per nemar-cli#793)",
       }),
       metric({
         key: "imports.auto_24h",
