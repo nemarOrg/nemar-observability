@@ -243,6 +243,76 @@ async function zarrSection(db: D1Database, now: string): Promise<Section> {
   );
 }
 
+/**
+ * OpenNeuro auto-import (epic #775). Reads the import pipeline state from
+ * `import_jobs` (status, populated by the paced scheduler + onboard workflow)
+ * and the dispatch heartbeat from `audit_log` (action='auto_import_dispatch').
+ * `import_jobs.source` is always 'openneuro' for this section. The `auto_24h`
+ * tile reads 0 while AUTO_IMPORT_ENABLED is dark, then becomes the live "the
+ * engine is firing" signal once the flag is flipped (~16 dispatches/day).
+ */
+export async function autoImportSection(db: D1Database, now: string): Promise<Section> {
+  const c = await counts<"active" | "failed" | "quarantined" | "complete" | "auto_24h">(
+    db,
+    `SELECT
+       (SELECT COUNT(*) FROM import_jobs WHERE source = 'openneuro' AND status IN ('preparing','copying','finalizing')) as active,
+       (SELECT COUNT(*) FROM import_jobs WHERE source = 'openneuro' AND status = 'failed') as failed,
+       (SELECT COUNT(*) FROM import_jobs WHERE source = 'openneuro' AND status = 'quarantined') as quarantined,
+       (SELECT COUNT(*) FROM import_jobs WHERE source = 'openneuro' AND status = 'complete') as complete,
+       (SELECT COUNT(*) FROM audit_log WHERE action = 'auto_import_dispatch' AND timestamp >= datetime('now','-1 day')) as auto_24h`,
+  );
+  const active = c.active ?? 0;
+  const failed = c.failed ?? 0;
+  const quarantined = c.quarantined ?? 0;
+  return section(
+    "imports",
+    "OpenNeuro import",
+    "nemar-cli",
+    [
+      metric({
+        key: "imports.active",
+        label: "In flight",
+        value: active,
+        severity: pendingSeverity(active),
+        drilldown: "imports.active",
+        hint: "Imports currently preparing, copying, or finalizing",
+      }),
+      metric({
+        key: "imports.failed",
+        label: "Failed",
+        value: failed,
+        severity: failSeverity(failed),
+        drilldown: "imports.failed",
+        hint: "Imports that errored after the auto-retry cap",
+      }),
+      metric({
+        key: "imports.quarantined",
+        label: "Quarantined",
+        value: quarantined,
+        severity: failSeverity(quarantined),
+        drilldown: "imports.quarantined",
+        hint: "Parked for admin review",
+      }),
+      metric({
+        key: "imports.complete",
+        label: "Imported",
+        value: c.complete ?? 0,
+        severity: "ok",
+        hint: "Datasets imported from OpenNeuro",
+      }),
+      metric({
+        key: "imports.auto_24h",
+        label: "Auto-dispatched (24h)",
+        value: c.auto_24h ?? 0,
+        unit: "count",
+        severity: "info",
+        hint: "Auto-import dispatches in the last 24h (~16/day when active; 0 while dark)",
+      }),
+    ],
+    now,
+  );
+}
+
 async function syncSection(db: D1Database, now: string): Promise<Section> {
   const c = await counts<"synced" | "pending" | "failed">(
     db,
@@ -399,11 +469,21 @@ export async function buildSnapshot(env: Bindings): Promise<MetricSnapshot> {
   const now = new Date().toISOString();
   const db = env.NEMAR_DB;
 
-  const labels = ["datasets", "archive", "zarr", "sync", "publication", "access", "users"];
+  const labels = [
+    "datasets",
+    "archive",
+    "zarr",
+    "imports",
+    "sync",
+    "publication",
+    "access",
+    "users",
+  ];
   const builtins = await Promise.allSettled([
     datasetsSection(db, now),
     archiveSection(db, now),
     zarrSection(db, now),
+    autoImportSection(db, now),
     syncSection(db, now),
     publicationSection(db, now),
     computeAccessSection(env, now),
