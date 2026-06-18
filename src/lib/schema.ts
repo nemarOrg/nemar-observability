@@ -80,6 +80,7 @@ export const BUILTIN_SECTION_KEYS: ReadonlySet<string> = new Set([
   "datasets",
   "archive",
   "zarr",
+  "imports",
   "sync",
   "publication",
   "access",

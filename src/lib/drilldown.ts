@@ -59,6 +59,60 @@ const PUBLICATION_DRILLDOWNS: Record<string, { label: string; where: string }> =
   "publication.blocked": { label: "Blocked publication requests", where: "status = 'blocked'" },
 };
 
+/**
+ * import_jobs-shaped drill-downs (OpenNeuro auto-import, epic #775). A status
+ * filter over `import_jobs` (source='openneuro'). `detail` picks what the shared
+ * dataset row renderer shows in its muted cell: the current stage for in-flight
+ * jobs, or the failure reason for failed/quarantined ones.
+ */
+const IMPORT_DRILLDOWNS: Record<
+  string,
+  { label: string; statuses: string[]; detail: "stage" | "error" }
+> = {
+  "imports.active": {
+    label: "OpenNeuro imports in flight",
+    statuses: ["preparing", "copying", "finalizing"],
+    detail: "stage",
+  },
+  "imports.failed": {
+    label: "Failed OpenNeuro imports",
+    statuses: ["failed"],
+    detail: "error",
+  },
+  "imports.quarantined": {
+    label: "Quarantined OpenNeuro imports",
+    statuses: ["quarantined"],
+    detail: "error",
+  },
+};
+
+async function importJobDrilldown(
+  db: D1Database,
+  key: string,
+  spec: { label: string; statuses: string[]; detail: "stage" | "error" },
+): Promise<DrilldownResult> {
+  const placeholders = spec.statuses.map(() => "?").join(", ");
+  const rows = await db
+    .prepare(
+      `SELECT dataset_id, status, last_error, auto_attempts, updated_at
+       FROM import_jobs
+       WHERE source = 'openneuro' AND status IN (${placeholders})
+       ORDER BY updated_at DESC LIMIT ${LIMIT}`,
+    )
+    .bind(...spec.statuses)
+    .all<Record<string, unknown>>();
+  // Shape each row so the existing kind:"dataset" renderer (datasetLink +
+  // `item.status || item.last_error` detail cell) needs no UI change: in-flight
+  // rows keep `status` (the stage); failed/quarantined rows drop it so the
+  // detail cell falls through to `last_error` (the actual reason).
+  const items = (rows.results ?? []).map((r) =>
+    spec.detail === "stage"
+      ? { dataset_id: r.dataset_id, status: r.status, auto_attempts: r.auto_attempts }
+      : { dataset_id: r.dataset_id, last_error: r.last_error, auto_attempts: r.auto_attempts },
+  );
+  return { key, label: spec.label, kind: "dataset", count: items.length, items };
+}
+
 async function datasetDrilldown(
   db: D1Database,
   key: string,
@@ -140,10 +194,17 @@ export async function runDrilldown(db: D1Database, key: string): Promise<Drilldo
   if (pub) return publicationDrilldown(db, key, pub.label, pub.where);
   const usr = USER_DRILLDOWNS[key];
   if (usr) return userDrilldown(db, key, usr.label, usr.where);
+  const imp = IMPORT_DRILLDOWNS[key];
+  if (imp) return importJobDrilldown(db, key, imp);
   return null;
 }
 
 /** Whether a drill-down key is known (used to 404 cleanly). */
 export function isKnownDrilldown(key: string): boolean {
-  return key in DATASET_DRILLDOWNS || key in PUBLICATION_DRILLDOWNS || key in USER_DRILLDOWNS;
+  return (
+    key in DATASET_DRILLDOWNS ||
+    key in PUBLICATION_DRILLDOWNS ||
+    key in USER_DRILLDOWNS ||
+    key in IMPORT_DRILLDOWNS
+  );
 }
