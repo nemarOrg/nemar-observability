@@ -172,6 +172,34 @@ describe("autoImportSection", () => {
     expect(auto24h.severity).toBe("info");
   });
 
+  test("upstream_inaccessible is a distinct subset of quarantined (#827)", async () => {
+    const section = await autoImportSection(
+      seedDb([
+        {
+          dataset_id: "on000005",
+          status: "quarantined",
+          last_error: "quarantined: not_found_dataset",
+        },
+        {
+          dataset_id: "on007541",
+          status: "quarantined",
+          last_error: "quarantined: upstream_inaccessible",
+        },
+        {
+          dataset_id: "on007720",
+          status: "quarantined",
+          last_error: "quarantined: upstream_inaccessible (published empty pre-fix)",
+        },
+      ]),
+      "2026-06-21T00:00:00.000Z",
+    );
+    // quarantined counts ALL three; upstream is the 2-row OpenNeuro-side subset.
+    expect(byKey(section.metrics, "imports.quarantined").value).toBe(3);
+    const up = byKey(section.metrics, "imports.upstream_inaccessible");
+    expect(up.value).toBe(2);
+    expect(up.drilldown).toBe("imports.upstream_inaccessible");
+  });
+
   test("all-zero when there is nothing to import", async () => {
     const section = await autoImportSection(seedDb([]), "2026-06-17T00:00:00.000Z");
     expect(byKey(section.metrics, "imports.active").value).toBe(0);
@@ -254,10 +282,37 @@ describe("importJobDrilldown", () => {
     expect(r?.items?.[0]?.last_error).toBeNull();
   });
 
+  test("imports.upstream_inaccessible lists only the OpenNeuro-inaccessible subset", async () => {
+    const db2 = seedDb([
+      {
+        dataset_id: "on000005",
+        status: "quarantined",
+        last_error: "quarantined: not_found_dataset",
+      },
+      {
+        dataset_id: "on007541",
+        status: "quarantined",
+        last_error: "quarantined: upstream_inaccessible",
+      },
+      {
+        dataset_id: "on007720",
+        status: "quarantined",
+        last_error: "quarantined: upstream_inaccessible (x)",
+      },
+      { dataset_id: "on000004", status: "failed", last_error: "upstream_inaccessible" }, // not quarantined -> excluded
+    ]);
+    const r = await runDrilldown(db2, "imports.upstream_inaccessible");
+    expect(r?.count).toBe(2);
+    const ids = (r?.items ?? []).map((i) => i.dataset_id).sort();
+    expect(ids).toEqual(["on007541", "on007720"]);
+    expect(r?.items?.[0]).not.toHaveProperty("status"); // detail:error path
+  });
+
   test("import drill-down keys are known; an unknown key is not", () => {
     expect(isKnownDrilldown("imports.active")).toBe(true);
     expect(isKnownDrilldown("imports.failed")).toBe(true);
     expect(isKnownDrilldown("imports.quarantined")).toBe(true);
+    expect(isKnownDrilldown("imports.upstream_inaccessible")).toBe(true);
     expect(isKnownDrilldown("imports.nope")).toBe(false);
   });
 });

@@ -252,7 +252,9 @@ async function zarrSection(db: D1Database, now: string): Promise<Section> {
  * engine is firing" signal once the flag is flipped (~16 dispatches/day).
  */
 export async function autoImportSection(db: D1Database, now: string): Promise<Section> {
-  const c = await counts<"active" | "failed" | "quarantined" | "imported" | "auto_24h">(
+  const c = await counts<
+    "active" | "failed" | "quarantined" | "upstream" | "imported" | "auto_24h"
+  >(
     db,
     // active/failed/quarantined are live pipeline states (import_jobs), but
     // `imported` is the TRUE count of properly-imported OpenNeuro datasets: the
@@ -266,6 +268,7 @@ export async function autoImportSection(db: D1Database, now: string): Promise<Se
        (SELECT COUNT(*) FROM import_jobs WHERE source = 'openneuro' AND status IN ('preparing','copying','finalizing')) as active,
        (SELECT COUNT(*) FROM import_jobs WHERE source = 'openneuro' AND status = 'failed') as failed,
        (SELECT COUNT(*) FROM import_jobs WHERE source = 'openneuro' AND status = 'quarantined') as quarantined,
+       (SELECT COUNT(*) FROM import_jobs WHERE source = 'openneuro' AND status = 'quarantined' AND last_error LIKE '%upstream_inaccessible%') as upstream,
        (SELECT COUNT(*) FROM datasets WHERE source = 'openneuro' AND dataset_id LIKE 'on%') as imported,
        (SELECT COUNT(*) FROM audit_log WHERE action = 'auto_import_dispatch' AND timestamp >= datetime('now','-1 day')) as auto_24h`,
   );
@@ -300,6 +303,14 @@ export async function autoImportSection(db: D1Database, now: string): Promise<Se
         severity: failSeverity(quarantined),
         drilldown: "imports.quarantined",
         hint: "Parked for admin review",
+      }),
+      metric({
+        key: "imports.upstream_inaccessible",
+        label: "OpenNeuro inaccessible",
+        value: c.upstream ?? 0,
+        severity: "info",
+        drilldown: "imports.upstream_inaccessible",
+        hint: "OpenNeuro-side problem (objects not anonymously readable, no signed login); report to OpenNeuro support. Subset of Quarantined.",
       }),
       metric({
         key: "imports.imported",
