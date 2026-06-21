@@ -70,7 +70,7 @@ const PUBLICATION_DRILLDOWNS: Record<string, { label: string; where: string }> =
  */
 const IMPORT_DRILLDOWNS: Record<
   string,
-  { label: string; statuses: string[]; detail: "status" | "error" }
+  { label: string; statuses: string[]; detail: "status" | "error"; errorLike?: string }
 > = {
   "imports.active": {
     label: "OpenNeuro imports in flight",
@@ -87,22 +87,34 @@ const IMPORT_DRILLDOWNS: Record<
     statuses: ["quarantined"],
     detail: "error",
   },
+  // OpenNeuro-side problem, not a NEMAR bug (#808): objects aren't anonymously
+  // readable and NEMAR has no signed OpenNeuro login, so the data can't be
+  // mirrored. A subset of quarantined, surfaced distinctly so it's a listable
+  // "report to OpenNeuro support" set (nemar-cli#827).
+  "imports.upstream_inaccessible": {
+    label: "OpenNeuro-inaccessible datasets",
+    statuses: ["quarantined"],
+    detail: "error",
+    errorLike: "%upstream_inaccessible%",
+  },
 };
 
 async function importJobDrilldown(
   db: D1Database,
   key: string,
-  spec: { label: string; statuses: string[]; detail: "status" | "error" },
+  spec: { label: string; statuses: string[]; detail: "status" | "error"; errorLike?: string },
 ): Promise<DrilldownResult> {
   const placeholders = spec.statuses.map(() => "?").join(", ");
+  const errorClause = spec.errorLike ? " AND last_error LIKE ?" : "";
+  const binds = spec.errorLike ? [...spec.statuses, spec.errorLike] : spec.statuses;
   const rows = await db
     .prepare(
       `SELECT dataset_id, status, last_error, auto_attempts, updated_at
        FROM import_jobs
-       WHERE source = 'openneuro' AND status IN (${placeholders})
+       WHERE source = 'openneuro' AND status IN (${placeholders})${errorClause}
        ORDER BY updated_at DESC LIMIT ${LIMIT}`,
     )
-    .bind(...spec.statuses)
+    .bind(...binds)
     .all<Record<string, unknown>>();
   // Shape each row so the existing kind:"dataset" renderer (datasetLink +
   // `item.status || item.last_error` detail cell) needs no UI change: in-flight
