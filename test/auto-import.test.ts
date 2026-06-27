@@ -133,13 +133,12 @@ describe("autoImportSection", () => {
       ],
       ["-1 hour", "-3 hour", "-2 day"], // two within 24h, one outside
       [
-        // The TRUE imported count: only NEMAR-native on-numbered openneuro rows (3).
+        // The TRUE imported count = source='openneuro' rows (3). The legacy
+        // ds-numbered openneuro rows were deleted when nemar-cli#793 shipped
+        // (v0.8.70), so they no longer exist to inflate this total.
         { dataset_id: "on000132", source: "openneuro", source_id: "ds000132" },
         { dataset_id: "on000133", source: "openneuro", source_id: "ds000133" },
         { dataset_id: "on000134", source: "openneuro", source_id: "ds000134" },
-        // Legacy ds-numbered openneuro rows -- excluded (retiring, nemar-cli#793).
-        { dataset_id: "ds000200", source: "openneuro", source_id: "ds000200" },
-        { dataset_id: "ds000201", source: "openneuro", source_id: "ds000201" },
         // Non-openneuro -- excluded by the source filter.
         { dataset_id: "on999999", source: "datalad", source_id: "x" },
       ],
@@ -163,8 +162,8 @@ describe("autoImportSection", () => {
     expect(quarantined.value).toBe(1);
     expect(quarantined.severity).toBe("error");
 
-    // 'imported' = on-numbered openneuro rows only (3): NOT the import_jobs
-    // 'complete' count, NOT the legacy ds-numbered rows, NOT the datalad row.
+    // 'imported' = source='openneuro' rows (3): NOT the import_jobs 'complete'
+    // count, NOT the datalad row (excluded by the source filter).
     expect(byKey(section.metrics, "imports.imported").value).toBe(3);
 
     const auto24h = byKey(section.metrics, "imports.auto_24h");
