@@ -13,6 +13,7 @@ import {
   type Severity,
   metric,
 } from "./schema";
+import { ARCHIVE_CUTOFF_BYTES, buildSizeHistogram } from "./sizes";
 import { MANAGED, PRIVATE_MANAGED, PUBLIC_MANAGED, PUBLISHED, counts, scalar } from "./sql";
 import { loadPushedSections } from "./store";
 
@@ -130,6 +131,72 @@ async function datasetsSection(db: D1Database, now: string): Promise<Section> {
     ],
     now,
   );
+}
+
+/**
+ * Dataset sizes: a log-binned histogram beside the largest datasets.
+ *
+ * Its own section with layout "split" rather than two more tiles in `datasets`:
+ * a 23-bin histogram needs roughly two thirds of the row to be legible, and
+ * dropping one tall tile into the uniform stat grid stretches the short tiles
+ * beside it over a tall empty row. See src/lib/sizes.ts for why the bins are
+ * logarithmic and why 100 GB is an exact boundary.
+ *
+ * Exported for tests; buildSnapshot() is the only production caller.
+ */
+export async function sizesSection(db: D1Database, now: string): Promise<Section> {
+  const rows = await db
+    .prepare(
+      `SELECT dataset_id, file_size FROM datasets
+       WHERE ${PUBLIC_MANAGED} AND file_size IS NOT NULL AND file_size > 0
+       ORDER BY file_size DESC`,
+    )
+    .all<{ dataset_id: string; file_size: number }>();
+  const sized = rows.results ?? [];
+  const overCutoff = sized.filter((r) => r.file_size > ARCHIVE_CUTOFF_BYTES).length;
+  const pct = sized.length ? Math.round((overCutoff / sized.length) * 100) : 0;
+
+  // Concentration: what the ten largest hold, and what the smaller half does not.
+  const top = sized.slice(0, 10);
+  const topBytes = top.reduce((n, r) => n + r.file_size, 0);
+  const totalBytes = sized.reduce((n, r) => n + r.file_size, 0);
+  const smallHalf = sized.slice(Math.ceil(sized.length / 2));
+  const smallHalfBytes = smallHalf.reduce((n, r) => n + r.file_size, 0);
+  const smallHalfPct = totalBytes ? Math.round((smallHalfBytes / totalBytes) * 100) : 0;
+
+  return {
+    key: "sizes",
+    label: "Dataset sizes",
+    source: "nemar-cli",
+    updated_at: now,
+    layout: "split",
+    metrics: [
+      metric({
+        key: "sizes.histogram",
+        label: "Size distribution",
+        value: sized.length,
+        unit: "datasets",
+        severity: "info",
+        breakdown: buildSizeHistogram(sized.map((r) => r.file_size)),
+        hint: `Log-scaled bins — sizes span seven orders of magnitude, so equal-width bins would put ~98% of the catalog in one bar. ${overCutoff} datasets (${pct}%) sit above the 100 GB archive cutoff and get no downloadable zip.`,
+      }),
+      // Headline is the SHARE these ten hold, not the number ten. "10" restates
+      // the row count and tells a reader nothing; the concentration does --
+      // ten datasets out of 754 hold well over a third of everything.
+      metric({
+        key: "sizes.largest",
+        label: "Top 10 by size",
+        value: topBytes,
+        total: totalBytes,
+        unit: "bytes",
+        severity: "info",
+        breakdown: top.map((r) => ({ label: r.dataset_id, value: r.file_size })),
+        breakdown_unit: "bytes",
+        breakdown_style: "ranked",
+        hint: `The ten largest of ${sized.length} public datasets. Storage is heavily concentrated: the smaller half of the catalog accounts for ${smallHalfPct}% of all bytes.`,
+      }),
+    ],
+  };
 }
 
 async function archiveSection(db: D1Database, now: string): Promise<Section> {
@@ -450,6 +517,7 @@ export async function buildSnapshot(env: Bindings): Promise<MetricSnapshot> {
   const labels = ["datasets", "archive", "zarr", "imports", "publication", "access", "cf", "users"];
   const builtins = await Promise.allSettled([
     datasetsSection(db, now),
+    sizesSection(db, now),
     archiveSection(db, now),
     zarrSection(db, now),
     autoImportSection(db, now),
