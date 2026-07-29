@@ -1,0 +1,95 @@
+name: Health monitor
+
+# Issue #7 ask 3: something must actually WATCH /observability/health. Before
+# this, the endpoint reported faults into an empty room -- the `sync` section
+# was broken for a month with nobody paged.
+#
+# HONEST LIMITATION: GitHub Actions `schedule` is best-effort. Runs can be
+# delayed by many minutes under load, and GitHub disables scheduled workflows
+# in repositories with no activity for 60 days. This is therefore a safety net,
+# NOT a pager: it will catch a dashboard that has been broken for hours (the
+# actual failure mode observed), but it will not catch a five-minute blip and
+# it will not wake anyone at night. A real external monitor (Better Stack,
+# UptimeRobot, Grafana Synthetic) remains the right answer and needs an account
+# somebody owns; this needs nothing and works today.
+
+on:
+  schedule:
+    # Every 15 minutes. The snapshot cron runs hourly at :17 and /health flags
+    # staleness after 2h, so this is comfortably tighter than the signal itself.
+    - cron: "*/15 * * * *"
+  workflow_dispatch:
+    inputs:
+      url:
+        description: Health URL to check
+        default: https://dashboard.nemar.org/observability/health
+
+# Needs to open, comment on, and close the alert issue.
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: health-monitor
+  cancel-in-progress: false
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      # No `bun install`: check-health.ts imports nothing outside node:fs and
+      # the Bun runtime, so the monitor keeps working even if a dependency
+      # install would fail. A monitor that breaks when the thing it monitors
+      # breaks is not a monitor.
+      - name: Check health
+        id: check
+        continue-on-error: true
+        run: bun scripts/check-health.ts "${{ inputs.url || 'https://dashboard.nemar.org/observability/health' }}"
+
+      # One open alert issue at a time, reused across runs: a 15-minute cron
+      # against a multi-hour outage would otherwise file ~100 duplicates.
+      - name: Open or update the alert issue
+        if: steps.check.outputs.ok != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SUMMARY: ${{ steps.check.outputs.summary }}
+          DETAIL: ${{ steps.check.outputs.detail }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          existing=$(gh issue list --label health-alert --state open --limit 1 --json number -q '.[0].number // empty')
+          body=$(printf '%s\n\n%s\n\nDetected by [this run](%s).\n' "**$SUMMARY**" "$DETAIL" "$RUN_URL")
+          if [ -n "$existing" ]; then
+            echo "Updating existing alert #$existing"
+            gh issue comment "$existing" --body "$body"
+          else
+            echo "Opening a new alert issue"
+            gh issue create \
+              --title "Dashboard unhealthy: $SUMMARY" \
+              --label health-alert \
+              --body "$body"
+          fi
+
+      - name: Close the alert issue on recovery
+        if: steps.check.outputs.ok == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          for n in $(gh issue list --label health-alert --state open --json number -q '.[].number'); do
+            echo "Closing recovered alert #$n"
+            gh issue close "$n" --comment "Recovered: /observability/health reports healthy again ([run]($RUN_URL))."
+          done
+
+      # Fail the job AFTER the issue bookkeeping, so a red run in the Actions
+      # tab (and GitHub's default failure email) is a second, independent
+      # signal rather than something that short-circuits the issue.
+      - name: Fail if unhealthy
+        if: steps.check.outputs.ok != 'true'
+        run: |
+          echo "::error::${{ steps.check.outputs.summary }}"
+          exit 1
