@@ -19,6 +19,9 @@
 
 const CLIENT_JS = String.raw`
 const API = "/observability/api";
+// Where every admin action lives now (#8). Tiles with a drilldown key link here
+// instead of opening an in-page list.
+const ADMIN_PORTAL = "https://app.nemar.org/admin";
 function humanBytes(n) {
   if (!n || n < 1) return "0 B";
   const u = ["B","KB","MB","GB","TB","PB"]; let i = 0; let x = n;
