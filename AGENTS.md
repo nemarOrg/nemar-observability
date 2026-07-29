@@ -4,7 +4,7 @@
 
 ## Project Context
 
-**Purpose:** Operational observability dashboard for NEMAR, served at **`dashboard.nemar.org/observability`** (sibling of the legacy `/citations` dashboard). It reports dataset + pipeline health at a glance — public vs private counts, % with a downloadable archive, failed/pending Zarr conversions, nemar.org sync failures, staleness, and which datasets are accessed most — and lets admins drill into the exact list of items that need attention.
+**Purpose:** Operational observability dashboard for NEMAR, served at **`dashboard.nemar.org/observability`** (sibling of the legacy `/citations` dashboard). It reports dataset + pipeline health at a glance — public vs private counts, % with a downloadable archive, failed/pending Zarr conversions, OpenNeuro import backlog, staleness, edge traffic, and which datasets are actually read — and lets admins drill into the exact list of items that need attention.
 
 **Tech Stack:** TypeScript, Bun, Hono on Cloudflare Workers, Biome (lint/format). No Python runtime. (Hono, matching the nemar-cli backend, gives a native `scheduled()` cron + D1 access; the UI is one server-rendered HTML page with a small client script — no SPA framework needed.)
 
@@ -33,7 +33,7 @@ src/
 ### The metrics standard (why this repo exists)
 
 Every metric is a headline number (a total, or a percent like "% with archive"); each tile can drill into the list of datasets behind it. Pipelines contribute **sections** to one versioned `MetricSnapshot` schema (`src/lib/schema/`). Two contribution modes:
-- **pull** — the hourly cron computes built-in sections it knows (`datasets`, `archive`, `zarr`, `sync`, `publication`, `access`, `users`) from `nemar-db` + Analytics Engine.
+- **pull** — the hourly cron computes built-in sections it knows (`datasets`, `archive`, `zarr`, `imports`, `publication`, `access`, `cf`, `users`) from `nemar-db`, Analytics Engine, and Cloudflare zone analytics. (`sync` was retired with nemar-cli migration 0053 but stays reserved so a pushed section cannot recycle the key.)
 - **push** — an external pipeline (future data-processing / QA) `POST`s a schema-conformant section to `/observability/api/sections/:key` (token-auth); it is stored and merged into the snapshot. Adding a pipeline never requires changing the dashboard core.
 
 ### Privacy boundary
@@ -44,8 +44,10 @@ Public snapshot (the tiles) carries **headline numbers only, no private dataset 
 - **SCCN Cloudflare account only.** Account id `da8d7a2a8680dab01592bbbc6f67f12c`. All CF ops via `npx cfman wrangler --account sccn -c wrangler.toml`. Unset `CLOUDFLARE_API_TOKEN` first (`env -u CLOUDFLARE_API_TOKEN ...`); pass `CLOUDFLARE_ACCOUNT_ID=da8d...` if wrangler can't resolve the account.
 - **Shared D1 (read-only):** `nemar-db`, database_id `009b1a44-a385-4ecf-812d-ec8341587cb5`. **Never** add `migrations_dir` for it — nemar-cli owns its schema. Only `SELECT`.
 - **Snapshot counts must match the rest of NEMAR.** Exclude folded catalog rows (`owner_user_id != -1`) and sandbox (`is_sandbox = 0 OR is_sandbox IS NULL`); "public" = `status='active' AND visibility='public'` (matches nemar-cli `GET /datasets` and `/admin/stats`).
-- **Source columns** (in `nemar-db.datasets`, all indexed): `visibility`, `status`, `concept_doi`, `zarr_status`, `archive_status`, `nemar_sync_status`, `license_tier`, `modalities`, `file_size`, `last_activity_at`. Archive + access instrumentation lives in nemar-cli (epic #695 / issue #696).
+- **Source columns** (in `nemar-db.datasets`, all indexed): `visibility`, `status`, `concept_doi`, `zarr_status`, `archive_status`, `license_tier`, `modalities`, `file_size`, `last_activity_at`. Archive + access instrumentation lives in nemar-cli (epic #695 / issue #696).
 - **AE sampling:** aggregate access metrics with `SUM(_sample_interval)`, never `COUNT(*)`.
+- **AE blob layout** is a contract with nemar-cli's `buildAccessDataPoint`: `blob1` dataset_id, `blob2` source, `blob3` detail (`index`/`metadata`/`chunk` for zarr). Never sum across `blob3` — index.json crawling dwarfs real data reads.
+- **Zone analytics** needs `CF_ZONE_ANALYTICS_TOKEN` (Zone > Analytics > Read on nemar.org; account-level Analytics Read does NOT cover it). `httpRequestsAdaptiveGroups` is the only host-dimensioned dataset and rejects windows wider than 1 day, so per-host data is accumulated daily into `cf_daily_host`. Exclude `rate-limit.internal`, and never sum daily uniques into a window total.
 
 ## Environment Setup
 ```bash

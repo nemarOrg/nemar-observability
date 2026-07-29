@@ -1,15 +1,59 @@
 // Hourly snapshot recompute (wrangler crons = ["17 * * * *"]).
 
+import { fetchHostDay } from "./lib/cf-analytics";
 import { buildSnapshot } from "./lib/metrics";
-import { recordCronRun, saveSnapshot } from "./lib/store";
+import { pruneHostDays, recordCronRun, saveHostDays, saveSnapshot } from "./lib/store";
 import type { Bindings } from "./types";
 
 /** Keep ~5 weeks of hourly snapshots for trend history; prune the rest. */
 const KEEP_SNAPSHOTS = 850;
+/** Match the cf section's reporting window, plus a day of slack. */
+const KEEP_HOST_DAYS = 31;
+
+/**
+ * Accumulate the per-host Cloudflare split, which cannot be queried over a
+ * 30-day window in one call (see cf-analytics.ts).
+ *
+ * Pulls TWO days every run: today, whose totals are still growing, and
+ * yesterday, which may have been last pulled before it finished. Both are
+ * upserts of the authoritative day-to-date total, so re-pulling is idempotent.
+ *
+ * Isolated from the snapshot path on purpose: a zone-analytics outage or an
+ * expired token must not take down the D1-derived sections, so this logs and
+ * returns instead of throwing. The section itself reports its own coverage, so
+ * a gap is visible in the UI rather than silently smoothed over.
+ */
+async function accumulateHostDays(env: Bindings, now: Date): Promise<void> {
+  if (!env.CF_ZONE_ANALYTICS_TOKEN || !env.CF_ZONE_ID) return;
+  const at = now.toISOString();
+  const days = [
+    new Date(now.getTime() - 86_400_000).toISOString().slice(0, 10),
+    now.toISOString().slice(0, 10),
+  ];
+  for (const date of days) {
+    try {
+      await saveHostDays(env.OBS_DB, await fetchHostDay(env, date), at);
+    } catch (err) {
+      console.error(`[cron] cf host-day pull failed for ${date}:`, err);
+    }
+  }
+  try {
+    await pruneHostDays(
+      env.OBS_DB,
+      new Date(now.getTime() - KEEP_HOST_DAYS * 86_400_000).toISOString().slice(0, 10),
+    );
+  } catch (err) {
+    console.error("[cron] cf host-day prune failed:", err);
+  }
+}
 
 export async function handleScheduled(env: Bindings): Promise<void> {
   const started = Date.now();
   try {
+    // Before the snapshot: computeCfSection reads the rows this writes, so
+    // running it first means the section reflects the current hour, not the
+    // previous one.
+    await accumulateHostDays(env, new Date());
     const snapshot = await buildSnapshot(env);
     await saveSnapshot(env.OBS_DB, snapshot);
     await env.OBS_DB.prepare(

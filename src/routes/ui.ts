@@ -43,6 +43,7 @@ function humanBytes(n) {
 }
 function fmt(metric) {
   if (metric.unit === "bytes") return humanBytes(metric.value);
+  if (metric.unit === "percent") return Number(metric.value).toLocaleString() + "%";
   return Number(metric.value).toLocaleString();
 }
 function pct(value, total) {

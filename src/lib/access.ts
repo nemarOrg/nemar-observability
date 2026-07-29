@@ -284,18 +284,18 @@ export async function computeAccessSection(env: Bindings, now: string): Promise<
     source: "access",
     updated_at: now,
     metrics: [
-      // The headline is the typical day, not the sum. The sum is still reported
-      // (as `total`) so nothing is hidden, but it is no longer the number a
-      // reader anchors on.
+      // The headline is the typical day, not the sum. The window total is kept
+      // in the hint rather than in `total`: the UI renders `total` as a
+      // percentage denominator with a progress bar, and "median day is 1% of
+      // the 30-day sum" is a true statement that means nothing.
       metric({
         key: "access.archive_daily",
         label: "Archive downloads / day",
         value: Math.round(archiveSpike.medianDaily),
-        total: archiveHits,
         unit: "count",
         severity: archiveSpike.isSpike ? "warn" : "info",
         hint: spikeHint(
-          `Median day over ${WINDOW_DAYS}d; the denominator is the window total. Counts redirects ISSUED on /<id>/<version>.zip, not completed downloads.`,
+          `Median day over ${WINDOW_DAYS}d (${archiveHits.toLocaleString()} total). Counts redirects ISSUED on /<id>/<version>.zip, not completed downloads.`,
           archiveSpike,
         ),
       }),
