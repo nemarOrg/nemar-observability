@@ -36,14 +36,6 @@ const DATASET_DRILLDOWNS: Record<string, { label: string; where: string }> = {
     label: "Datasets with a failed Zarr conversion",
     where: `${PUBLIC_MANAGED} AND zarr_status = 'failed'`,
   },
-  "sync.pending": {
-    label: "Datasets pending nemar.org sync",
-    where: `${PUBLIC_MANAGED} AND nemar_sync_status = 'pending'`,
-  },
-  "sync.failed": {
-    label: "Datasets with a failed nemar.org sync",
-    where: `${PUBLIC_MANAGED} AND nemar_sync_status = 'failed'`,
-  },
 };
 
 /** publication_requests-shaped drill-downs. */
@@ -136,7 +128,7 @@ async function datasetDrilldown(
 ): Promise<DrilldownResult> {
   const rows = await db
     .prepare(
-      `SELECT dataset_id, name, github_repo, visibility, archive_status, zarr_status, nemar_sync_status, last_activity_at
+      `SELECT dataset_id, name, github_repo, visibility, archive_status, zarr_status, last_activity_at
        FROM datasets WHERE ${where} ORDER BY dataset_id LIMIT ${LIMIT}`,
     )
     .all<Record<string, unknown>>();

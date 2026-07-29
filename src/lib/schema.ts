@@ -75,7 +75,12 @@ export const MetricSnapshotSchema = z.object({
 });
 export type MetricSnapshot = z.infer<typeof MetricSnapshotSchema>;
 
-/** Reserved keys the cron computes; a pushed section may not shadow these. */
+/**
+ * Reserved keys the cron computes; a pushed section may not shadow these.
+ * `sync` stays reserved even though the section is gone: nemar-cli migration
+ * 0053 retired the legacy nemar.org datapipeline, and the key should not be
+ * recyclable by a pipeline push that would then read as the old sync state.
+ */
 export const BUILTIN_SECTION_KEYS: ReadonlySet<string> = new Set([
   "datasets",
   "archive",
