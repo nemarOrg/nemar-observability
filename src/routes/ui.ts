@@ -56,8 +56,12 @@ function el(tag, cls, text) {
   return e;
 }
 
-function renderBreakdown(parent, items) {
+// A breakdown can be denominated differently from its tile: "Most read
+// datasets" is a count of datasets whose bars are bytes each. metric.breakdown_unit
+// carries that; absent, the bars share the tile's unit.
+function renderBreakdown(parent, items, unit) {
   const max = items.reduce(function (m, it) { return Math.max(m, it.value); }, 0) || 1;
+  const fmtVal = unit === "bytes" ? humanBytes : function (v) { return Number(v).toLocaleString(); };
   const list = el("div", "breakdown");
   items.slice(0, 8).forEach(function (it) {
     const row = el("div", "bd-row");
@@ -67,7 +71,7 @@ function renderBreakdown(parent, items) {
     bar.style.width = Math.max(2, (it.value / max) * 100) + "%";
     barWrap.appendChild(bar);
     row.appendChild(barWrap);
-    row.appendChild(el("span", "bd-val", Number(it.value).toLocaleString()));
+    row.appendChild(el("span", "bd-val", fmtVal(it.value)));
     list.appendChild(row);
   });
   if (items.length > 8) list.appendChild(el("div", "bd-more", "+" + (items.length - 8) + " more"));
@@ -91,7 +95,7 @@ function tile(metric) {
     t.appendChild(barWrap);
   }
   if (metric.hint) t.appendChild(el("div", "tile-hint", metric.hint));
-  if (metric.breakdown && metric.breakdown.length) renderBreakdown(t, metric.breakdown);
+  if (metric.breakdown && metric.breakdown.length) renderBreakdown(t, metric.breakdown, metric.breakdown_unit || metric.unit);
   if (metric.drilldown) {
     const open = function () { openDrilldown(metric.drilldown, metric.label); };
     t.addEventListener("click", open);
