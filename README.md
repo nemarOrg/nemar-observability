@@ -6,7 +6,7 @@ It answers, at a glance:
 
 - How many datasets are public vs private? How many have a DOI?
 - How many are missing a downloadable archive, or have a **failed** / **pending** Zarr conversion or archive?
-- How many failed the legacy nemar.org sync? How many publication requests are open?
+- How many OpenNeuro imports are stuck? How many publication requests are open?
 - Which public datasets are accessed the most (downloads, Zarr reads)?
 
 Every tile is a headline number (a total, or a percent like "% with archive"). Tiles that have a list behind them drill into the exact datasets that need attention — **admin only**.
@@ -32,7 +32,7 @@ src/
 ├── lib/
 │   ├── schema.ts       the MetricSnapshot standard (Zod = source of truth)
 │   ├── metric-snapshot.schema.json   JSON Schema mirror for non-TS consumers
-│   ├── metrics.ts      built-in sections (datasets, archive, zarr, sync, publication, users) + buildSnapshot
+│   ├── metrics.ts      built-in sections (datasets, archive, zarr, imports, publication, users) + buildSnapshot
 │   ├── access.ts       Analytics Engine access section
 │   ├── drilldown.ts    admin drill-down queries
 │   ├── store.ts        own-DB reads/writes (snapshot history, pushed sections)
@@ -111,6 +111,7 @@ env -u CLOUDFLARE_API_TOKEN CLOUDFLARE_ACCOUNT_ID=da8d7a2a8680dab01592bbbc6f67f1
 # apply own-DB migrations, set secrets, deploy
 npx cfman wrangler --account sccn d1 migrations apply nemar-observability-db-dev -c wrangler.toml --env dev
 npx cfman wrangler --account sccn secret put CF_ANALYTICS_TOKEN -c wrangler.toml --env dev   # Account Analytics Read
+npx cfman wrangler --account sccn secret put CF_ZONE_ANALYTICS_TOKEN -c wrangler.toml --env dev   # Zone Analytics Read (nemar.org)
 npx cfman wrangler --account sccn secret put OBS_INGEST_TOKEN -c wrangler.toml --env dev
 npx cfman wrangler --account sccn deploy -c wrangler.toml --env dev
 ```

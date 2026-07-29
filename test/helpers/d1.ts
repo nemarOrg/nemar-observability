@@ -27,8 +27,14 @@ class D1PreparedStatementShim {
     return row ?? null;
   }
 
-  async run(): Promise<{ success: true }> {
+  /** Synchronous execute, so batch() can drive several inside one real
+   *  SQLite transaction (bun:sqlite transactions cannot span an await). */
+  runSync(): void {
     this.engine.query(this.sql).run(...(this.boundArgs as never[]));
+  }
+
+  async run(): Promise<{ success: true }> {
+    this.runSync();
     return { success: true };
   }
 }
@@ -37,6 +43,14 @@ class D1DatabaseShim {
   constructor(private readonly engine: Database) {}
   prepare(sql: string): D1PreparedStatementShim {
     return new D1PreparedStatementShim(this.engine, sql);
+  }
+  /** D1 runs a batch as one implicit transaction; mirror that with a real
+   *  SQLite transaction so a failing statement rolls the whole batch back. */
+  async batch(statements: D1PreparedStatementShim[]): Promise<{ success: true }[]> {
+    this.engine.transaction(() => {
+      for (const s of statements) s.runSync();
+    })();
+    return statements.map(() => ({ success: true }));
   }
 }
 

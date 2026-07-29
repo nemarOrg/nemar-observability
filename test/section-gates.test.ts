@@ -9,6 +9,7 @@
 
 import { describe, expect, test } from "bun:test";
 import { computeAccessSection } from "../src/lib/access";
+import { computeCfSection } from "../src/lib/cf-section";
 import type { Bindings } from "../src/types";
 
 const NOW = "2026-07-29T12:00:00.000Z";
@@ -35,6 +36,32 @@ describe("access section config gate", () => {
     const s = await computeAccessSection({} as Bindings, NOW);
     expect(s.updated_at).toBe(NOW);
     expect(s.source).toBe("access");
+    expect(s.metrics.length).toBeGreaterThan(0);
+  });
+});
+
+describe("cf section config gate", () => {
+  test("reports unconfigured (not zero) when the zone token is absent", async () => {
+    const s = await computeCfSection({ CF_ZONE_ID: "z" } as Bindings, NOW);
+    expect(s.key).toBe("cf");
+    expect(s.metrics).toHaveLength(1);
+    expect(s.metrics[0].key).toBe("cf.unconfigured");
+    expect(s.metrics[0].value).toBe(0);
+    expect(s.metrics[0].hint).toContain("CF_ZONE_ANALYTICS_TOKEN");
+  });
+
+  // CF_ZONE_ID is a wrangler [vars] entry, so absence means config drift rather
+  // than the expected pre-provisioning state a missing secret represents.
+  test("warns when the token is present but CF_ZONE_ID is not", async () => {
+    const s = await computeCfSection({ CF_ZONE_ANALYTICS_TOKEN: "t" } as Bindings, NOW);
+    expect(s.metrics[0].key).toBe("cf.unconfigured");
+    expect(s.metrics[0].severity).toBe("warn");
+  });
+
+  test("the gate result still satisfies the section shape", async () => {
+    const s = await computeCfSection({} as Bindings, NOW);
+    expect(s.updated_at).toBe(NOW);
+    expect(s.source).toBe("cloudflare");
     expect(s.metrics.length).toBeGreaterThan(0);
   });
 });

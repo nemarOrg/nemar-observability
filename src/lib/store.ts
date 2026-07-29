@@ -1,6 +1,7 @@
 // Reads/writes against this worker's own D1 (OBS_DB): snapshot history and
 // pushed pipeline sections. Never touches nemar-db.
 
+import type { HostDay } from "./cf-analytics";
 import { type MetricSnapshot, MetricSnapshotSchema, type Section, SectionSchema } from "./schema";
 
 /** Persist a freshly computed snapshot (one row per cron run). */
@@ -144,6 +145,79 @@ export async function savePushedSection(db: D1Database, section: Section): Promi
     )
     .bind(section.key, JSON.stringify(section), section.source, section.updated_at)
     .run();
+}
+
+/**
+ * Upsert one day's per-host Cloudflare traffic.
+ *
+ * REPLACE, never accumulate: the cron re-pulls the current day every hour while
+ * it is still filling up, so adding each pull to the previous one would multiply
+ * today's traffic by the number of runs. The pulled value is always the
+ * authoritative day-to-date total.
+ */
+export async function saveHostDays(db: D1Database, rows: HostDay[], at: string): Promise<void> {
+  if (rows.length === 0) return;
+  await db.batch(
+    rows.map((r) =>
+      db
+        .prepare(
+          `INSERT INTO cf_daily_host (date, host, requests, visits, bytes, updated_at)
+           VALUES (?1, ?2, ?3, ?4, ?5, ?6)
+           ON CONFLICT(date, host) DO UPDATE SET
+             requests = ?3, visits = ?4, bytes = ?5, updated_at = ?6`,
+        )
+        .bind(r.date, r.host, r.requests, r.visits, r.bytes, at),
+    ),
+  );
+}
+
+export interface HostRollup {
+  host: string;
+  requests: number;
+  visits: number;
+  bytes: number;
+}
+
+/**
+ * Per-host totals over the retained window, how many distinct days that window
+ * actually covers, and the newest day present.
+ *
+ * `latestDate` is the liveness signal. The cron pulls yesterday + today on every
+ * run, so a healthy accumulator always has today's row. If the newest row is
+ * older than that, pulls are failing — and without this the section could not
+ * tell a broken accumulator from a fresh deploy, since both eventually show
+ * `days: 0`. Null when the table is empty for this window.
+ */
+export async function loadHostRollup(
+  db: D1Database,
+  sinceDate: string,
+): Promise<{ hosts: HostRollup[]; days: number; latestDate: string | null }> {
+  const [hosts, cover] = await Promise.all([
+    db
+      .prepare(
+        `SELECT host, SUM(requests) AS requests, SUM(visits) AS visits, SUM(bytes) AS bytes
+         FROM cf_daily_host WHERE date >= ?1
+         GROUP BY host ORDER BY requests DESC`,
+      )
+      .bind(sinceDate)
+      .all<HostRollup>(),
+    db
+      .prepare(
+        "SELECT COUNT(DISTINCT date) AS n, MAX(date) AS latest FROM cf_daily_host WHERE date >= ?1",
+      )
+      .bind(sinceDate)
+      .first<{ n: number; latest: string | null }>(),
+  ]);
+  return {
+    hosts: hosts.results ?? [],
+    days: cover?.n ?? 0,
+    latestDate: cover?.latest ?? null,
+  };
+}
+
+/** Drop accumulated host rows older than the reporting window. */
+export async function pruneHostDays(db: D1Database, beforeDate: string): Promise<void> {
+  await db.prepare("DELETE FROM cf_daily_host WHERE date < ?1").bind(beforeDate).run();
 }
 
 /** All currently-stored pushed sections, validated against the schema. */

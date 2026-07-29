@@ -4,6 +4,7 @@
 
 import type { Bindings } from "../types";
 import { computeAccessSection } from "./access";
+import { computeCfSection } from "./cf-section";
 import {
   type Metric,
   type MetricSnapshot,
@@ -446,7 +447,7 @@ export async function buildSnapshot(env: Bindings): Promise<MetricSnapshot> {
   const now = new Date().toISOString();
   const db = env.NEMAR_DB;
 
-  const labels = ["datasets", "archive", "zarr", "imports", "publication", "access", "users"];
+  const labels = ["datasets", "archive", "zarr", "imports", "publication", "access", "cf", "users"];
   const builtins = await Promise.allSettled([
     datasetsSection(db, now),
     archiveSection(db, now),
@@ -454,6 +455,7 @@ export async function buildSnapshot(env: Bindings): Promise<MetricSnapshot> {
     autoImportSection(db, now),
     publicationSection(db, now),
     computeAccessSection(env, now),
+    computeCfSection(env, now),
     usersSection(db, now),
   ]);
 

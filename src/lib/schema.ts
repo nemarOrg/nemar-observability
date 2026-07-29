@@ -97,6 +97,7 @@ export const BUILTIN_SECTION_KEYS: ReadonlySet<string> = new Set([
   "sync",
   "publication",
   "access",
+  "cf",
   "users",
 ]);
 
