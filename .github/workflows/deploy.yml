@@ -1,0 +1,136 @@
+name: Deploy
+
+# This Worker was hand-deployed until now, which is the direct cause of the
+# fault that motivated issue #7: the `sync` metric section broke when nemar-cli
+# migration 0053 dropped a column, and the fix could not reach production until
+# someone remembered to run `wrangler deploy` -- so a visibly broken dashboard
+# stayed broken for a month.
+#
+# Secrets required (repo-level, same names nemar-cli's deploy-backend.yml uses):
+#   CLOUDFLARE_API_TOKEN   Workers Scripts:Edit + D1:Edit on the SCCN account
+#   CLOUDFLARE_ACCOUNT_ID  da8d7a2a8680dab01592bbbc6f67f12c
+# Until both exist this workflow fails fast with an explicit message rather than
+# half-deploying.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: Which environment to deploy
+        type: choice
+        options: [dev, production]
+        default: dev
+
+# Serialize deploys per ref. A deploy runs `d1 migrations apply` before
+# `wrangler deploy`, and two concurrent runs could interleave a migration with
+# another run's deploy. cancel-in-progress:false so a queued run WAITS rather
+# than cancelling an in-flight migration partway through.
+concurrency:
+  group: deploy-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  # The exact commit being deployed must pass the same gate ci.yml enforces for
+  # landing. ci.yml runs on pushes to main too, but nothing would stop this
+  # workflow from racing it and shipping a red build to production.
+  gate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - run: bun install --frozen-lockfile
+      - run: bun run lint
+      - run: bun run typecheck
+      - run: bun test
+
+  deploy:
+    needs: gate
+    runs-on: ubuntu-latest
+    # push to main => production; manual dispatch => whatever was chosen.
+    environment: ${{ github.event_name == 'push' && 'production' || inputs.environment }}
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      TARGET: ${{ github.event_name == 'push' && 'production' || inputs.environment }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - run: bun install --frozen-lockfile
+
+      - name: Verify credentials are configured
+        run: |
+          if [ -z "$CLOUDFLARE_API_TOKEN" ] || [ -z "$CLOUDFLARE_ACCOUNT_ID" ]; then
+            echo "::error::CLOUDFLARE_API_TOKEN / CLOUDFLARE_ACCOUNT_ID are not set on this repo."
+            echo "Add them under Settings > Secrets and variables > Actions."
+            exit 1
+          fi
+
+      # OBS_DB only. nemar-db has no migrations_dir in wrangler.toml precisely
+      # so this can never touch nemar-cli's schema -- but the target is named
+      # explicitly here as a second barrier rather than relying on that.
+      - name: Apply D1 migrations (nemar-observability-db)
+        run: |
+          if [ "$TARGET" = "production" ]; then
+            bunx wrangler d1 migrations apply nemar-observability-db --remote -c wrangler.toml
+          else
+            bunx wrangler d1 migrations apply nemar-observability-db-dev --remote --env dev -c wrangler.toml
+          fi
+
+      - name: Deploy
+        run: |
+          if [ "$TARGET" = "production" ]; then
+            bunx wrangler deploy -c wrangler.toml
+          else
+            bunx wrangler deploy --env dev -c wrangler.toml
+          fi
+
+      # A green deploy is not a working dashboard. This asserts the thing issue
+      # #7 is actually about: that /health reports healthy and the snapshot has
+      # no failed sections. Without it, a deploy that ships a broken section
+      # still reads as success -- the exact failure mode being retired.
+      - name: Post-deploy verification
+        run: |
+          if [ "$TARGET" = "production" ]; then
+            BASE=https://dashboard.nemar.org/observability
+          else
+            BASE=https://nemar-observability-dev.sccn-org.workers.dev/observability
+          fi
+
+          # Give the new version a moment to become the active one.
+          sleep 15
+
+          echo "==> $BASE/health"
+          curl -sS --max-time 20 "$BASE/health" | tee /tmp/health.json
+          echo
+          bun -e '
+            const j = JSON.parse(await Bun.file("/tmp/health.json").text());
+            if (j.ok !== true) {
+              console.error(`::error::health reports unhealthy: ok=${j.ok} stale=${j.stale} snapshot=${j.snapshot} section_errors=${(j.section_errors ?? []).join(",")}`);
+              process.exit(1);
+            }
+            console.log("health ok");
+          '
+
+          # Cache-bust: /api/snapshot carries s-maxage=300, so the bare URL can
+          # serve the PREVIOUS build's snapshot for minutes after a deploy and
+          # make a good deploy look like a failed one (observed 2026-07-29).
+          echo "==> $BASE/api/snapshot"
+          curl -sS --max-time 20 "$BASE/api/snapshot?ci=$GITHUB_RUN_ID" -o /tmp/snapshot.json
+          bun -e '
+            const j = JSON.parse(await Bun.file("/tmp/snapshot.json").text());
+            const errs = j.section_errors ?? [];
+            if (errs.length) {
+              console.error(`::error::sections failed to compute: ${errs.map((e) => e.key).join(", ")}`);
+              process.exit(1);
+            }
+            console.log(`snapshot ok, sections: ${j.sections.map((s) => s.key).join(", ")}`);
+          '

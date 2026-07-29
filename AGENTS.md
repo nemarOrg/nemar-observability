@@ -59,11 +59,27 @@ bun run typecheck    # tsc --noEmit
 ```
 
 ## Deploy (SCCN)
+
+**Merging to `main` deploys to production** via `.github/workflows/deploy.yml`: gate (lint/typecheck/test) -> `d1 migrations apply` on `nemar-observability-db` -> `wrangler deploy` -> post-deploy verification that `/health` is `ok` and the snapshot has no `section_errors`. Manual `workflow_dispatch` targets dev. Requires repo secrets `CLOUDFLARE_API_TOKEN` + `CLOUDFLARE_ACCOUNT_ID` (same names nemar-cli uses).
+
+Hand deploy, if CI is unavailable — dev first, then prod:
 ```bash
-# dev first, then prod
 env -u CLOUDFLARE_API_TOKEN CLOUDFLARE_ACCOUNT_ID=da8d7a2a8680dab01592bbbc6f67f12c \
   npx cfman wrangler --account sccn deploy -c wrangler.toml --env dev
 ```
+Remember the migration; the Worker degrades but does not self-heal if `OBS_DB` is behind:
+```bash
+env -u CLOUDFLARE_API_TOKEN CLOUDFLARE_ACCOUNT_ID=da8d7a2a8680dab01592bbbc6f67f12c \
+  npx cfman wrangler --account sccn d1 migrations apply nemar-observability-db --remote -c wrangler.toml
+```
+
+**Verifying a deploy:** `/observability/api/snapshot` carries `s-maxage=300`, so the bare URL can serve the PREVIOUS build's snapshot for minutes after a deploy and make a good deploy look broken. Always cache-bust (`?cb=$(date +%s)`) when checking. `/health` is `no-store` and safe to read directly.
+
+## Monitoring
+
+`.github/workflows/health-monitor.yml` polls `/observability/health` every 15 min, opens a single `health-alert` issue while unhealthy (commenting rather than duplicating), and closes it on recovery. The decision logic is `scripts/check-health.ts` (unit-tested), not YAML.
+
+GitHub Actions `schedule` is best-effort and gets disabled after 60 days of repo inactivity, so this is a safety net for multi-hour outages, **not a pager**. An external monitor is still the right long-term answer.
 
 ## Development Workflow
 1. Check `.context/plan.md` for current phase/tasks.
