@@ -81,18 +81,23 @@ describe("cf_daily_host accumulation", () => {
     });
   });
 
-  test("the window boundary excludes older days from both totals and coverage", async () => {
+  // The row dated exactly on sinceDate is the point of this test: the rollup
+  // uses `date >= ?1`, and without a row sitting precisely on the boundary a
+  // regression to `date > ?1` would still pass.
+  test("the window boundary is inclusive of sinceDate and excludes older days", async () => {
     await saveHostDays(
       db,
       [
         { date: "2026-06-01", host: "nemar.org", requests: 999, visits: 999, bytes: 999 },
+        { date: "2026-07-01", host: "nemar.org", requests: 7, visits: 3, bytes: 70 },
         { date: "2026-07-28", host: "nemar.org", requests: 5, visits: 2, bytes: 50 },
       ],
       at,
     );
     const { hosts, days } = await loadHostRollup(db, "2026-07-01");
-    expect(days).toBe(1);
-    expect(hosts[0].requests).toBe(5);
+    expect(days).toBe(2);
+    // 7 + 5: the cutoff day counts, the June row does not.
+    expect(hosts[0].requests).toBe(12);
   });
 
   test("prune drops days before the cutoff and keeps the cutoff day itself", async () => {

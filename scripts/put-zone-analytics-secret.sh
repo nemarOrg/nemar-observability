@@ -33,7 +33,11 @@ EOF
 )
 if echo "$zone_probe" | grep -q '"errors":\[{'; then
   echo "FAILED. Zone analytics rejected the token:"
-  echo "$zone_probe" | python3 -c 'import json,sys;[print("  -",e["message"]) for e in json.load(sys.stdin)["errors"]]'
+  # bun, not python3: AGENTS.md forbids adding a Python dependency to this repo,
+  # and a one-line JSON pretty-print is not a good reason to make python3 a
+  # prerequisite for running an operator script in a Bun-only project.
+  echo "$zone_probe" | bun -e \
+    'const j=JSON.parse(await Bun.stdin.text());for(const e of j.errors??[])console.log("  -",e.message)'
   echo "Add Zone -> Analytics -> Read for nemar.org and re-run."
   exit 1
 fi

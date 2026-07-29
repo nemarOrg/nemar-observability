@@ -46,8 +46,12 @@ CF_ZONE_ID = "e684135de46029c91fd6c93715ace4ce"
 AE_DATASET = "nemar_access_metrics"
 
 # Secrets (npx cfman wrangler --account sccn secret put <NAME> -c wrangler.toml):
-# - CF_ANALYTICS_TOKEN  (Bearer w/ Account Analytics Read; reads the AE SQL API)
-# - OBS_INGEST_TOKEN    (Bearer external pipelines present to POST /api/sections/:key)
+# - CF_ANALYTICS_TOKEN       (Bearer w/ Account Analytics Read; reads the AE SQL API)
+# - CF_ZONE_ANALYTICS_TOKEN  (Bearer w/ Zone Analytics Read on nemar.org; reads the
+#                             GraphQL Analytics API. Account Analytics Read does NOT
+#                             cover zone analytics -- these are two distinct scopes.
+#                             Install both envs with scripts/put-zone-analytics-secret.sh)
+# - OBS_INGEST_TOKEN         (Bearer external pipelines present to POST /api/sections/:key)
 
 [env.dev]
 name = "nemar-observability-dev"

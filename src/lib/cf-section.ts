@@ -29,12 +29,18 @@ const CLASS_LABEL: Record<HostClass, string> = {
   other: "Other",
 };
 
-/** Group host rollups by surface class, summing the given field. */
-function byClass(hosts: HostRollup[], field: "visits" | "requests" | "bytes") {
+/**
+ * Group host rollups by NEMAR surface, summing visits.
+ *
+ * Visits specifically, not requests or bytes: it is the only one of the three
+ * that approximates a person, and the whole point of the split is that `visits`
+ * is meaningless on the API and S3-origin surfaces.
+ */
+function byClass(hosts: HostRollup[]) {
   const totals = new Map<HostClass, number>();
   for (const h of hosts) {
     const cls = classifyHost(h.host);
-    totals.set(cls, (totals.get(cls) ?? 0) + h[field]);
+    totals.set(cls, (totals.get(cls) ?? 0) + h.visits);
   }
   return [...totals.entries()]
     .map(([cls, value]) => ({ label: CLASS_LABEL[cls], value }))
@@ -87,8 +93,11 @@ export async function computeCfSection(env: Bindings, now: string): Promise<Sect
   const yesterday = new Date(nowDate.getTime() - 86_400_000).toISOString().slice(0, 10);
   const stalled = rollup.latestDate !== null && rollup.latestDate < yesterday;
 
-  // The per-host rollup backfills one day per cron run, so say how much of the
-  // window it actually covers rather than labelling a partial view "30d".
+  // The per-host rollup gains one day per elapsed CALENDAR day, not per cron
+  // run: the cron runs hourly and re-pulls today + yesterday every time, and
+  // those upserts replace rather than add a distinct date. So say how much of
+  // the window it actually covers rather than labelling a partial view "30d".
+  // (The first run already covers two days, today and yesterday.)
   const coverage = stalled
     ? `stalled since ${rollup.latestDate}`
     : rollup.days >= WINDOW_DAYS
@@ -142,7 +151,7 @@ export async function computeCfSection(env: Bindings, now: string): Promise<Sect
         value: totals.peakDailyUniques,
         unit: "count",
         severity: "info",
-        hint: "Highest single-day unique-IP count. Daily uniques cannot be summed into a window total, and this counts IPs (bots included), not people.",
+        hint: "Highest single-day unique-visitor estimate. Cloudflare approximates this per day, so it cannot be summed into a window total, and it counts clients (bots included), not people.",
       }),
       metric({
         key: "cf.visits_by_surface",
@@ -150,7 +159,7 @@ export async function computeCfSection(env: Bindings, now: string): Promise<Sect
         value: rollup.hosts.reduce((n, h) => n + h.visits, 0),
         unit: "count",
         severity: hostSeverity,
-        breakdown: byClass(rollup.hosts, "visits"),
+        breakdown: byClass(rollup.hosts),
         hint: `Cloudflare "visits" (session starts) per NEMAR surface. Only meaningful on hosts a person browses: the API and S3 origin register ~0 by nature. Excludes rate-limit.internal.${hostNote}`,
       }),
       metric({

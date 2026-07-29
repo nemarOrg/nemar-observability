@@ -150,8 +150,13 @@ export interface ZoneTotals {
 }
 
 export async function fetchZoneTotals(env: Bindings, now: Date): Promise<ZoneTotals> {
+  // Both bounds are truncated to calendar dates, so the span is inclusive of
+  // `since` and exclusive of `until`. Subtracting WINDOW_DAYS would therefore
+  // cover WINDOW_DAYS+1 calendar days and contradict the section's "(30d)"
+  // label; subtract one less so the window is exactly WINDOW_DAYS days ending
+  // today. (Verified against the live zone: the old bounds returned 31 rows.)
   const until = new Date(now.getTime() + 86_400_000); // exclusive; include today
-  const since = new Date(now.getTime() - WINDOW_DAYS * 86_400_000);
+  const since = new Date(now.getTime() - (WINDOW_DAYS - 1) * 86_400_000);
   const data = await queryGraphQL<{
     viewer: { zones: { httpRequests1dGroups: ZoneDay[] }[] };
   }>(env, ZONE_TOTALS_QUERY, {
