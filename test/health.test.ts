@@ -6,6 +6,7 @@
 import { Database } from "bun:sqlite";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import worker from "../src/index";
+import { recordCronRun } from "../src/lib/store";
 import type { Bindings } from "../src/types";
 import { asD1 } from "./helpers/d1";
 
@@ -147,5 +148,42 @@ describe("health", () => {
     const res = await health();
     expect(res.status).toBe(503);
     expect(await res.json()).toMatchObject({ ok: false, error: "store_unavailable" });
+  });
+});
+
+// recordCronRun is the write path behind every staleness judgment above, and
+// nothing exercised it -- health.test.ts seeds cron_status with raw SQL, so a
+// regression here (nulling last_success_at on failure, dropping the truncation)
+// would silently break the alerting contract with every test still green.
+describe("recordCronRun", () => {
+  const read = () =>
+    engine
+      .query("SELECT last_success_at, last_error, last_run_at FROM cron_status WHERE id = 1")
+      .get() as { last_success_at: string | null; last_error: string | null; last_run_at: string };
+
+  test("a failure preserves the prior last_success_at and records the error", async () => {
+    await recordCronRun(asD1(engine), true, "2026-07-29T10:00:00.000Z");
+    await recordCronRun(asD1(engine), false, "2026-07-29T11:00:00.000Z", "AE SQL 500");
+
+    const row = read();
+    // The point of the whole design: a transient failure must not reset the
+    // clock, or /health would flip to fresh on the next successful-looking run.
+    expect(row.last_success_at).toBe("2026-07-29T10:00:00.000Z");
+    expect(row.last_error).toBe("AE SQL 500");
+    expect(row.last_run_at).toBe("2026-07-29T11:00:00.000Z");
+  });
+
+  test("a success clears the prior error and advances last_success_at", async () => {
+    await recordCronRun(asD1(engine), false, "2026-07-29T10:00:00.000Z", "boom");
+    await recordCronRun(asD1(engine), true, "2026-07-29T11:00:00.000Z");
+
+    const row = read();
+    expect(row.last_success_at).toBe("2026-07-29T11:00:00.000Z");
+    expect(row.last_error).toBeNull();
+  });
+
+  test("an oversized error message is truncated to 500 chars", async () => {
+    await recordCronRun(asD1(engine), false, "2026-07-29T10:00:00.000Z", "x".repeat(900));
+    expect(read().last_error).toHaveLength(500);
   });
 });
