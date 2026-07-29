@@ -132,23 +132,43 @@ async function datasetsSection(db: D1Database, now: string): Promise<Section> {
   );
 }
 
-async function archiveSection(db: D1Database, now: string): Promise<Section> {
-  // All archive metrics are scoped to PUBLISHED (public + concept DOI) so the
-  // denominator is consistent and `ready` can never exceed `published` -- a
-  // published dataset is the only thing that should have a generated archive.
-  const c = await counts<"published" | "ready" | "pending" | "failed" | "missing">(
+// Exported for tests (real SQLite engine); buildSnapshot() is the only
+// production caller.
+export async function archiveSection(db: D1Database, now: string): Promise<Section> {
+  // Archive metrics are scoped to PUBLISHED (public + concept DOI), then split
+  // again by whether an archive is even SUPPOSED to exist.
+  //
+  // NEMAR does not generate archives for datasets over 100 GB. nemar-cli #752
+  // records that in `archive_skip_reason` and deliberately leaves
+  // `archive_status` NULL, so a predicate keyed on archive_status alone cannot
+  // tell "we chose not to build this" from "it is missing". Ours could not, and
+  // reported 133 missing archives when 101 of those were working exactly as
+  // designed and only 32 were actionable -- a permanently-amber tile
+  // overstating by 4x, which teaches people to ignore the colour.
+  //
+  // So `eligible` (published minus skipped) is the denominator for anything
+  // that means "should have an archive", and skipped datasets get their own
+  // informational tile instead of being counted as a backlog.
+  const c = await counts<"published" | "skipped" | "ready" | "pending" | "failed" | "missing">(
     db,
     `SELECT
        (SELECT COUNT(*) FROM datasets WHERE ${PUBLISHED}) as published,
+       (SELECT COUNT(*) FROM datasets WHERE ${PUBLISHED} AND archive_skip_reason IS NOT NULL) as skipped,
        (SELECT COUNT(*) FROM datasets WHERE ${PUBLISHED} AND archive_status = 'ready') as ready,
        (SELECT COUNT(*) FROM datasets WHERE ${PUBLISHED} AND archive_status = 'pending') as pending,
        (SELECT COUNT(*) FROM datasets WHERE ${PUBLISHED} AND archive_status = 'failed') as failed,
-       (SELECT COUNT(*) FROM datasets WHERE ${PUBLISHED} AND (archive_status IS NULL OR archive_status != 'ready')) as missing`,
+       (SELECT COUNT(*) FROM datasets WHERE ${PUBLISHED}
+          AND archive_skip_reason IS NULL
+          AND (archive_status IS NULL OR archive_status != 'ready')) as missing`,
   );
   const published = c.published ?? 0;
+  const skipped = c.skipped ?? 0;
   const missing = c.missing ?? 0;
   const failed = c.failed ?? 0;
   const pending = c.pending ?? 0;
+  // Never let a data anomaly (a skipped dataset that also has a ready archive)
+  // produce a negative denominator the UI would render as a nonsense percent.
+  const eligible = Math.max(0, published - skipped);
   return section(
     "archive",
     "Archives",
@@ -158,18 +178,27 @@ async function archiveSection(db: D1Database, now: string): Promise<Section> {
         key: "archive.ready",
         label: "With archive",
         value: c.ready ?? 0,
-        total: published,
+        total: eligible,
         severity: "ok",
-        hint: "Published datasets with a downloadable zip on S3",
+        hint: "Published datasets with a downloadable zip on S3, of those eligible for one",
       }),
       metric({
         key: "archive.missing",
         label: "Missing archive",
         value: missing,
-        total: published,
+        total: eligible,
         severity: missing > 0 ? "warn" : "ok",
         drilldown: "archive.missing",
-        hint: "Published but no confirmed archive (run archive-sweep / generate)",
+        hint: "Eligible but no confirmed archive (run archive-sweep / generate). Excludes datasets skipped by the >100 GB policy.",
+      }),
+      metric({
+        key: "archive.skipped",
+        label: "Archive skipped",
+        value: skipped,
+        total: published,
+        severity: "info",
+        drilldown: "archive.skipped",
+        hint: "Too large to archive (>100 GB policy, nemar-cli #752). Working as designed, not a backlog.",
       }),
       metric({
         key: "archive.pending",
