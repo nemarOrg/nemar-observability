@@ -3,8 +3,10 @@ name: CI
 on:
   push:
     branches: [main]
+  # No branch filter: a stacked PR targets its parent branch, not main, and
+  # `branches: [main]` silently gave those PRs no checks at all rather than
+  # failing them. Every PR gets checked regardless of what it merges into.
   pull_request:
-    branches: [main]
 
 permissions:
   contents: read
