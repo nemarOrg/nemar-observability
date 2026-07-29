@@ -20,8 +20,15 @@ const KEEP_HOST_DAYS = 31;
  *
  * Isolated from the snapshot path on purpose: a zone-analytics outage or an
  * expired token must not take down the D1-derived sections, so this logs and
- * returns instead of throwing. The section itself reports its own coverage, so
- * a gap is visible in the UI rather than silently smoothed over.
+ * returns instead of throwing.
+ *
+ * PRUNE ONLY AFTER A SUCCESSFUL PULL. If pulls are failing, pruning anyway
+ * would walk the retention window forward over a table nothing is refilling,
+ * and after ~31 days the section would report `days: 0` / "no data accumulated
+ * yet" — identical to a fresh deploy, with a month-long outage hidden behind it.
+ * Holding the prune keeps the stale rows, so `latestDate` stops advancing and
+ * the section can say the accumulator is stalled and since when. Retention
+ * overshoots while broken; that is the intended trade.
  */
 async function accumulateHostDays(env: Bindings, now: Date): Promise<void> {
   if (!env.CF_ZONE_ANALYTICS_TOKEN || !env.CF_ZONE_ID) return;
@@ -30,12 +37,18 @@ async function accumulateHostDays(env: Bindings, now: Date): Promise<void> {
     new Date(now.getTime() - 86_400_000).toISOString().slice(0, 10),
     now.toISOString().slice(0, 10),
   ];
+  let pulled = 0;
   for (const date of days) {
     try {
       await saveHostDays(env.OBS_DB, await fetchHostDay(env, date), at);
+      pulled++;
     } catch (err) {
       console.error(`[cron] cf host-day pull failed for ${date}:`, err);
     }
+  }
+  if (pulled === 0) {
+    console.error("[cron] cf host-day: every pull failed; skipping prune to preserve the signal");
+    return;
   }
   try {
     await pruneHostDays(

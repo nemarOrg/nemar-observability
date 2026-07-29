@@ -78,11 +78,28 @@ export async function computeCfSection(env: Bindings, now: string): Promise<Sect
   }
 
   const cacheRatio = totals.bytes > 0 ? (totals.cachedBytes / totals.bytes) * 100 : 0;
+
+  // The cron pulls yesterday + today every run, so a healthy accumulator always
+  // carries today's row. A newest row older than yesterday means pulls are
+  // failing. Without this the two states are indistinguishable: a broken
+  // accumulator eventually looks exactly like a fresh deploy, and the section
+  // would cheerfully say "backfilling" through a month-long outage.
+  const yesterday = new Date(nowDate.getTime() - 86_400_000).toISOString().slice(0, 10);
+  const stalled = rollup.latestDate !== null && rollup.latestDate < yesterday;
+
   // The per-host rollup backfills one day per cron run, so say how much of the
   // window it actually covers rather than labelling a partial view "30d".
-  const coverage =
-    rollup.days >= WINDOW_DAYS ? `${WINDOW_DAYS}d` : `${rollup.days}d so far (backfilling)`;
-  const hostNote = rollup.days === 0 ? " No per-host data accumulated yet." : "";
+  const coverage = stalled
+    ? `stalled since ${rollup.latestDate}`
+    : rollup.days >= WINDOW_DAYS
+      ? `${WINDOW_DAYS}d`
+      : `${rollup.days}d so far (backfilling)`;
+  const hostSeverity: Severity = stalled ? "warn" : "info";
+  const hostNote = stalled
+    ? ` Accumulation has STALLED — no data since ${rollup.latestDate}. Check CF_ZONE_ANALYTICS_TOKEN and the cron logs; these totals are frozen.`
+    : rollup.days === 0
+      ? " No per-host data accumulated yet."
+      : "";
 
   return {
     key: "cf",
@@ -132,7 +149,7 @@ export async function computeCfSection(env: Bindings, now: string): Promise<Sect
         label: `Visits by surface (${coverage})`,
         value: rollup.hosts.reduce((n, h) => n + h.visits, 0),
         unit: "count",
-        severity: "info",
+        severity: hostSeverity,
         breakdown: byClass(rollup.hosts, "visits"),
         hint: `Cloudflare "visits" (session starts) per NEMAR surface. Only meaningful on hosts a person browses: the API and S3 origin register ~0 by nature. Excludes rate-limit.internal.${hostNote}`,
       }),
@@ -141,7 +158,7 @@ export async function computeCfSection(env: Bindings, now: string): Promise<Sect
         label: `Bytes by host (${coverage})`,
         value: rollup.hosts.length,
         unit: "count",
-        severity: "info",
+        severity: hostSeverity,
         breakdown: rollup.hosts
           .map((h) => ({ label: h.host, value: h.bytes }))
           .sort((a, b) => b.value - a.value)

@@ -178,13 +178,20 @@ export interface HostRollup {
   bytes: number;
 }
 
-/** Per-host totals over the retained window, plus how many distinct days that
- *  window actually covers (the per-host view backfills one day per cron run,
- *  so early on it is honestly shorter than 30 days). */
+/**
+ * Per-host totals over the retained window, how many distinct days that window
+ * actually covers, and the newest day present.
+ *
+ * `latestDate` is the liveness signal. The cron pulls yesterday + today on every
+ * run, so a healthy accumulator always has today's row. If the newest row is
+ * older than that, pulls are failing — and without this the section could not
+ * tell a broken accumulator from a fresh deploy, since both eventually show
+ * `days: 0`. Null when the table is empty for this window.
+ */
 export async function loadHostRollup(
   db: D1Database,
   sinceDate: string,
-): Promise<{ hosts: HostRollup[]; days: number }> {
+): Promise<{ hosts: HostRollup[]; days: number; latestDate: string | null }> {
   const [hosts, cover] = await Promise.all([
     db
       .prepare(
@@ -195,11 +202,17 @@ export async function loadHostRollup(
       .bind(sinceDate)
       .all<HostRollup>(),
     db
-      .prepare("SELECT COUNT(DISTINCT date) AS n FROM cf_daily_host WHERE date >= ?1")
+      .prepare(
+        "SELECT COUNT(DISTINCT date) AS n, MAX(date) AS latest FROM cf_daily_host WHERE date >= ?1",
+      )
       .bind(sinceDate)
-      .first<{ n: number }>(),
+      .first<{ n: number; latest: string | null }>(),
   ]);
-  return { hosts: hosts.results ?? [], days: cover?.n ?? 0 };
+  return {
+    hosts: hosts.results ?? [],
+    days: cover?.n ?? 0,
+    latestDate: cover?.latest ?? null,
+  };
 }
 
 /** Drop accumulated host rows older than the reporting window. */

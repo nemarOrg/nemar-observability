@@ -114,4 +114,31 @@ describe("cf_daily_host accumulation", () => {
     await saveHostDays(db, [], at);
     expect((await loadHostRollup(db, "2026-07-01")).days).toBe(0);
   });
+
+  // latestDate is what lets the section tell "backfilling" from "broken". The
+  // cron pulls yesterday+today every run, so a healthy table always carries
+  // today; a frozen latestDate is the only in-band evidence that pulls are
+  // failing, since the failure path deliberately doesn't throw.
+  test("latestDate reports the newest day present, and is null when empty", async () => {
+    expect((await loadHostRollup(db, "2026-07-01")).latestDate).toBeNull();
+    await saveHostDays(
+      db,
+      [
+        { date: "2026-07-20", host: "nemar.org", requests: 1, visits: 1, bytes: 1 },
+        { date: "2026-07-28", host: "nemar.org", requests: 2, visits: 2, bytes: 2 },
+        { date: "2026-07-24", host: "nemar.org", requests: 3, visits: 3, bytes: 3 },
+      ],
+      at,
+    );
+    expect((await loadHostRollup(db, "2026-07-01")).latestDate).toBe("2026-07-28");
+  });
+
+  test("latestDate respects the window floor", async () => {
+    await saveHostDays(
+      db,
+      [{ date: "2026-06-01", host: "nemar.org", requests: 1, visits: 1, bytes: 1 }],
+      at,
+    );
+    expect((await loadHostRollup(db, "2026-07-01")).latestDate).toBeNull();
+  });
 });

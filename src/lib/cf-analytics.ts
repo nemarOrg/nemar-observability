@@ -87,6 +87,25 @@ async function queryGraphQL<T>(
   return json.data;
 }
 
+/**
+ * Unwrap `viewer.zones[0]`, treating an empty zone list as a fault.
+ *
+ * Cloudflare answers an unknown or inaccessible zone tag with an `errors` array
+ * (verified: a bogus tag returns `data: null` + `Zone not found`), which
+ * queryGraphQL already throws on. But the zone list is a filter result, so an
+ * empty array is structurally possible, and `zones[0]?.x ?? []` would turn it
+ * into "the zone served nothing" — a plausible-looking zero rather than a
+ * failure. Anything that cannot distinguish "no traffic" from "no answer" has
+ * no business being on a monitoring dashboard.
+ */
+function firstZone<T>(zones: T[]): T {
+  const zone = zones[0];
+  if (zone === undefined) {
+    throw new Error("CF GraphQL returned no zone (check CF_ZONE_ID and the token's zone scope)");
+  }
+  return zone;
+}
+
 // ---------------------------------------------------------------------------
 // 30-day zone totals (httpRequests1dGroups)
 // ---------------------------------------------------------------------------
@@ -141,7 +160,7 @@ export async function fetchZoneTotals(env: Bindings, now: Date): Promise<ZoneTot
     until: isoDate(until),
   });
 
-  const rows = data.viewer.zones[0]?.httpRequests1dGroups ?? [];
+  const rows = firstZone(data.viewer.zones).httpRequests1dGroups;
   const byCountry = new Map<string, number>();
   let bytes = 0;
   let cachedBytes = 0;
@@ -209,7 +228,7 @@ export async function fetchHostDay(env: Bindings, date: string): Promise<HostDay
     };
   }>(env, HOST_DAY_QUERY, { zone: env.CF_ZONE_ID, since: start, until: end });
 
-  const rows = data.viewer.zones[0]?.httpRequestsAdaptiveGroups ?? [];
+  const rows = firstZone(data.viewer.zones).httpRequestsAdaptiveGroups;
   return rows
     .filter((r) => !EXCLUDED_HOSTS.has(r.dimensions.clientRequestHTTPHost))
     .map((r) => ({
