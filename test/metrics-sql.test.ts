@@ -16,8 +16,11 @@ const DDL = `CREATE TABLE datasets (
   visibility TEXT NOT NULL DEFAULT 'private',
   concept_doi TEXT,
   archive_status TEXT,
+  -- Set when the >100 GB policy declines to build an archive (nemar-cli #752).
+  -- archive_status stays NULL in that case, which is exactly why a predicate
+  -- keyed on archive_status alone miscounts skips as missing.
+  archive_skip_reason TEXT,
   zarr_status TEXT,
-  nemar_sync_status TEXT,
   file_size INTEGER,
   license_tier TEXT DEFAULT 'unknown',
   modalities TEXT
@@ -31,16 +34,16 @@ type Row = {
   visibility?: string;
   concept_doi?: string | null;
   archive_status?: string | null;
+  archive_skip_reason?: string | null;
   zarr_status?: string | null;
-  nemar_sync_status?: string | null;
 };
 
 function db(rows: Row[]): Database {
   const d = new Database(":memory:");
   d.exec(DDL);
   const insert = d.prepare(
-    `INSERT INTO datasets (dataset_id, owner_user_id, is_sandbox, status, visibility, concept_doi, archive_status, zarr_status, nemar_sync_status)
-     VALUES ($id, $owner, $sandbox, $status, $vis, $doi, $arch, $zarr, $sync)`,
+    `INSERT INTO datasets (dataset_id, owner_user_id, is_sandbox, status, visibility, concept_doi, archive_status, archive_skip_reason, zarr_status)
+     VALUES ($id, $owner, $sandbox, $status, $vis, $doi, $arch, $skip, $zarr)`,
   );
   for (const r of rows) {
     insert.run({
@@ -51,8 +54,8 @@ function db(rows: Row[]): Database {
       $vis: r.visibility ?? "public",
       $doi: r.concept_doi ?? null,
       $arch: r.archive_status ?? null,
+      $skip: r.archive_skip_reason ?? null,
       $zarr: r.zarr_status ?? null,
-      $sync: r.nemar_sync_status ?? null,
     });
   }
   return d;

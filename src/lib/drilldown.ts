@@ -17,8 +17,15 @@ const LIMIT = 500;
 /** Dataset-shaped drill-downs: a WHERE predicate over `datasets`. */
 const DATASET_DRILLDOWNS: Record<string, { label: string; where: string }> = {
   "archive.missing": {
-    label: "Published datasets missing an archive",
-    where: `${PUBLISHED} AND (archive_status IS NULL OR archive_status != 'ready')`,
+    label: "Eligible datasets missing an archive",
+    // Mirrors archiveSection's `missing`: a dataset skipped by the >100 GB
+    // policy (nemar-cli #752) has archive_status NULL by design and is NOT
+    // missing. Without the skip_reason clause this list is ~4x too long.
+    where: `${PUBLISHED} AND archive_skip_reason IS NULL AND (archive_status IS NULL OR archive_status != 'ready')`,
+  },
+  "archive.skipped": {
+    label: "Datasets too large to archive (>100 GB)",
+    where: `${PUBLISHED} AND archive_skip_reason IS NOT NULL`,
   },
   "archive.pending": {
     label: "Datasets with a pending archive",
@@ -128,7 +135,7 @@ async function datasetDrilldown(
 ): Promise<DrilldownResult> {
   const rows = await db
     .prepare(
-      `SELECT dataset_id, name, github_repo, visibility, archive_status, zarr_status, last_activity_at
+      `SELECT dataset_id, name, github_repo, visibility, archive_status, archive_skip_reason, zarr_status, last_activity_at
        FROM datasets WHERE ${where} ORDER BY dataset_id LIMIT ${LIMIT}`,
     )
     .all<Record<string, unknown>>();
