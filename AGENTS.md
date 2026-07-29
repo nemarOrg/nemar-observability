@@ -37,7 +37,13 @@ Every metric is a headline number (a total, or a percent like "% with archive");
 - **push** — an external pipeline (future data-processing / QA) `POST`s a schema-conformant section to `/observability/api/sections/:key` (token-auth); it is stored and merged into the snapshot. Adding a pipeline never requires changing the dashboard core.
 
 ### Privacy boundary
-Public snapshot (the tiles) carries **headline numbers only, no private dataset IDs**. Drill-down lists (which datasets are missing/failed) are computed on demand from `nemar-db` and require an admin (delegated `/auth/me`). v1 admin auth = the admin's `nm_…` API key (Bearer) entered in the UI (localStorage); cross-subdomain cookie SSO is a future enhancement (the prod `nemar_session` cookie is scoped to `app.nemar.org` and is not sent to `dashboard.nemar.org`).
+Public snapshot (the tiles) carries **headline numbers only, no private dataset IDs**.
+
+**The dashboard page has zero auth and zero writes** (#8). It holds no credential, so a spoof of this origin has nothing to steal and nothing to trigger. Every admin action lives in the website portal at `app.nemar.org/admin`, behind an HttpOnly host-scoped session cookie; tiles with a `drilldown` key link there. The only write left on this Worker is the token-gated `POST /api/sections/:key` pipeline push.
+
+`GET /api/drilldown/:key` survives as an admin-only (Bearer, delegated `/users/me`) **programmatic** endpoint — the page never calls it. Phase 3 (#13) removes it, along with `resolveAdmin` and `NEMAR_API_BASE`, once the website carries equivalent dataset-health lists (phase 2: nemar-cli#1032 + website#195).
+
+`test/no-write-surface.test.ts` asserts both halves: the removed routes stay 404, and the rendered page contains no `localStorage`/`Authorization`/`Bearer`. Do not reintroduce a mutation or a credential here.
 
 ## Key facts (NEMAR ecosystem)
 
