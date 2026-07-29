@@ -16,7 +16,8 @@ function dated(values: number[]): { date: string; value: number }[] {
 }
 
 /** The genuine archive series that motivated this: a ~20-50/day baseline, then
- *  one hour on the last day producing 2,588 events (on003947 + on003944). */
+ *  the last day producing 2,588 events, 2,511 of them inside a single hour
+ *  (03:00 UTC) against just on003947 + on003944. Measured 2026-07-29. */
 const REAL_ARCHIVE_SERIES = dated([
   41, 150, 53, 16, 21, 1, 4, 3, 9, 11, 8, 8, 53, 47, 37, 51, 11, 34, 38, 47, 14, 52, 51, 35, 13, 34,
   22, 22, 103, 22, 2588,
@@ -26,13 +27,15 @@ describe("summarizeDaily", () => {
   test("reports the typical day, not the average, on the real scraper series", () => {
     const r = summarizeDaily({ points: REAL_ARCHIVE_SERIES });
 
-    // Sum is 3,631 over 31 days -> mean ~117/day, which describes no day that
+    // Sum is 3,599 over 31 days -> mean 116/day, which describes no day that
     // ever happened. The median describes almost every day.
     expect(r.medianDaily).toBe(34);
     expect(r.peak).toEqual({ date: "2026-07-29", value: 2588 });
     expect(r.isSpike).toBe(true);
-    // One day is >70% of the entire window.
-    expect(r.peakShare).toBeGreaterThan(0.7);
+    // One day is 71.9% of the entire window. Asserted exactly rather than as a
+    // loose `> 0.7`: a formula bug (dividing by something other than the window
+    // total) could still clear a loose bound.
+    expect(r.peakShare).toBeCloseTo(2588 / 3599, 6);
   });
 
   test("steady traffic is not flagged, even at high volume", () => {

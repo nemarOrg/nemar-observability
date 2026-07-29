@@ -11,14 +11,16 @@
 //             302s to a presigned S3 URL and never sees the body)
 //
 // IMPORTANT: AE samples under load, so true counts use SUM(_sample_interval),
-// never COUNT(*). Archive rows are demonstrably sampled (raw 1,900 -> 3,417
-// estimated over a recent 30d window), so this is not theoretical.
+// never COUNT(*). Archive rows are demonstrably sampled (on 2026-07-29 a 30d
+// window held 1,900 raw rows representing 3,417 events), so this is not
+// theoretical.
 //
 // WHAT THESE NUMBERS ARE NOT (issue #9). Every count here is a *server-side
 // event count* with no bot filter and no per-client dedup, because nemar-cli
 // does not record a client or bot dimension. One scraper can therefore own the
-// window: on 2026-07-29 a single hour produced 2,511 archive events against two
-// datasets, 71% of that entire 30-day total. The tiles are labelled and shaped
+// window: on 2026-07-29 a single hour (03:00 UTC) produced 2,511 archive events
+// against two datasets, and that whole day was 2,588 of a 3,599-event 30-day
+// window -- 72% of the metric, one client. The tiles are labelled and shaped
 // to make that visible rather than to imply human demand:
 //   - the headline is a spike-robust median day, with the raw total demoted
 //   - a spike day raises severity to `warn` instead of passing silently
@@ -259,6 +261,9 @@ export async function computeAccessSection(env: Bindings, now: string): Promise<
       zarrChunkHits += hits;
       zarrChunkBytes += bytes;
     } else if (r.detail === "metadata") {
+      // Hits only, on purpose: zarr.json store metadata is a rounding error on
+      // egress (5.4 MB against 1.22 GB of index.json on 2026-07-29) and no tile
+      // renders it, so tracking its bytes would compute a number nothing reads.
       zarrMetadataHits += hits;
     }
   }
@@ -312,7 +317,8 @@ export async function computeAccessSection(env: Bindings, now: string): Promise<
       }),
       // The number that was missing entirely: how much science data NEMAR
       // actually served. Chunk bytes only -- folding index.json in here is what
-      // made the old "bytes served" tile 95% catalog listings.
+      // made the old "bytes served" tile 95% catalog listings (measured
+      // 2026-07-29: 1.22 GB of index.json against 54 MB of chunk data).
       metric({
         key: "access.science_bytes",
         label: "Science data served",
