@@ -163,8 +163,6 @@ main { padding: 20px 24px 60px; max-width: 1200px; margin: 0 auto; }
 .tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 12px; }
 .tile { background: var(--panel-2); border: 1px solid var(--border); border-left-width: 3px;
   border-radius: 10px; padding: 12px 13px; }
-.tile.clickable { cursor: pointer; }
-.tile.clickable:hover { border-color: var(--accent); }
 .tile.sev-ok { border-left-color: var(--ok); }
 .tile.sev-warn { border-left-color: var(--warn); }
 .tile.sev-error { border-left-color: var(--error); }
@@ -188,13 +186,6 @@ main { padding: 20px 24px 60px; max-width: 1200px; margin: 0 auto; }
 .errbar { background: rgba(248,81,73,.12); border: 1px solid var(--error); color: #ffd7d4;
   border-radius: 10px; padding: 10px 14px; margin-bottom: 16px; font-size: 13px; }
 .errbar-hint { color: var(--muted); }
-.btn { background: var(--panel-2); color: var(--fg); border: 1px solid var(--border);
-  border-radius: 7px; padding: 4px 10px; font-size: 12px; cursor: pointer; margin-left: 6px; }
-.btn:disabled { opacity: .5; cursor: default; }
-.row-fb.ok { color: var(--ok); }
-.row-fb.err { color: var(--error); }
-.removed { opacity: .45; }
-.removed td { text-decoration: line-through; }
 `;
 
 export function renderDashboardPage(): string {

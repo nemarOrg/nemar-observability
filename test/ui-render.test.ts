@@ -211,6 +211,39 @@ describe("client script renders a real snapshot", () => {
     expect(text).toContain("MB"); // breakdown_unit=bytes, not a raw integer
   });
 
+  // renderBreakdown has two formatter branches and a >8 item cap; the fixture
+  // above only exercised the bytes branch. Both branches live in the same
+  // function, so an undefined identifier in either would crash a real render.
+  test("caps a long breakdown at 8 rows and counts the remainder", async () => {
+    const items = Array.from({ length: 12 }, (_, i) => ({ label: `mod${i}`, value: 12 - i }));
+    const { sections } = await renderClientScript({
+      ...SNAPSHOT,
+      sections: [
+        {
+          key: "datasets",
+          label: "Datasets",
+          source: "nemar-cli",
+          updated_at: "2026-07-29T14:17:07.455Z",
+          metrics: [
+            {
+              key: "datasets.by_modality",
+              label: "By modality",
+              value: 754,
+              unit: "datasets",
+              severity: "info",
+              breakdown: items,
+            },
+          ],
+        },
+      ],
+    });
+    const text = textOf(sections);
+    // Non-bytes breakdown: plain counts, not humanBytes output.
+    expect(text).toContain("mod0");
+    expect(text).toContain("+4 more");
+    expect(text).not.toContain("B ");
+  });
+
   test("surfaces the section_errors banner when the snapshot reports one", async () => {
     const { sections } = await renderClientScript({
       ...SNAPSHOT,
