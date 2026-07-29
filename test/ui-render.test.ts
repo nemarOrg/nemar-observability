@@ -214,8 +214,10 @@ describe("client script renders a real snapshot", () => {
   // renderBreakdown has two formatter branches and a >8 item cap; the fixture
   // above only exercised the bytes branch. Both branches live in the same
   // function, so an undefined identifier in either would crash a real render.
-  test("caps a long breakdown at 8 rows and counts the remainder", async () => {
-    const items = Array.from({ length: 12 }, (_, i) => ({ label: `mod${i}`, value: 12 - i }));
+  test("caps a long breakdown and counts the remainder", async () => {
+    // BREAKDOWN_MAX is 24 (enough for the 23-bin size histogram); 30 items
+    // therefore render 24 rows plus a "+6 more" line.
+    const items = Array.from({ length: 30 }, (_, i) => ({ label: `mod${i}`, value: 30 - i }));
     const { sections } = await renderClientScript({
       ...SNAPSHOT,
       sections: [
@@ -240,7 +242,7 @@ describe("client script renders a real snapshot", () => {
     const text = textOf(sections);
     // Non-bytes breakdown: plain counts, not humanBytes output.
     expect(text).toContain("mod0");
-    expect(text).toContain("+4 more");
+    expect(text).toContain("+6 more");
     expect(text).not.toContain("B ");
   });
 

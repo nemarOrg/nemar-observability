@@ -44,6 +44,10 @@
           "type": "string",
           "description": "Unit of the breakdown values when it differs from `unit` (e.g. a count of datasets broken down by bytes each). Falls back to `unit` when absent."
         },
+        "breakdown_style": {
+          "enum": ["bars", "ranked"],
+          "description": "How to draw the breakdown: 'bars' for a distribution (default), 'ranked' for an ordered top-N list where a bar would merely restate the printed value."
+        },
         "hint": { "type": "string" }
       }
     },
@@ -65,7 +69,11 @@
         "label": { "type": "string", "minLength": 1 },
         "source": { "type": "string", "minLength": 1, "description": "Producer id: nemar-cli, access, or a pipeline id" },
         "metrics": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/metric" } },
-        "updated_at": { "type": "string", "format": "date-time" }
+        "updated_at": { "type": "string", "format": "date-time" },
+        "layout": {
+          "enum": ["tiles", "split"],
+          "description": "Tile arrangement. 'split' pairs a wide distribution with a narrow companion list. Layout hint only; consumers may ignore it."
+        }
       }
     },
     "sectionIngest": {
