@@ -16,7 +16,7 @@ const DASHBOARDS: DashboardLink[] = [
     name: "Observability",
     path: "/observability",
     description:
-      "Operational health of datasets and pipelines — public/private counts, archive and Zarr status, sync failures, publication queue, and most-accessed data. Admins can drill into what needs attention.",
+      "Operational health of datasets and pipelines — public/private counts, archive and Zarr status, import backlog, publication queue, and most-accessed data. Admins can drill into what needs attention.",
     accent: "#4aa3ff",
   },
   {

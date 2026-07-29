@@ -11,24 +11,57 @@ export async function saveSnapshot(db: D1Database, snapshot: MetricSnapshot): Pr
     .run();
 }
 
-/** The latest stored snapshot, or null if none computed yet / it's unreadable.
- *  Re-validates against the schema rather than blindly casting, so a corrupt or
- *  schema-drifted row triggers an on-demand recompute instead of serving a
- *  malformed shape. */
-export async function loadLatestSnapshot(db: D1Database): Promise<MetricSnapshot | null> {
+/**
+ * The state of the newest stored snapshot row.
+ *
+ * `loadLatestSnapshot` collapses "no row yet" and "row is corrupt" into the
+ * same `null`, which is right for the API route (both mean "recompute") but
+ * WRONG for /health: a corrupt row is a fault, an absent row on a fresh deploy
+ * is not, and neither is the same as "read fine, no section errors". Health
+ * needs all three distinguished, so it reads this instead.
+ */
+export type SnapshotState =
+  | { state: "ok"; snapshot: MetricSnapshot; sectionErrors: string[] }
+  /** No snapshot row at all (fresh deploy before the first cron). */
+  | { state: "none" }
+  /** A row exists but is not valid JSON or no longer matches the schema. */
+  | { state: "unreadable"; reason: string };
+
+/**
+ * Read + validate the newest snapshot row, reporting which of the three states
+ * it is in. Re-validates against the schema rather than blindly casting, so
+ * schema drift is caught rather than served.
+ */
+export async function loadLatestSnapshotState(db: D1Database): Promise<SnapshotState> {
   const row = await db
     .prepare("SELECT snapshot_json FROM snapshots ORDER BY id DESC LIMIT 1")
     .first<{ snapshot_json: string }>();
-  if (!row) return null;
+  if (!row) return { state: "none" };
+  let raw: unknown;
   try {
-    const parsed = MetricSnapshotSchema.safeParse(JSON.parse(row.snapshot_json));
-    if (parsed.success) return parsed.data;
-    console.error("[store] latest snapshot failed schema validation; recomputing");
-    return null;
+    raw = JSON.parse(row.snapshot_json);
   } catch (err) {
-    console.error("[store] latest snapshot is not valid JSON; recomputing:", err);
-    return null;
+    console.error("[store] latest snapshot is not valid JSON:", err);
+    return { state: "unreadable", reason: "invalid_json" };
   }
+  const parsed = MetricSnapshotSchema.safeParse(raw);
+  if (!parsed.success) {
+    console.error("[store] latest snapshot failed schema validation");
+    return { state: "unreadable", reason: "schema_mismatch" };
+  }
+  return {
+    state: "ok",
+    snapshot: parsed.data,
+    sectionErrors: (parsed.data.section_errors ?? []).map((e) => e.key),
+  };
+}
+
+/** The latest stored snapshot, or null if none computed yet / it's unreadable.
+ *  Both cases mean the same thing to the API route: recompute. Callers that
+ *  need to tell them apart (i.e. /health) must use loadLatestSnapshotState. */
+export async function loadLatestSnapshot(db: D1Database): Promise<MetricSnapshot | null> {
+  const result = await loadLatestSnapshotState(db);
+  return result.state === "ok" ? result.snapshot : null;
 }
 
 /**

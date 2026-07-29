@@ -331,47 +331,6 @@ export async function autoImportSection(db: D1Database, now: string): Promise<Se
   );
 }
 
-async function syncSection(db: D1Database, now: string): Promise<Section> {
-  const c = await counts<"synced" | "pending" | "failed">(
-    db,
-    `SELECT
-       (SELECT COUNT(*) FROM datasets WHERE ${PUBLIC_MANAGED} AND nemar_sync_status = 'synced') as synced,
-       (SELECT COUNT(*) FROM datasets WHERE ${PUBLIC_MANAGED} AND nemar_sync_status = 'pending') as pending,
-       (SELECT COUNT(*) FROM datasets WHERE ${PUBLIC_MANAGED} AND nemar_sync_status = 'failed') as failed`,
-  );
-  const failed = c.failed ?? 0;
-  const pending = c.pending ?? 0;
-  return section(
-    "sync",
-    "nemar.org sync",
-    "nemar-cli",
-    [
-      metric({
-        key: "sync.synced",
-        label: "Synced",
-        value: c.synced ?? 0,
-        severity: "ok",
-        hint: "Synced to the legacy nemar.org dataexplorer",
-      }),
-      metric({
-        key: "sync.pending",
-        label: "Sync pending",
-        value: pending,
-        severity: pendingSeverity(pending),
-        drilldown: "sync.pending",
-      }),
-      metric({
-        key: "sync.failed",
-        label: "Sync failed",
-        value: failed,
-        severity: failSeverity(failed),
-        drilldown: "sync.failed",
-      }),
-    ],
-    now,
-  );
-}
-
 async function publicationSection(db: D1Database, now: string): Promise<Section> {
   const c = await counts<"open" | "prescreen_failed" | "blocked">(
     db,
@@ -487,22 +446,12 @@ export async function buildSnapshot(env: Bindings): Promise<MetricSnapshot> {
   const now = new Date().toISOString();
   const db = env.NEMAR_DB;
 
-  const labels = [
-    "datasets",
-    "archive",
-    "zarr",
-    "imports",
-    "sync",
-    "publication",
-    "access",
-    "users",
-  ];
+  const labels = ["datasets", "archive", "zarr", "imports", "publication", "access", "users"];
   const builtins = await Promise.allSettled([
     datasetsSection(db, now),
     archiveSection(db, now),
     zarrSection(db, now),
     autoImportSection(db, now),
-    syncSection(db, now),
     publicationSection(db, now),
     computeAccessSection(env, now),
     usersSection(db, now),

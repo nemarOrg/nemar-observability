@@ -26,6 +26,11 @@ class D1PreparedStatementShim {
     const row = this.engine.query(this.sql).get(...(this.boundArgs as never[])) as T | null;
     return row ?? null;
   }
+
+  async run(): Promise<{ success: true }> {
+    this.engine.query(this.sql).run(...(this.boundArgs as never[]));
+    return { success: true };
+  }
 }
 
 class D1DatabaseShim {

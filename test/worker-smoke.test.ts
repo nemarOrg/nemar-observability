@@ -1,21 +1,16 @@
 // Boots the real worker (Hono app) and exercises the routes that don't touch
-// D1: the health check and the server-rendered dashboard page. No mocks — real
-// Request/Response through the actual router.
+// D1: the server-rendered pages and the ingest guards. No mocks — real
+// Request/Response through the actual router. `/health` DOES read OBS_DB, so it
+// is covered in health.test.ts against a real SQLite store instead.
 
 import { describe, expect, test } from "bun:test";
 import worker from "../src/index";
 import type { Bindings } from "../src/types";
 
-const env = {} as Bindings; // health + page never read bindings
+const env = {} as Bindings; // the pages never read bindings
 const ctx = { waitUntil() {}, passThroughOnException() {} } as unknown as ExecutionContext;
 
 describe("worker routing", () => {
-  test("health responds ok", async () => {
-    const res = await worker.fetch(new Request("https://x/observability/health"), env, ctx);
-    expect(res.status).toBe(200);
-    expect(await res.json()).toMatchObject({ ok: true, service: "nemar-observability" });
-  });
-
   test("serves the dashboard page", async () => {
     const res = await worker.fetch(new Request("https://x/observability"), env, ctx);
     expect(res.status).toBe(200);
