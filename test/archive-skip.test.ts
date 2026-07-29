@@ -110,13 +110,19 @@ describe("archiveSection", () => {
     expect(m["archive.missing"].value).toBe(2);
   });
 
-  // Defends the Math.max(0, ...) guard: a skipped dataset that somehow also has
-  // a ready archive must not produce a negative denominator, which the UI would
-  // render as a nonsense percentage.
-  test("a contradictory row cannot produce a negative denominator", async () => {
+  // NOT a guard test. `skipped` is computed as a strict subset of the same
+  // PUBLISHED filter, so skipped <= published always holds by SQL construction
+  // and the Math.max(0, ...) in archiveSection can never see a negative input.
+  // What this actually pins is the contradictory row itself: a dataset that is
+  // both skipped and ready counts once in each, and eligible drops to 0 rather
+  // than the tile reporting 1/0 or a percentage over 100.
+  test("a row that is both skipped and ready is counted in both, without breaking the denominator", async () => {
     published("weird", "ready", "size policy");
     const m = await metricsOf();
-    expect(m["archive.ready"].total).toBeGreaterThanOrEqual(0);
+    expect(m["archive.ready"].value).toBe(1);
+    expect(m["archive.skipped"].value).toBe(1);
+    expect(m["archive.ready"].total).toBe(0);
+    expect(m["archive.missing"].value).toBe(0);
   });
 
   test("an empty catalog reports zeros, not NaN", async () => {
