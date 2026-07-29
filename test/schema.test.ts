@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import {
+  MetricSchema,
   MetricSnapshotSchema,
   SCHEMA_VERSION,
   SectionIngestSchema,
@@ -70,5 +71,29 @@ describe("SectionIngestSchema (push mode)", () => {
   test("rejects a section missing metrics", () => {
     const r = SectionIngestSchema.safeParse({ key: "qa", label: "QA", source: "qa-pipeline" });
     expect(r.success).toBe(false);
+  });
+});
+
+// breakdown_unit is consumed downstream by routes/ui.ts's
+// `metric.breakdown_unit || metric.unit` fallback, so a zod typo would silently
+// strip it and send byte bars back to count formatting.
+describe("breakdown_unit", () => {
+  test("survives a parse round-trip when set", () => {
+    const r = MetricSchema.safeParse({
+      key: "access.top",
+      label: "Most read datasets",
+      value: 3,
+      unit: "count",
+      breakdown: [{ label: "on004080", value: 13124701 }],
+      breakdown_unit: "bytes",
+    });
+    expect(r.success).toBe(true);
+    expect(r.success && r.data.breakdown_unit).toBe("bytes");
+  });
+
+  test("is optional and absent when not supplied", () => {
+    const r = MetricSchema.safeParse({ key: "a.b", label: "A", value: 1 });
+    expect(r.success).toBe(true);
+    expect(r.success && r.data.breakdown_unit).toBeUndefined();
   });
 });

@@ -40,6 +40,10 @@
         "severity": { "$ref": "#/$defs/severity", "default": "info" },
         "drilldown": { "type": "string", "description": "Admin drill-down key resolving to the list behind the number" },
         "breakdown": { "type": "array", "items": { "$ref": "#/$defs/breakdownItem" } },
+        "breakdown_unit": {
+          "type": "string",
+          "description": "Unit of the breakdown values when it differs from `unit` (e.g. a count of datasets broken down by bytes each). Falls back to `unit` when absent."
+        },
         "hint": { "type": "string" }
       }
     },

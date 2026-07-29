@@ -42,6 +42,14 @@ export const MetricSchema = z.object({
   /** Admin drill-down key; omitted means the tile has no list behind it. */
   drilldown: z.string().optional(),
   breakdown: z.array(BreakdownItemSchema).optional(),
+  /**
+   * Unit for the `breakdown` values, when it differs from `unit`. A tile whose
+   * value counts items can still break down by something else entirely — e.g.
+   * "Most read datasets" is a count of datasets broken down by bytes each. A
+   * consumer that does not understand this field falls back to `unit`, which
+   * only ever mis-formats a bar label.
+   */
+  breakdown_unit: z.string().optional(),
   /** Short tooltip / context line. */
   hint: z.string().optional(),
 });
