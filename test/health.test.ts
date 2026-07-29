@@ -96,6 +96,44 @@ describe("health", () => {
     expect(await res.json()).toMatchObject({ ok: false, stale: true });
   });
 
+  // The near-miss: a corrupt or schema-drifted snapshot row used to read as
+  // "loaded fine, zero section errors" because loadLatestSnapshot returns null
+  // for both "no row" and "bad row". Ship a schema change and the previous
+  // cron's row stops validating while cron_status is still fresh, so health
+  // would answer ok:true for up to an hour with an unreadable snapshot.
+  test("503 when the newest snapshot row fails schema validation but the cron is fresh", async () => {
+    const at = new Date().toISOString();
+    engine
+      .query("UPDATE cron_status SET last_success_at = ?, last_run_at = ? WHERE id = 1")
+      .run(at, at);
+    engine
+      .query("INSERT INTO snapshots (generated_at, snapshot_json) VALUES (?, ?)")
+      .run(at, JSON.stringify({ schema_version: "9.9", generated_at: at, sections: [] }));
+
+    const res = await health();
+    expect(res.status).toBe(503);
+    expect(await res.json()).toMatchObject({
+      ok: false,
+      stale: false,
+      snapshot: "unreadable",
+      snapshot_error: "schema_mismatch",
+    });
+  });
+
+  test("503 when the newest snapshot row is not valid JSON", async () => {
+    const at = new Date().toISOString();
+    engine
+      .query("UPDATE cron_status SET last_success_at = ?, last_run_at = ? WHERE id = 1")
+      .run(at, at);
+    engine
+      .query("INSERT INTO snapshots (generated_at, snapshot_json) VALUES (?, ?)")
+      .run(at, "{not json");
+
+    const res = await health();
+    expect(res.status).toBe(503);
+    expect(await res.json()).toMatchObject({ ok: false, snapshot_error: "invalid_json" });
+  });
+
   test("503 when the cron has never succeeded", async () => {
     const res = await health(); // migration seeds cron_status with NULLs
     expect(res.status).toBe(503);
