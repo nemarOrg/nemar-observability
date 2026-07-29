@@ -37,11 +37,13 @@ Every metric is a headline number (a total, or a percent like "% with archive");
 - **push** — an external pipeline (future data-processing / QA) `POST`s a schema-conformant section to `/observability/api/sections/:key` (token-auth); it is stored and merged into the snapshot. Adding a pipeline never requires changing the dashboard core.
 
 ### Privacy boundary
-Public snapshot (the tiles) carries **headline numbers only, no private dataset IDs**. Drill-down lists (which datasets are missing/failed) are computed on demand from `nemar-db` and require an admin (delegated `/users/me`), authenticated by the admin's `nm_…` API key (Bearer) entered in the UI (localStorage).
+Public snapshot (the tiles) carries **headline numbers only, no private dataset IDs**.
 
-**This Worker has no mutation surface** (#8). The four admin action relays it used to carry live in the website admin portal at `app.nemar.org/admin`, behind an HttpOnly host-scoped session cookie rather than a pasted long-lived token. The only remaining write is the token-gated `POST /api/sections/:key` pipeline push. `test/no-write-surface.test.ts` asserts the removed routes stay 404 — do not reintroduce a mutation here; it belongs in the website portal.
+**The dashboard page has zero auth and zero writes** (#8). It holds no credential, so a spoof of this origin has nothing to steal and nothing to trigger. Every admin action lives in the website portal at `app.nemar.org/admin`, behind an HttpOnly host-scoped session cookie; tiles with a `drilldown` key link there. The only write left on this Worker is the token-gated `POST /api/sections/:key` pipeline push.
 
-The read-only drill-downs and the pasted key survive **only until** the website grows equivalent dataset-health lists (epic #12 phase 2: nemar-cli#1032 + website#195). Phase 3 (#13) then removes `resolveAdmin`, the drill-down route, and the key entry entirely, leaving a zero-auth public reader.
+`GET /api/drilldown/:key` survives as an admin-only (Bearer, delegated `/users/me`) **programmatic** endpoint — the page never calls it. Phase 3 (#13) removes it, along with `resolveAdmin` and `NEMAR_API_BASE`, once the website carries equivalent dataset-health lists (phase 2: nemar-cli#1032 + website#195).
+
+`test/no-write-surface.test.ts` asserts both halves: the removed routes stay 404, and the rendered page contains no `localStorage`/`Authorization`/`Bearer`. Do not reintroduce a mutation or a credential here.
 
 ## Key facts (NEMAR ecosystem)
 
