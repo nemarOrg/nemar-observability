@@ -118,19 +118,37 @@ async function getJson(
   }
 }
 
+/**
+ * Parse one catalog page: the dataset ids on it, and whether the sweep has
+ * seen the last page. Pure, so the pagination termination logic is testable
+ * without a live catalog. `offset` is the count of ids consumed BEFORE this
+ * page. Done when the page is empty, or when the response's `total_count`
+ * (the field `GET /datasets` actually returns) says everything is consumed;
+ * a missing/malformed total_count just means the loop terminates on the
+ * empty-page condition instead.
+ */
+export function parseCatalogPage(
+  body: Record<string, unknown>,
+  offset: number,
+): { ids: string[]; done: boolean } {
+  if (!Array.isArray(body.datasets)) return { ids: [], done: true };
+  const ids = (body.datasets as Array<Record<string, unknown>>)
+    .map((d) => d.dataset_id)
+    .filter((id): id is string => typeof id === "string");
+  const consumed = offset + ids.length;
+  const done =
+    ids.length === 0 || (typeof body.total_count === "number" && consumed >= body.total_count);
+  return { ids, done };
+}
+
 async function listPublicDatasets(apiBase: string): Promise<string[] | null> {
   const ids: string[] = [];
-  let offset = 0;
   for (;;) {
-    const { status, body } = await getJson(`${apiBase}/datasets?limit=100&offset=${offset}`);
+    const { status, body } = await getJson(`${apiBase}/datasets?limit=100&offset=${ids.length}`);
     if (status !== 200 || body === null || !Array.isArray(body.datasets)) return null;
-    const batch = (body.datasets as Array<Record<string, unknown>>)
-      .map((d) => d.dataset_id)
-      .filter((id): id is string => typeof id === "string");
-    if (batch.length === 0) break;
-    ids.push(...batch);
-    offset += batch.length;
-    if (typeof body.total === "number" && offset >= body.total) break;
+    const page = parseCatalogPage(body, ids.length);
+    ids.push(...page.ids);
+    if (page.done) break;
   }
   return ids;
 }
@@ -138,7 +156,15 @@ async function listPublicDatasets(apiBase: string): Promise<string[] | null> {
 async function checkDataset(dataBase: string, datasetId: string): Promise<Problem[]> {
   const { status, body } = await getJson(`${dataBase}/${datasetId}/`);
   if (status !== 200 || body === null) {
-    return [{ dataset_id: datasetId, kind: "landing", http: status }];
+    // Carry the API's error reason when it gives one (e.g. "Dataset not
+    // found"), and flag the self-contradictory-looking 200 case explicitly.
+    const error =
+      typeof body?.error === "string"
+        ? body.error
+        : status === 200
+          ? "200 response was not valid JSON"
+          : undefined;
+    return [{ dataset_id: datasetId, kind: "landing", http: status, error }];
   }
   const problems: Problem[] = [];
   for (const version of versionsOf(body)) {
@@ -163,6 +189,17 @@ async function sweep(apiBase: string, dataBase: string): Promise<ManifestVerdict
       ok: false,
       summary: "public catalog is unreachable",
       detail: `\`GET ${apiBase}/datasets\` did not return a parseable page; the sweep could not run.`,
+    };
+  }
+  if (ids.length === 0) {
+    // "Checked nothing" must never read as "everything is fine": an empty
+    // page-one from a filter regression or degraded-but-200 backend would
+    // otherwise silence the monitor -- the exact failure class it exists
+    // to end.
+    return {
+      ok: false,
+      summary: "public catalog reported zero datasets (treating as a failure)",
+      detail: `\`GET ${apiBase}/datasets\` answered with an empty catalog. Either the catalog is genuinely empty (it never should be) or the endpoint is degraded while still returning 200.`,
     };
   }
   console.log(`catalog: ${ids.length} public datasets`);
