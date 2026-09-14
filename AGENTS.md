@@ -55,6 +55,32 @@ Public snapshot (the tiles) carries **headline numbers only, no private dataset 
 - **AE blob layout** is a contract with nemar-cli's `buildAccessDataPoint`: `blob1` dataset_id, `blob2` source, `blob3` detail (`index`/`metadata`/`chunk` for zarr). Never sum across `blob3` — index.json crawling dwarfs real data reads.
 - **Zone analytics** needs `CF_ZONE_ANALYTICS_TOKEN` (Zone > Analytics > Read on nemar.org; account-level Analytics Read does NOT cover it). `httpRequestsAdaptiveGroups` is the only host-dimensioned dataset and rejects windows wider than 1 day, so per-host data is accumulated daily into `cf_daily_host`. Exclude `rate-limit.internal`, and never sum daily uniques into a window total.
 
+## Reading the shared documentation, and what to do when you cannot
+
+`docs.nemar.org` is the canonical surface for anything about the NEMAR platform rather than about
+this repository (nemar-cli ADR 0057). Public pages need nothing; fetch the URL. **Every page also
+has a Markdown mirror at the same path plus `.md`**, which is what to fetch if you are a program,
+and `https://docs.nemar.org/llms.txt` indexes them.
+
+```bash
+curl -s https://docs.nemar.org/platform/hosts-and-routes.md
+```
+
+Pages under `/admin/` are gated: `nemarOrg/docs` is private at source and the gate admits the
+`admin` and `owner` roles only. An admin holding a NEMAR CLI key reads one without a browser:
+
+```bash
+nemar admin docs admin/operations/systems-inventory
+```
+
+**If you cannot read something you need, open the issue anyway.** Losing read access must not
+cost you the ability to report a problem. File it on the relevant repository, say plainly what
+you could not read and what you were trying to do, and tag **`@nemarOrg/admins`**. Someone with
+access will either answer or open the page for you.
+
+Escalation replaces read access. **Silence does not.** A blocked agent that stops without saying
+so is the failure mode this instruction exists to prevent.
+
 ## Environment Setup
 ```bash
 bun install
