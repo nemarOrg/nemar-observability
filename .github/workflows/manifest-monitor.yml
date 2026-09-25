@@ -1,0 +1,100 @@
+name: Manifest monitor
+
+# Issue #34: probe every published version of every public dataset for a
+# servable file index, through the same public surface a nemar.org visitor
+# uses. Catches the nm000225 class of failure (nemarOrg/nemar-cli#1130):
+# a version with a DOI and a catalog row whose S3 manifest never landed, so
+# the dataset page renders "File index unavailable" indefinitely -- plus any
+# data-worker regression, S3 permission drift, or CDN fault on that path.
+#
+# Division of labor with nemar-cli#1130's backend cron: the backend sweep
+# self-heals RECENT publications (bounded window, it has credentials); this
+# monitor covers the FULL catalog with zero credentials and alerts, because
+# detection must not depend on the machinery it is checking.
+#
+# HONEST LIMITATION (same as health-monitor.yml): GitHub Actions `schedule`
+# is best-effort and gets disabled after 60 days of repo inactivity. This is
+# a daily safety net for a failure mode measured in weeks, not a pager.
+
+on:
+  schedule:
+    # Daily at 11:23 UTC, after the backend's daily 03:00 self-heal sweep, so
+    # a publish-time failure the backend already fixed does not page anyone.
+    - cron: "23 11 * * *"
+  workflow_dispatch:
+    inputs:
+      api_base:
+        description: Catalog API base
+        default: https://api.nemar.org
+      data_base:
+        description: Data plane base
+        default: https://data.nemar.org
+
+# Needs to open, comment on, and close the alert issue.
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: manifest-monitor
+  cancel-in-progress: false
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      # No `bun install`: check-manifests.ts imports nothing outside node:fs
+      # and the Bun runtime, so the monitor keeps working even if a dependency
+      # install would fail.
+      - name: Probe public datasets
+        id: check
+        continue-on-error: true
+        run: bun scripts/check-manifests.ts "${{ inputs.api_base || 'https://api.nemar.org' }}" "${{ inputs.data_base || 'https://data.nemar.org' }}"
+
+      # One open alert issue at a time, reused across runs, so a multi-day
+      # outage updates a single thread instead of filing duplicates.
+      - name: Open or update the alert issue
+        if: steps.check.outputs.ok != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SUMMARY: ${{ steps.check.outputs.summary }}
+          DETAIL: ${{ steps.check.outputs.detail }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          existing=$(gh issue list --label manifest-alert --state open --limit 1 --json number -q '.[0].number // empty')
+          body=$(printf '%s\n\n%s\n\nDetected by [this run](%s).\n' "**$SUMMARY**" "$DETAIL" "$RUN_URL")
+          if [ -n "$existing" ]; then
+            echo "Updating existing alert #$existing"
+            gh issue comment "$existing" --body "$body"
+          else
+            echo "Opening a new alert issue"
+            gh issue create \
+              --title "Unservable version indexes: $SUMMARY" \
+              --label manifest-alert \
+              --body "$body"
+          fi
+
+      - name: Close the alert issue on recovery
+        if: steps.check.outputs.ok == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          for n in $(gh issue list --label manifest-alert --state open --json number -q '.[].number'); do
+            echo "Closing recovered alert #$n"
+            gh issue close "$n" --comment "Recovered: every advertised version serves its file index again ([run]($RUN_URL))."
+          done
+
+      # Fail the job AFTER the issue bookkeeping, so a red run in the Actions
+      # tab (and GitHub's default failure email) is a second, independent
+      # signal rather than something that short-circuits the issue.
+      - name: Fail if broken
+        if: steps.check.outputs.ok != 'true'
+        run: |
+          echo "::error::${{ steps.check.outputs.summary }}"
+          exit 1
