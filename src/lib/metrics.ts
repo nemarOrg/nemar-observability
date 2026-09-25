@@ -199,13 +199,6 @@ export async function sizesSection(db: D1Database, now: string): Promise<Section
   };
 }
 
-async function archiveSection(db: D1Database, now: string): Promise<Section> {
-  // All archive metrics are scoped to PUBLISHED (public + concept DOI) so the
-  // denominator is consistent and `ready` can never exceed `published` -- a
-  // published dataset is the only thing that should have a generated archive.
-  const c = await counts<"published" | "ready" | "pending" | "failed" | "missing">(
-// Exported for tests (real SQLite engine); buildSnapshot() is the only
-// production caller.
 export async function archiveSection(db: D1Database, now: string): Promise<Section> {
   // Archive metrics are scoped to PUBLISHED (public + concept DOI), then split
   // again by whether an archive is even SUPPOSED to exist.
