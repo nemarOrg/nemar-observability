@@ -50,6 +50,16 @@ export const MetricSchema = z.object({
    * only ever mis-formats a bar label.
    */
   breakdown_unit: z.string().optional(),
+  /**
+   * How to draw the breakdown.
+   *
+   * "bars" (default) compares categories against each other — a distribution,
+   * where the bar IS the information. "ranked" is an ordered top-N list, where
+   * the value is printed beside each label and a bar would only restate it;
+   * worse, one dominant entry flattens every other bar to an identical stub,
+   * so the chart implies "these are all the same" when they are not.
+   */
+  breakdown_style: z.enum(["bars", "ranked"]).optional(),
   /** Short tooltip / context line. */
   hint: z.string().optional(),
 });
@@ -66,6 +76,17 @@ export const SectionSchema = z.object({
   metrics: z.array(MetricSchema).min(1),
   /** ISO-8601 of when this section's data was computed/received. */
   updated_at: z.string().datetime(),
+  /**
+   * How to arrange this section's tiles.
+   *
+   * "tiles" (default) is the uniform auto-fill grid every stat section uses.
+   * "split" is a wide-left/narrow-right pair for a distribution and its
+   * companion list: a 23-bin histogram in a 210px stat-tile column renders
+   * 50px bars, and letting it merely span columns leaves the short tiles
+   * beside it stretched over a tall empty row. Consumers that don't know this
+   * field fall back to the uniform grid, so it can only ever affect layout.
+   */
+  layout: z.enum(["tiles", "split"]).optional(),
 });
 export type Section = z.infer<typeof SectionSchema>;
 
@@ -93,6 +114,7 @@ export const BUILTIN_SECTION_KEYS: ReadonlySet<string> = new Set([
   "datasets",
   "archive",
   "zarr",
+  "sizes",
   "imports",
   "sync",
   "publication",

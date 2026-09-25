@@ -33,7 +33,7 @@ src/
 ### The metrics standard (why this repo exists)
 
 Every metric is a headline number (a total, or a percent like "% with archive"); each tile can drill into the list of datasets behind it. Pipelines contribute **sections** to one versioned `MetricSnapshot` schema (`src/lib/schema/`). Two contribution modes:
-- **pull** — the hourly cron computes built-in sections it knows (`datasets`, `archive`, `zarr`, `imports`, `publication`, `access`, `cf`, `users`) from `nemar-db`, Analytics Engine, and Cloudflare zone analytics. (`sync` was retired with nemar-cli migration 0053 but stays reserved so a pushed section cannot recycle the key.)
+- **pull** — the hourly cron computes built-in sections it knows (`datasets`, `sizes`, `archive`, `zarr`, `imports`, `publication`, `access`, `cf`, `users`) from `nemar-db`, Analytics Engine, and Cloudflare zone analytics. (`sync` was retired with nemar-cli migration 0053 but stays reserved so a pushed section cannot recycle the key.)
 - **push** — an external pipeline (future data-processing / QA) `POST`s a schema-conformant section to `/observability/api/sections/:key` (token-auth); it is stored and merged into the snapshot. Adding a pipeline never requires changing the dashboard core.
 
 ### Privacy boundary

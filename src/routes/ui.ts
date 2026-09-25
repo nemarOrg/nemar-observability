@@ -22,6 +22,10 @@ const API = "/observability/api";
 // Where every admin action lives now (#8). Tiles with a drilldown key link here
 // instead of opening an in-page list.
 const ADMIN_PORTAL = "https://app.nemar.org/admin";
+// Enough rows for the full size histogram (23 log bins). Truncating a histogram
+// misrepresents the distribution rather than merely abbreviating it; the older
+// cap of 8 also clipped the modality list, which had no reason to be clipped.
+const BREAKDOWN_MAX = 24;
 function humanBytes(n) {
   if (!n || n < 1) return "0 B";
   const u = ["B","KB","MB","GB","TB","PB"]; let i = 0; let x = n;
@@ -47,22 +51,27 @@ function el(tag, cls, text) {
 // A breakdown can be denominated differently from its tile: "Most read
 // datasets" is a count of datasets whose bars are bytes each. metric.breakdown_unit
 // carries that; absent, the bars share the tile's unit.
-function renderBreakdown(parent, items, unit) {
+function renderBreakdown(parent, items, unit, style) {
   const max = items.reduce(function (m, it) { return Math.max(m, it.value); }, 0) || 1;
   const fmtVal = unit === "bytes" ? humanBytes : function (v) { return Number(v).toLocaleString(); };
+  const ranked = style === "ranked";
   const list = el("div", "breakdown");
-  items.slice(0, 8).forEach(function (it) {
-    const row = el("div", "bd-row");
+  items.slice(0, BREAKDOWN_MAX).forEach(function (it) {
+    const row = el("div", ranked ? "bd-row bd-ranked" : "bd-row");
     row.appendChild(el("span", "bd-label", it.label));
-    const barWrap = el("span", "bd-bar");
-    const bar = el("span", "bd-fill");
-    bar.style.width = Math.max(2, (it.value / max) * 100) + "%";
-    barWrap.appendChild(bar);
-    row.appendChild(barWrap);
+    // A ranked list prints its value; a bar there would restate it, and one
+    // dominant entry would flatten the rest into identical stubs.
+    if (!ranked) {
+      const barWrap = el("span", "bd-bar");
+      const bar = el("span", "bd-fill");
+      bar.style.width = Math.max(2, (it.value / max) * 100) + "%";
+      barWrap.appendChild(bar);
+      row.appendChild(barWrap);
+    }
     row.appendChild(el("span", "bd-val", fmtVal(it.value)));
     list.appendChild(row);
   });
-  if (items.length > 8) list.appendChild(el("div", "bd-more", "+" + (items.length - 8) + " more"));
+  if (items.length > BREAKDOWN_MAX) list.appendChild(el("div", "bd-more", "+" + (items.length - BREAKDOWN_MAX) + " more"));
   parent.appendChild(list);
 }
 
@@ -82,7 +91,7 @@ function tile(metric) {
     t.appendChild(barWrap);
   }
   if (metric.hint) t.appendChild(el("div", "tile-hint", metric.hint));
-  if (metric.breakdown && metric.breakdown.length) renderBreakdown(t, metric.breakdown, metric.breakdown_unit || metric.unit);
+  if (metric.breakdown && metric.breakdown.length) renderBreakdown(t, metric.breakdown, metric.breakdown_unit || metric.unit, metric.breakdown_style);
   // A drilldown key used to open an in-page list gated by a pasted API token.
   // The list now lives in the admin portal behind a session cookie, so the tile
   // links there instead of asking anyone for a credential (#8).
@@ -111,7 +120,7 @@ function renderSnapshot(snap) {
     head.appendChild(el("h2", null, section.label));
     head.appendChild(el("span", "src", section.source));
     card.appendChild(head);
-    const grid = el("div", "tiles");
+    const grid = el("div", "tiles" + (section.layout === "split" ? " split" : ""));
     section.metrics.forEach(function (m) { grid.appendChild(tile(m)); });
     card.appendChild(grid);
     root.appendChild(card);
@@ -161,6 +170,9 @@ main { padding: 20px 24px 60px; max-width: 1200px; margin: 0 auto; }
 .card-head h2 { font-size: 15px; margin: 0; font-weight: 600; letter-spacing: .01em; }
 .card-head .src { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: .06em; }
 .tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 12px; }
+/* Distribution + companion list: ~2/3 and ~1/3, stacking on narrow screens. */
+.tiles.split { grid-template-columns: 2fr 1fr; }
+@media (max-width: 720px) { .tiles.split { grid-template-columns: 1fr; } }
 .tile { background: var(--panel-2); border: 1px solid var(--border); border-left-width: 3px;
   border-radius: 10px; padding: 12px 13px; }
 .tile.sev-ok { border-left-color: var(--ok); }
@@ -176,11 +188,12 @@ main { padding: 20px 24px 60px; max-width: 1200px; margin: 0 auto; }
 .tile-hint { color: var(--muted); font-size: 11.5px; margin-top: 7px; line-height: 1.35; }
 .tile-cta { color: var(--accent); font-size: 12px; margin-top: 8px; }
 .breakdown { margin-top: 10px; display: flex; flex-direction: column; gap: 4px; }
-.bd-row { display: grid; grid-template-columns: 76px 1fr 46px; align-items: center; gap: 6px; font-size: 11.5px; }
+.bd-row { display: grid; grid-template-columns: 92px 1fr 62px; align-items: center; gap: 6px; font-size: 11.5px; }
+.bd-ranked { grid-template-columns: 1fr auto; gap: 12px; }
 .bd-label { color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .bd-bar { background: #0c1015; height: 7px; border-radius: 4px; overflow: hidden; }
 .bd-fill { display: block; height: 100%; background: var(--accent); opacity: .8; }
-.bd-val { text-align: right; color: var(--fg); }
+.bd-val { text-align: right; color: var(--fg); white-space: nowrap; }
 .bd-more { color: var(--muted); font-size: 11px; margin-top: 2px; }
 .muted { color: var(--muted); }
 .errbar { background: rgba(248,81,73,.12); border: 1px solid var(--error); color: #ffd7d4;
