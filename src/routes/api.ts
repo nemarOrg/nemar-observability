@@ -30,16 +30,58 @@ import type { Bindings } from "../types";
 export const apiRoutes = new Hono<{ Bindings: Bindings }>();
 
 const PUBLIC_CACHE = "public, max-age=60, s-maxage=300, stale-while-revalidate=600";
+const MAX_SECTION_BODY_BYTES = 1_000_000;
 
-/** Constant-time string compare (avoids leaking the ingest token via timing). */
-function safeEqual(a: string, b: string): boolean {
+type JsonBodyResult = { ok: true; value: unknown } | { ok: false; tooLarge: boolean };
+
+/** Read one bounded JSON request body without allowing unbounded buffering. */
+async function readBoundedJsonBody(request: Request): Promise<JsonBodyResult> {
+  const contentLength = request.headers.get("Content-Length");
+  const declaredLength = contentLength === null ? Number.NaN : Number(contentLength);
+  if (Number.isFinite(declaredLength) && declaredLength > MAX_SECTION_BODY_BYTES) {
+    return { ok: false, tooLarge: true };
+  }
+  const reader = request.body?.getReader();
+  if (!reader) return { ok: false, tooLarge: false };
+  const chunks: Uint8Array[] = [];
+  let size = 0;
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      size += value.byteLength;
+      if (size > MAX_SECTION_BODY_BYTES) {
+        try {
+          await reader.cancel();
+        } catch {
+          // The oversized body is rejected either way.
+        }
+        return { ok: false, tooLarge: true };
+      }
+      chunks.push(value);
+    }
+    const body = new Uint8Array(size);
+    let offset = 0;
+    for (const chunk of chunks) {
+      body.set(chunk, offset);
+      offset += chunk.byteLength;
+    }
+    return { ok: true, value: JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(body)) };
+  } catch {
+    return { ok: false, tooLarge: false };
+  } finally {
+    reader.releaseLock();
+  }
+}
+
+/** Compare fixed-size SHA-256 digests with the runtime timing-safe primitive. */
+async function safeEqual(a: string, b: string): Promise<boolean> {
   const enc = new TextEncoder();
-  const ab = enc.encode(a);
-  const bb = enc.encode(b);
-  if (ab.length !== bb.length) return false;
-  let diff = 0;
-  for (let i = 0; i < ab.length; i++) diff |= ab[i] ^ bb[i];
-  return diff === 0;
+  const [providedHash, expectedHash] = await Promise.all([
+    crypto.subtle.digest("SHA-256", enc.encode(a)),
+    crypto.subtle.digest("SHA-256", enc.encode(b)),
+  ]);
+  return crypto.subtle.timingSafeEqual(providedHash, expectedHash);
 }
 
 // Latest snapshot. If none has been computed yet (fresh deploy before the first
@@ -120,7 +162,7 @@ apiRoutes.post("/sections/:key", async (c) => {
   const token = /^Bearer\s+(.+)$/i.exec(auth.trim())?.[1]?.trim();
   const key = c.req.param("key");
   const expected = Object.prototype.hasOwnProperty.call(tokenMap, key) ? (tokenMap as Record<string, unknown>)[key] : undefined;
-  if (typeof expected !== "string" || !token || !safeEqual(token, expected)) {
+  if (typeof expected !== "string" || !token || !(await safeEqual(token, expected))) {
     return c.json({ error: "Invalid ingest token" }, 401);
   }
   // Reject a built-in key at ingest (409) instead of accepting it, storing it,
@@ -129,13 +171,9 @@ apiRoutes.post("/sections/:key", async (c) => {
   if (BUILTIN_SECTION_KEYS.has(key)) {
     return c.json({ error: "Cannot shadow a built-in section key" }, 409);
   }
-  let body: unknown;
-  try {
-    body = await c.req.json();
-  } catch {
-    return c.json({ error: "Invalid JSON" }, 400);
-  }
-  const parsed = SectionIngestSchema.safeParse(body);
+  const body = await readBoundedJsonBody(c.req.raw);
+  if (!body.ok) return c.json({ error: body.tooLarge ? "Section payload exceeds 1 MB" : "Invalid JSON" }, body.tooLarge ? 413 : 400);
+  const parsed = SectionIngestSchema.safeParse(body.value);
   if (!parsed.success) {
     return c.json({ error: "Section does not match schema", issues: parsed.error.issues }, 422);
   }

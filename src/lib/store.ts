@@ -161,12 +161,22 @@ export async function saveDailySeries(db: D1Database, section: string, source: s
       (section_key, series_key, source, label, unit, aggregation, timezone, coverage_start, coverage_end, freshness_after_hours, updated_at)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(section_key, series_key) DO UPDATE SET source=excluded.source, label=excluded.label, unit=excluded.unit,
-      aggregation=excluded.aggregation, timezone=excluded.timezone, coverage_start=excluded.coverage_start,
-      coverage_end=excluded.coverage_end, freshness_after_hours=excluded.freshness_after_hours, updated_at=excluded.updated_at`)
+      aggregation=excluded.aggregation, timezone=excluded.timezone,
+      coverage_start=MIN(daily_series.coverage_start, excluded.coverage_start),
+      coverage_end=MAX(daily_series.coverage_end, excluded.coverage_end),
+      freshness_after_hours=excluded.freshness_after_hours, updated_at=excluded.updated_at`)
       .bind(section, item.key, source, item.label, item.unit, item.aggregation, item.timezone, item.coverage_start, item.coverage_end, item.freshness_after_hours, at));
-    for (const point of item.points) statements.push(db.prepare(`INSERT INTO daily_series_points (section_key, series_key, date, value, updated_at)
-      VALUES (?, ?, ?, ?, ?) ON CONFLICT(section_key, series_key, date) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at`)
-      .bind(section, item.key, point.date, point.value, at));
+    // D1 allows at most 100 bound parameters per statement. Twenty points use
+    // all 100 slots while cutting a large backfill to a small number of SQL
+    // statements instead of one statement for every observation.
+    for (let offset = 0; offset < item.points.length; offset += 20) {
+      const points = item.points.slice(offset, offset + 20);
+      const values = points.map(() => "(?, ?, ?, ?, ?)").join(", ");
+      const bindings = points.flatMap((point) => [section, item.key, point.date, point.value, at]);
+      statements.push(db.prepare(`INSERT INTO daily_series_points (section_key, series_key, date, value, updated_at)
+        VALUES ${values} ON CONFLICT(section_key, series_key, date) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at`)
+        .bind(...bindings));
+    }
   }
   for (let offset = 0; offset < statements.length; offset += 100) await db.batch(statements.slice(offset, offset + 100));
 }

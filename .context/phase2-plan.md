@@ -15,13 +15,16 @@ credential-free dashboard and keep source measures separate.
 - Ingest credentials are a JSON map keyed by section (`OBS_INGEST_TOKENS_JSON`).
   The endpoint-wide legacy secret has no fallback. A token configured for one
   section cannot write another section.
+- Ingest bodies are capped at 1 MB, with at most 16 series and 5,000 points per
+  push (3,660 points per series) to bound D1 write work.
 - A section push may include daily series alongside its existing headline
   metrics. Series are additive counts or bytes in UTC; unique people and other
   non-additive values do not enter the chart rollups.
 - Store daily series in the observability Worker's own D1, separate from hourly
   snapshots. The public snapshot remains small. A separate read endpoint
   returns only aggregate values, coverage bounds, timezone, and server receipt
-  time.
+  time. Persisted coverage bounds expand as new source windows arrive, so a
+  rolling collector window cannot hide previously stored history.
 - The browser fetches daily points for the chosen date range and performs
   week/month grouping. A missing day stays unknown; it is not filled with zero,
   and a grouped bucket is shown only when all requested days in that bucket have

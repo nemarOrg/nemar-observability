@@ -26,7 +26,11 @@ unknown; non-additive unique-visitor counts are excluded from rollups.
 
 The dashboard needs a D1 migration and rotating per-section credentials.
 Collectors must send replacement values for overlapping days and declare
-coverage. The series endpoint remains public but returns aggregate data only;
+coverage. Ingest is bounded to a 1 MB body, 16 series, and 5,000 daily points
+per section push; a series can contain at most 3,660 points. Persisted coverage
+is the union of observed source-window bounds, so
+an incremental or rolling-window push cannot hide older stored observations.
+The series endpoint remains public but returns aggregate data only;
 source API keys, identities, and dataset IDs never enter the page. Series are
 not embedded in hourly snapshots, so callers use the dedicated endpoint.
 
