@@ -27,7 +27,7 @@ src/
 ├── index.ts            worker entry: { fetch, scheduled } + route mounting
 ├── cron.ts             hourly snapshot recompute
 ├── routes/
-│   ├── api.ts          /api/snapshot, /snapshot/history, /drilldown/:key, /sections/:key
+│   ├── api.ts          /api/snapshot, /snapshot/history, /timeseries, /drilldown/:key, /sections/:key
 │   └── ui.ts           the server-rendered dashboard page
 ├── lib/
 │   ├── schema.ts       the MetricSnapshot standard (Zod = source of truth)
@@ -111,6 +111,87 @@ The body must conform to `src/lib/metric-snapshot.schema.json` (`$defs/sectionIn
 | `GET /observability/health` | public | liveness |
 
 The **public snapshot and time-series API contain aggregates only**, never private dataset ids or credentials. The page is zero-auth and zero-write. Daily usage controls support 7/30/90/365-day presets, custom UTC dates, and day/week/month grouping. Chart gaps mean missing or out-of-coverage observations.
+
+## Daily S3 egress series
+
+`scripts/push-s3-egress.ts` reads the existing CloudWatch `AWS/S3:BytesDownloaded`
+metric for bucket `nemar`, filter `EntireBucket`, in `us-east-2`. It requests
+daily `Sum` values with an 86,400-second period and UTC-midnight bounds. Run
+the initial collector once with `EGRESS_START_DATE=2026-08-01` to backfill from
+August 1, 2026 UTC through the last complete UTC day. Its default daily run
+re-reads the latest 14 days so late-corrected observations replace earlier
+values without repeating the full backfill. Set either `EGRESS_START_DATE` or
+`EGRESS_LOOKBACK_DAYS`, not both; the daily timer sets neither.
+Missing CloudWatch datapoints stay missing; the collector never fills them with
+zero. The chart keeps S3 response bytes separate from Cloudflare, Worker, and
+Umami measures. This bucket-wide metric includes conversion reads and does not
+identify a caller or prove a completed human download. AWS describes the metric
+as response-body bytes and S3 request metrics as best-effort, opt-in telemetry
+billed at standard CloudWatch rates ([metric definition](https://docs.aws.amazon.com/AmazonS3/latest/userguide/metrics-dimensions.html),
+[best-effort delivery](https://docs.aws.amazon.com/AmazonS3/latest/userguide/metrics-configurations.html),
+[request-metric behavior](https://docs.aws.amazon.com/AmazonS3/latest/userguide/configure-request-metrics-bucket.html)).
+The collector only reads the existing metrics configuration; it does not
+enable or change it.
+
+On nemaring, install Bun, AWS CLI v2, and Infisical CLI. The read-only Infisical
+token file belongs at
+`$HOME/.config/infisical/nemar-observability-egress.token` with owner-only
+permissions (`0600`). The Infisical target is project `nemar` (ID
+`817f7473-a318-4e99-9cf4-a89db057f5fc`), production environment `prod`
+(displayed as `Production - api.nemar.org`), path `/observability/egress`;
+it must expose `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, and
+`AWS_REGION=us-east-2`. Once section-keyed ingest is deployed, add
+`OBS_EGRESS_INGEST_TOKEN` to that same path, with a token authorized only for
+section key `egress`. Do not put AWS values or the ingest token in this repo,
+shell history, systemd files, or logs.
+
+On nemaring, use the local Infisical listener at `http://127.0.0.1:8080` for
+headless CLI access. The public `https://infisical.nemar.org` endpoint returns
+a Cloudflare Access redirect to unauthenticated CLI requests. The `prod`
+environment supplies production `api.nemar.org` credentials; the `dev`
+environment targets `api-test.nemar.org`, and local development uses
+`.dev.vars`.
+
+For the initial backfill and acceptance run from `/opt/nemar-observability`:
+
+```bash
+EGRESS_START_DATE=2026-08-01 ops/with-egress-secrets.sh /opt/nemar-observability/scripts/push-s3-egress.ts
+```
+
+The collector publishes a red `Latest collector run errors` status metric when
+AWS collection or freshness validation fails but the section token and
+dashboard are available; it leaves stored daily points unchanged. If a section
+POST has an ambiguous outcome, the collector does not send a second status
+write that might replace a committed success. If it cannot reach the dashboard
+or has no ingest token, the systemd journal records the failure and the last
+series eventually ages stale. Check the service logs and
+`GET /observability/api/timeseries` for the returned dates.
+
+Install the units and run the collector once for acceptance:
+
+```bash
+sudo install -m 0644 ops/systemd/nemar-observability-egress.service /etc/systemd/system/
+sudo install -m 0644 ops/systemd/nemar-observability-egress.timer /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl start nemar-observability-egress.service
+sudo journalctl -u nemar-observability-egress.service -n 100 --no-pager
+```
+
+After the real section is accepted, appears in the time-series API, and the
+dashboard shows the expected dates and gaps, enable the schedule:
+
+```bash
+sudo systemctl enable --now nemar-observability-egress.timer
+```
+
+The timer is scheduled daily at 08:17 UTC with up to 15 minutes of randomized
+delay. `Persistent=true` catches up a missed timer activation after downtime;
+it does not retry a collector process that ran and failed. Failures remain in
+the journal and, when possible, as a collector error metric. The next scheduled
+run re-reads the 14-day overlap, replacing corrected observations. CloudWatch's
+`GetMetricData` API uses an exclusive end timestamp; the collector ends each
+query at today's UTC midnight so it requests only complete UTC days
+([API reference](https://docs.aws.amazon.com/AmazonCloudWatch/latest/APIReference/API_GetMetricData.html)).
 
 ## Development
 

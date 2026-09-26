@@ -122,6 +122,65 @@ TB decimal). This confirms the read path works. The production collector still n
 daily totals and expose a date-range chart. The metric is best-effort and bucket-wide, including
 conversion reads; it does not attribute bytes to a source.
 
+### Current implementation verification (2026-09-26)
+
+The earlier audit above is a historical record and is not a current acceptance result. During
+the S3-egress collector implementation, the scoped token file on nemaring was used with the
+installed Infisical CLI against `https://infisical.nemar.org`, project `nemar`, environment
+`prod`, and path `/observability/egress`. Both `infisical run` and `infisical export` reported or
+returned zero variables, including when the token and domain were passed explicitly. A names-only
+check found `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, and `AWS_REGION` absent from the child
+process. No AWS query was made in that attempt, no credentials were printed, and no AWS profile
+was substituted. A read-only inspection of the Infisical UI at
+`https://infisical.nemar.org` confirms project `nemar` (ID
+`817f7473-a318-4e99-9cf4-a89db057f5fc`), a service token named
+`nemaring-observability-egress-readonly` scoped to `prod` and
+`/observability/egress`, and the three AWS secret names in the Production
+environment. The public API returned HTTP 302 through Cloudflare Access while
+`http://127.0.0.1:8080/api/status` returned 200. With the local origin, the CLI
+injected exactly `AWS_ACCESS_KEY_ID`, `AWS_REGION`, and
+`AWS_SECRET_ACCESS_KEY`; values were never printed. The verified run used:
+
+```bash
+INFISICAL_TOKEN="$(<"$HOME/.config/infisical/nemar-observability-egress.token")" \
+INFISICAL_DISABLE_UPDATE_CHECK=true \
+  "$HOME/.local/bin/infisical" run \
+  --domain http://127.0.0.1:8080 \
+  --projectId 817f7473-a318-4e99-9cf4-a89db057f5fc \
+  --env prod --path /observability/egress --include-imports=false --silent -- \
+  sh -c 'env | awk -F= '\''/^(AWS_ACCESS_KEY_ID|AWS_SECRET_ACCESS_KEY|AWS_REGION)=/ {print $1}'\'' | sort'
+```
+
+The CloudWatch `GetMetricData` query for `AWS/S3:BytesDownloaded`, dimensions
+`BucketName=nemar` and `FilterId=EntireBucket`, region `us-east-2`, period
+86400, `Sum`, and the complete UTC window 2026-09-16 through 2026-09-25
+returned ten daily points with status `Complete`: 172,303,899,209,715 bytes
+(172.304 TB decimal, about 156.7 TiB). The exclusive end timestamp was
+2026-09-26 00:00 UTC. This bucket-wide response-byte metric includes conversion
+reads and does not attribute bytes to callers. The section-ingest token is not
+among the three secrets currently shown, so no push or scheduled collector
+run has been accepted yet.
+
+To confirm the requested initial backfill window, the same read-only query ran
+from 2026-08-01 00:00 UTC inclusive through 2026-09-26 00:00 UTC exclusive.
+CloudWatch returned status `Complete`, all 56 expected daily points, and no
+missing UTC dates, totaling 386,294,472,966,476 bytes (386.294 TB decimal).
+This confirms source coverage for the planned baseline; the 56 points have not
+yet been posted to the dashboard.
+
+| UTC day | `BytesDownloaded` sum (bytes) |
+|---|---:|
+| 2026-09-16 | 8,053,428,080,289 |
+| 2026-09-17 | 10,461,047,784,377 |
+| 2026-09-18 | 7,313,552,117,828 |
+| 2026-09-19 | 11,775,700,721,952 |
+| 2026-09-20 | 25,488,230,354,921 |
+| 2026-09-21 | 24,641,868,722,543 |
+| 2026-09-22 | 39,300,541,973,860 |
+| 2026-09-23 | 16,992,424,893,398 |
+| 2026-09-24 | 17,489,575,046,853 |
+| 2026-09-25 | 10,787,529,513,694 |
+
 Do not grant write permissions to inspect or collect the metric. Add log-destination
 `s3:ListBucket` and `s3:GetObject` only if a retained access-log destination is later configured
 and needs querying. AWS references:

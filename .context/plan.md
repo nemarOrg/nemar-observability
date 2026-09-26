@@ -43,7 +43,7 @@ handoff.
       counts, completed downloads, anonymous sessions, and bytes according
       to what each source measures; never present request counts as people or mix analytics
       planes on one series. Do not sum daily unique-session counts to claim range-wide uniques.
-- [ ] **Storage egress accounting** — a separate follow-up beyond the Umami setup. Collect the
+- [ ] **Storage egress accounting (issue #59; implementation in progress)** — a separate follow-up beyond the Umami setup. Collect the
       existing `AWS/S3:BytesDownloaded` metric for bucket `nemar` in `us-east-2` and chart the
       bucket-wide response bytes at daily resolution. Include conversion reads in this total and
       label it as S3 bytes downloaded. Weekly, monthly, and custom views should roll up the daily
@@ -51,9 +51,17 @@ handoff.
       from Cloudflare edge bytes and Worker-observed bytes; use Umami, Cloudflare, and API
       analytics for website/API use and access-location questions. No billing reconciliation is
       needed. Show coverage and freshness; represent missing telemetry as unknown, not zero.
-      Reader IAM access, the scoped Infisical path, and an end-to-end `GetMetricData` query were
-      verified on nemaring on 2026-09-26; the scheduled collector and dashboard series remain to
-      be implemented.
+      A fresh `GetMetricData` query succeeded on nemaring on 2026-09-26 through the local
+      Infisical listener: the planned 2026-08-01 UTC backfill returned all 56 expected daily
+      points through 2026-09-25, totaling 386,294,472,966,476 bytes
+      (386.294 TB decimal). The public Infisical host returns HTTP 302
+      through Cloudflare Access; `http://127.0.0.1:8080` returns 200 and injects the scoped AWS
+      secrets. The initial tracker backfill now starts at 2026-08-01 UTC; daily runs continue to
+      refresh the latest 14 days. The collector wrapper uses loopback. The
+      section-ingest token is not yet in the Infisical path and the scheduled
+      push remains pending deployment of the section-keyed ingest
+      API and completion of the live dashboard acceptance; details are in `.context/phase4-plan.md`
+      and `.context/research.md`.
 - [ ] **Website and viewer use** — query self-hosted Umami page/session analytics and add
       anonymous custom events for citation clicks, viewer opens, and viewer interactions.
       Prioritize usage counts and trends; treat time-on-page as optional context. Show citation
