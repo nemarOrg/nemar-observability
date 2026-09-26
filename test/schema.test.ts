@@ -124,6 +124,46 @@ describe("SectionIngestSchema (push mode)", () => {
     });
     expect(parsed.success).toBe(false);
   });
+
+  test("enforces ordered coverage, unique dates, and point coverage", () => {
+    const base = {
+      key: "views",
+      label: "Views",
+      unit: "count",
+      aggregation: "sum",
+      timezone: "UTC",
+      coverage_start: "2026-09-01",
+      coverage_end: "2026-09-02",
+      points: [{ date: "2026-09-01", value: 2 }],
+    };
+    const sectionWith = (series: typeof base) => ({
+      key: "website",
+      label: "Website",
+      source: "umami",
+      metrics: [{ key: "views", label: "Views", value: 2 }],
+      daily_series: [series],
+    });
+    expect(SectionIngestSchema.safeParse(sectionWith(base)).success).toBe(true);
+    expect(
+      SectionIngestSchema.safeParse(sectionWith({ ...base, coverage_start: "2026-09-03" })).success,
+    ).toBe(false);
+    expect(
+      SectionIngestSchema.safeParse(
+        sectionWith({
+          ...base,
+          points: [
+            { date: "2026-09-01", value: 2 },
+            { date: "2026-09-01", value: 3 },
+          ],
+        }),
+      ).success,
+    ).toBe(false);
+    expect(
+      SectionIngestSchema.safeParse(
+        sectionWith({ ...base, points: [{ date: "2026-09-03", value: 2 }] }),
+      ).success,
+    ).toBe(false);
+  });
 });
 
 // breakdown_unit is consumed downstream by routes/ui.ts's

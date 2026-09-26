@@ -2,6 +2,7 @@
 //
 //   GET    /snapshot            public  latest snapshot (headline only)
 //   GET    /snapshot/history    public  trend points for one metric key
+//   GET    /timeseries          public  bounded daily series and metadata
 //   GET    /drilldown/:key      admin   list of items behind a tile (READ-ONLY)
 //   POST   /sections/:key       token   push a pipeline section (push mode)
 //
@@ -18,12 +19,14 @@ import { isKnownDrilldown, runDrilldown } from "../lib/drilldown";
 import { buildSnapshot } from "../lib/metrics";
 import { BUILTIN_SECTION_KEYS, SectionIngestSchema } from "../lib/schema";
 import {
+  commitPushedSectionIngest,
+  dailySeriesMetadataConflict,
   loadDailySeries,
   loadLatestSnapshot,
   loadMetricHistory,
-  saveDailySeries,
-  savePushedSection,
   saveSnapshot,
+  stageDailySeries,
+  stagePushedSection,
 } from "../lib/store";
 import type { Bindings } from "../types";
 
@@ -165,17 +168,21 @@ apiRoutes.post("/sections/:key", async (c) => {
   if (!tokenMap || typeof tokenMap !== "object" || Array.isArray(tokenMap)) {
     return c.json({ error: "Section ingest is not configured" }, 503);
   }
-  if (
-    Object.values(tokenMap).some((value) => typeof value !== "string" || value.trim().length === 0)
-  ) {
+  const configuredTokens = Object.values(tokenMap);
+  if (configuredTokens.some((value) => typeof value !== "string" || value.trim().length === 0)) {
     return c.json({ error: "Section ingest is not configured" }, 503);
+  }
+  const normalizedTokens = (configuredTokens as string[]).map((value) => value.trim());
+  if (new Set(normalizedTokens).size !== normalizedTokens.length) {
+    return c.json({ error: "Section ingest tokens must be distinct per section" }, 503);
   }
   const auth = c.req.header("Authorization") ?? "";
   const token = /^Bearer\s+(.+)$/i.exec(auth.trim())?.[1]?.trim();
   const key = c.req.param("key");
-  const expected = Object.prototype.hasOwnProperty.call(tokenMap, key)
+  const configured = Object.prototype.hasOwnProperty.call(tokenMap, key)
     ? (tokenMap as Record<string, unknown>)[key]
     : undefined;
+  const expected = typeof configured === "string" ? configured.trim() : undefined;
   if (typeof expected !== "string" || !token || !(await safeEqual(token, expected))) {
     return c.json({ error: "Invalid ingest token" }, 401);
   }
@@ -200,7 +207,35 @@ apiRoutes.post("/sections/:key", async (c) => {
   }
   const { daily_series: series, ...sectionInput } = parsed.data;
   const section = { ...sectionInput, updated_at: new Date().toISOString() };
-  await savePushedSection(c.env.OBS_DB, section);
-  if (series) await saveDailySeries(c.env.OBS_DB, key, section.source, series, section.updated_at);
+  const metadataConflict = series
+    ? await dailySeriesMetadataConflict(c.env.OBS_DB, key, section.source, series)
+    : null;
+  if (metadataConflict) {
+    return c.json(
+      {
+        error:
+          "Daily series metadata is immutable; publish changed semantics under a new series key",
+        series_key: metadataConflict,
+      },
+      409,
+    );
+  }
+
+  const ingestId = crypto.randomUUID();
+  await stagePushedSection(c.env.OBS_DB, ingestId, section);
+  if (series) await stageDailySeries(c.env.OBS_DB, ingestId, series);
+  try {
+    await commitPushedSectionIngest(c.env.OBS_DB, ingestId, key);
+  } catch (error) {
+    if (error instanceof Error && error.message.includes("daily_series_semantics_immutable")) {
+      return c.json(
+        {
+          error: "Daily series metadata changed concurrently; retry with a new series key",
+        },
+        409,
+      );
+    }
+    throw error;
+  }
   return c.json({ ok: true, key, merged_on_next_snapshot: true });
 });

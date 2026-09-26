@@ -71,12 +71,19 @@ curl -X POST https://dashboard.nemar.org/observability/api/sections/qa \
 
 Set `OBS_INGEST_TOKENS_JSON` to a JSON object mapping section keys to distinct
 bearer tokens (for example `{"website":"…","egress":"…"}`). There is no
-endpoint-wide token fallback. A token is valid only for its matching URL key.
+endpoint-wide token fallback. Values must be distinct after trimming whitespace,
+and a token is valid only for its matching URL key.
 Daily series accept additive `count` or `bytes` values in UTC. Missing dates
 remain unknown; an observed zero is stored as zero. Repeated pushes replace
-overlapping dates. Browser week/month views sum daily values only when every
-date in the selected bucket has an observation and is within declared coverage.
+overlapping dates. A series key's source, label, unit, aggregation, timezone,
+and freshness rule are immutable; publish changed semantics under a new key.
+Browser week/month views sum daily values only when every date in the selected
+bucket has an observation and is within declared coverage.
 Non-additive measures such as daily unique visitors must not be sent as series.
+The JSON Schema describes field-level shape. Its `dailySeries` description
+lists the three cross-field rules also enforced by the section-ingest endpoint:
+ordered coverage dates, unique point dates, and points inside coverage; producers
+that only validate JSON Schema must apply those rules separately.
 
 The body must conform to `src/lib/metric-snapshot.schema.json` (`$defs/sectionIngest`), its `key` must match the URL, and its headline metrics are merged into the next snapshot. Optional daily series are stored separately. A pushed section cannot shadow a built-in key.
 

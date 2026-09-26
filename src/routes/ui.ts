@@ -132,15 +132,57 @@ function renderSnapshot(snap) {
 function isoDay(date) { return date.toISOString().slice(0, 10); }
 function shiftDay(day, offset) { const d = new Date(day + "T00:00:00.000Z"); d.setUTCDate(d.getUTCDate() + offset); return isoDay(d); }
 function rangeFor(days) { const end = isoDay(new Date()); return { start: shiftDay(end, 1 - days), end: end }; }
+let seriesRequestId = 0;
+let pendingSeriesRange = null;
+let cachedSeriesRange = null;
 function loadSeries() {
   const start = document.getElementById("range-start").value;
   const end = document.getElementById("range-end").value;
   const root = document.getElementById("series"); root.textContent = "";
+  const requestId = ++seriesRequestId;
+  pendingSeriesRange = null;
   if (!start || !end || start > end) { root.appendChild(el("p", "muted", "Choose a valid UTC date range.")); return; }
+  const days = (Date.parse(end + "T00:00:00Z") - Date.parse(start + "T00:00:00Z")) / 86400000 + 1;
+  if (!Number.isFinite(days) || days > 3660) {
+    root.appendChild(el("p", "muted", "Choose a valid UTC date range of 3,660 days or fewer."));
+    return;
+  }
+  if (cachedSeriesRange && cachedSeriesRange.start === start && cachedSeriesRange.end === end) {
+    renderSeries(cachedSeriesRange.payload, start, end);
+    return;
+  }
+  pendingSeriesRange = { start: start, end: end, requestId: requestId };
   fetch(API + "/timeseries?start=" + encodeURIComponent(start) + "&end=" + encodeURIComponent(end))
-    .then(function (r) { if (!r.ok) throw new Error("Could not load daily series."); return r.json(); })
-    .then(function (payload) { renderSeries(payload, start, end); })
-    .catch(function (err) { console.error("[ui] daily series render failed:", err); root.appendChild(el("p", "muted", "Could not load daily series.")); });
+    .then(function (r) {
+      if (r.ok) return r.json();
+      return r.json().catch(function () { return null; }).then(function (body) {
+        throw new Error(body && body.error ? body.error : "Could not load daily series.");
+      });
+    })
+    .then(function (payload) {
+      if (requestId !== seriesRequestId) return;
+      if (document.getElementById("range-start").value !== start || document.getElementById("range-end").value !== end) return;
+      cachedSeriesRange = { start: start, end: end, payload: payload };
+      renderSeries(payload, start, end);
+    })
+    .catch(function (err) {
+      if (requestId !== seriesRequestId) return;
+      console.error("[ui] daily series render failed:", err);
+      root.appendChild(el("p", "muted", err && err.message ? err.message : "Could not load daily series."));
+    })
+    .finally(function () {
+      if (pendingSeriesRange && pendingSeriesRange.requestId === requestId) pendingSeriesRange = null;
+    });
+}
+function regroupSeries() {
+  const start = document.getElementById("range-start").value;
+  const end = document.getElementById("range-end").value;
+  if (cachedSeriesRange && cachedSeriesRange.start === start && cachedSeriesRange.end === end) {
+    renderSeries(cachedSeriesRange.payload, start, end);
+    return;
+  }
+  if (pendingSeriesRange && pendingSeriesRange.start === start && pendingSeriesRange.end === end) return;
+  loadSeries();
 }
 function renderSeries(payload, start, end) {
   const root = document.getElementById("series"); root.textContent = "";
@@ -148,12 +190,13 @@ function renderSeries(payload, start, end) {
   payload.series.forEach(function (series) {
     const card = el("section", "series-card");
     card.appendChild(el("h3", null, series.label));
-    const updated = Date.parse(series.updated_at);
-    const stale = !Number.isFinite(updated) || Date.now() - updated > series.freshness_after_hours * 3600000;
-    card.appendChild(el("p", stale ? "series-meta stale" : "series-meta", series.source + " / " + series.section + " · " + series.unit + " · UTC coverage " + series.coverage_start + " to " + series.coverage_end + " · updated " + series.updated_at + " · " + (stale ? "stale" : "fresh")));
+    const lastDay = series.latest_observation_date;
+    const lastPeriodEnd = lastDay ? Date.parse(lastDay + "T00:00:00Z") + 86400000 : NaN;
+    const stale = !Number.isFinite(lastPeriodEnd) || Date.now() - lastPeriodEnd > series.freshness_after_hours * 3600000;
+    card.appendChild(el("p", stale ? "series-meta stale" : "series-meta", series.source + " / " + series.section + " · " + series.unit + " · declared UTC coverage " + series.coverage_start + " to " + series.coverage_end + " · latest observed day " + (lastDay || "none") + " · last received by dashboard " + series.updated_at + " · " + (stale ? "stale" : "fresh")));
     const grouping = document.getElementById("grouping").value;
     const buckets = seriesBuckets(series, start, end, grouping);
-    card.appendChild(chart(series, buckets, grouping));
+    card.appendChild(chart(series, buckets, grouping, start, end));
     card.appendChild(valuesTable(series, buckets));
     root.appendChild(card);
   });
@@ -199,7 +242,7 @@ function valuesTable(series, buckets) {
   table.appendChild(body); details.appendChild(table);
   return details;
 }
-function chart(series, buckets, grouping) {
+function chart(series, buckets, grouping, start, end) {
   const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
   svg.setAttribute("viewBox", "0 0 900 250"); svg.setAttribute("role", "img");
   svg.setAttribute("aria-label", series.label + " by " + grouping + " in " + series.unit); svg.classList.add("series-chart");
@@ -219,11 +262,11 @@ function chart(series, buckets, grouping) {
       const dot = document.createElementNS(svg.namespaceURI, "circle"); dot.setAttribute("cx", p.x); dot.setAttribute("cy", p.y); dot.setAttribute("r", "3"); dot.setAttribute("fill", "#4aa3ff"); dot.setAttribute("tabindex", "0"); dot.setAttribute("aria-label", p.bucket.label + ": " + seriesValue(p.value, series.unit));
       const title = document.createElementNS(svg.namespaceURI, "title"); title.textContent = p.bucket.label + " · " + seriesValue(p.value, series.unit); dot.appendChild(title); svg.appendChild(dot);
     }
-    if (buckets.length < 20 || i % Math.ceil(buckets.length / 12) === 0) { const label = document.createElementNS(svg.namespaceURI, "text"); label.setAttribute("x", p.x); label.setAttribute("y", "230"); label.setAttribute("text-anchor", "middle"); label.textContent = p.bucket.start.slice(5); svg.appendChild(label); }
+    if (buckets.length < 20 || i % Math.ceil(buckets.length / 12) === 0) { const label = document.createElementNS(svg.namespaceURI, "text"); label.setAttribute("x", p.x); label.setAttribute("y", "230"); label.setAttribute("text-anchor", "middle"); label.textContent = start.slice(0, 4) === end.slice(0, 4) ? p.bucket.start.slice(5) : p.bucket.start; svg.appendChild(label); }
   });
   const gap = buckets.some(function (b) { return b.value === null; });
-  const knownTotal = observed.reduce(function (a, b) { return a + b.value; }, 0);
-  const note = document.createElementNS(svg.namespaceURI, "text"); note.setAttribute("x", "58"); note.setAttribute("y", "18"); note.textContent = (gap ? "Known total · " : "Range total · ") + seriesValue(knownTotal, series.unit) + (gap ? " · gaps are unknown" : ""); svg.appendChild(note);
+  const observedTotal = series.points.reduce(function (sum, point) { return sum + point.value; }, 0);
+  const note = document.createElementNS(svg.namespaceURI, "text"); note.setAttribute("x", "58"); note.setAttribute("y", "18"); note.textContent = (gap ? "Observed total · " : "Range total · ") + seriesValue(observedTotal, series.unit) + (gap ? " · incomplete buckets plot as gaps" : ""); svg.appendChild(note);
   return svg;
 }
 
@@ -243,7 +286,7 @@ document.getElementById("range-end").value = initialRange.end;
 document.querySelectorAll("[data-range]").forEach(function (button) { button.addEventListener("click", function () { const r = rangeFor(Number(button.dataset.range)); document.getElementById("range-start").value = r.start; document.getElementById("range-end").value = r.end; loadSeries(); }); });
 document.getElementById("range-start").addEventListener("change", loadSeries);
 document.getElementById("range-end").addEventListener("change", loadSeries);
-document.getElementById("grouping").addEventListener("change", loadSeries);
+document.getElementById("grouping").addEventListener("change", regroupSeries);
 loadSeries();
 `;
 

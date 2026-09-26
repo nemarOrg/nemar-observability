@@ -153,10 +153,177 @@ export async function savePushedSection(db: D1Database, section: Section): Promi
     .run();
 }
 
+/** Stage a section before publishing it together with all its daily points. */
+export async function stagePushedSection(
+  db: D1Database,
+  ingestId: string,
+  section: Section,
+): Promise<void> {
+  const staleBefore = new Date(Date.parse(section.updated_at) - 86_400_000).toISOString();
+  await db.batch([
+    db
+      .prepare(
+        `DELETE FROM daily_series_point_ingest_staging
+         WHERE ingest_id IN (SELECT ingest_id FROM section_ingest_staging WHERE started_at < ?)`,
+      )
+      .bind(staleBefore),
+    db
+      .prepare(
+        `DELETE FROM daily_series_ingest_staging
+         WHERE ingest_id IN (SELECT ingest_id FROM section_ingest_staging WHERE started_at < ?)`,
+      )
+      .bind(staleBefore),
+    db.prepare("DELETE FROM section_ingest_staging WHERE started_at < ?").bind(staleBefore),
+  ]);
+  await db
+    .prepare(
+      `INSERT INTO section_ingest_staging (ingest_id, key, section_json, source, received_at, started_at)
+       VALUES (?, ?, ?, ?, ?, ?)`,
+    )
+    .bind(
+      ingestId,
+      section.key,
+      JSON.stringify(section),
+      section.source,
+      section.updated_at,
+      section.updated_at,
+    )
+    .run();
+}
+
+/** Write possibly multi-batch series data to hidden staging tables. */
+export async function stageDailySeries(
+  db: D1Database,
+  ingestId: string,
+  series: DailySeries[],
+): Promise<void> {
+  const statements: D1PreparedStatement[] = [];
+  for (const item of series) {
+    statements.push(
+      db
+        .prepare(
+          `INSERT INTO daily_series_ingest_staging
+           (ingest_id, series_key, label, unit, aggregation, timezone, coverage_start, coverage_end, freshness_after_hours)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        )
+        .bind(
+          ingestId,
+          item.key,
+          item.label,
+          item.unit,
+          item.aggregation,
+          item.timezone,
+          item.coverage_start,
+          item.coverage_end,
+          item.freshness_after_hours,
+        ),
+    );
+    for (let offset = 0; offset < item.points.length; offset += 20) {
+      const points = item.points.slice(offset, offset + 20);
+      const values = points.map(() => "(?, ?, ?, ?)").join(", ");
+      const bindings = points.flatMap((point) => [ingestId, item.key, point.date, point.value]);
+      statements.push(
+        db
+          .prepare(
+            `INSERT INTO daily_series_point_ingest_staging (ingest_id, series_key, date, value)
+             VALUES ${values}`,
+          )
+          .bind(...bindings),
+      );
+    }
+  }
+  for (let offset = 0; offset < statements.length; offset += 100) {
+    await db.batch(statements.slice(offset, offset + 100));
+  }
+}
+
+/** Publish a staged section and its complete series update in one D1 batch. */
+export async function commitPushedSectionIngest(
+  db: D1Database,
+  ingestId: string,
+  sectionKey: string,
+): Promise<void> {
+  await db.batch([
+    db
+      .prepare(`INSERT INTO daily_series
+      (section_key, series_key, source, label, unit, aggregation, timezone, coverage_start, coverage_end, freshness_after_hours, updated_at)
+      SELECT h.key, s.series_key, h.source, s.label, s.unit, s.aggregation, s.timezone,
+        s.coverage_start, s.coverage_end, s.freshness_after_hours, h.received_at
+      FROM daily_series_ingest_staging s
+      JOIN section_ingest_staging h ON h.ingest_id=s.ingest_id
+      WHERE s.ingest_id=?
+      ON CONFLICT(section_key, series_key) DO UPDATE SET source=excluded.source, label=excluded.label,
+        unit=excluded.unit, aggregation=excluded.aggregation, timezone=excluded.timezone,
+        coverage_start=MIN(daily_series.coverage_start, excluded.coverage_start),
+        coverage_end=MAX(daily_series.coverage_end, excluded.coverage_end),
+        freshness_after_hours=excluded.freshness_after_hours, updated_at=excluded.updated_at`)
+      .bind(ingestId),
+    db
+      .prepare(`INSERT INTO daily_series_points (section_key, series_key, date, value, updated_at)
+      SELECT h.key, p.series_key, p.date, p.value, h.received_at
+      FROM daily_series_point_ingest_staging p
+      JOIN section_ingest_staging h ON h.ingest_id=p.ingest_id
+      WHERE p.ingest_id=?
+      ON CONFLICT(section_key, series_key, date) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at`)
+      .bind(ingestId),
+    db
+      .prepare(`INSERT INTO ingested_sections (key, section_json, source, received_at)
+      SELECT key, section_json, source, received_at
+      FROM section_ingest_staging WHERE ingest_id=? AND key=?
+      ON CONFLICT(key) DO UPDATE SET section_json=excluded.section_json,
+        source=excluded.source, received_at=excluded.received_at`)
+      .bind(ingestId, sectionKey),
+    db.prepare("DELETE FROM daily_series_point_ingest_staging WHERE ingest_id=?").bind(ingestId),
+    db.prepare("DELETE FROM daily_series_ingest_staging WHERE ingest_id=?").bind(ingestId),
+    db.prepare("DELETE FROM section_ingest_staging WHERE ingest_id=?").bind(ingestId),
+  ]);
+}
+
+/** Return the first existing key whose source or meaning is being changed. */
+export async function dailySeriesMetadataConflict(
+  db: D1Database,
+  section: string,
+  source: string,
+  series: DailySeries[],
+): Promise<string | null> {
+  const rows = await db
+    .prepare(
+      `SELECT series_key, source, label, unit, aggregation, timezone, freshness_after_hours
+       FROM daily_series WHERE section_key=?`,
+    )
+    .bind(section)
+    .all<{
+      series_key: string;
+      source: string;
+      label: string;
+      unit: string;
+      aggregation: string;
+      timezone: string;
+      freshness_after_hours: number;
+    }>();
+  const existing = new Map((rows.results ?? []).map((row) => [row.series_key, row]));
+  for (const incoming of series) {
+    const current = existing.get(incoming.key);
+    if (
+      current &&
+      (current.source !== source ||
+        current.label !== incoming.label ||
+        current.unit !== incoming.unit ||
+        current.aggregation !== incoming.aggregation ||
+        current.timezone !== incoming.timezone ||
+        current.freshness_after_hours !== incoming.freshness_after_hours)
+    ) {
+      return incoming.key;
+    }
+  }
+  return null;
+}
+
 export interface DailySeriesRecord extends DailySeries {
   section: string;
   source: string;
   updated_at: string;
+  latest_observation_date: string | null;
 }
 
 /** Persist metadata and source observations; a repeated push replaces each day. */
@@ -219,7 +386,10 @@ export async function loadDailySeries(
 ): Promise<DailySeriesRecord[]> {
   const rows = await db
     .prepare(`SELECT s.section_key, s.series_key, s.source, s.label, s.unit, s.aggregation, s.timezone,
-    s.coverage_start, s.coverage_end, s.freshness_after_hours, s.updated_at, p.date, p.value
+    s.coverage_start, s.coverage_end, s.freshness_after_hours, s.updated_at,
+    (SELECT MAX(latest.date) FROM daily_series_points latest
+      WHERE latest.section_key=s.section_key AND latest.series_key=s.series_key) AS latest_observation_date,
+    p.date, p.value
     FROM daily_series s LEFT JOIN daily_series_points p ON p.section_key=s.section_key AND p.series_key=s.series_key
     AND p.date >= ? AND p.date <= ? AND p.date >= s.coverage_start AND p.date <= s.coverage_end WHERE s.coverage_start <= ? AND s.coverage_end >= ?
     ORDER BY s.section_key, s.series_key, p.date`)
@@ -236,6 +406,7 @@ export async function loadDailySeries(
       coverage_end: string;
       freshness_after_hours: number;
       updated_at: string;
+      latest_observation_date: string | null;
       date: string | null;
       value: number | null;
     }>();
@@ -256,6 +427,7 @@ export async function loadDailySeries(
         coverage_end: row.coverage_end,
         freshness_after_hours: row.freshness_after_hours,
         updated_at: row.updated_at,
+        latest_observation_date: row.latest_observation_date,
         points: [],
       };
       grouped.set(id, record);
