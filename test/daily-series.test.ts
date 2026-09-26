@@ -89,7 +89,7 @@ describe("daily series store and API", () => {
       ],
     });
     const bad = await worker.fetch(
-      new Request("https://x/observability/api/timeseries?start=2020-01-01&end=2030-01-01"),
+      new Request("https://x/observability/api/timeseries?start=2019-01-01&end=2030-01-01"),
       env,
       ctx,
     );

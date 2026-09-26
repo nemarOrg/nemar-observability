@@ -77,14 +77,20 @@ async function readBoundedJsonBody(request: Request): Promise<JsonBodyResult> {
   }
 }
 
-/** Compare fixed-size SHA-256 digests with the runtime timing-safe primitive. */
+/** Compare fixed-size SHA-256 digests without a content- or length-based exit. */
 async function safeEqual(a: string, b: string): Promise<boolean> {
   const enc = new TextEncoder();
   const [providedHash, expectedHash] = await Promise.all([
     crypto.subtle.digest("SHA-256", enc.encode(a)),
     crypto.subtle.digest("SHA-256", enc.encode(b)),
   ]);
-  return crypto.subtle.timingSafeEqual(providedHash, expectedHash);
+  const provided = new Uint8Array(providedHash);
+  const expected = new Uint8Array(expectedHash);
+  let diff = 0;
+  for (let index = 0; index < provided.length; index++) {
+    diff |= provided[index] ^ expected[index];
+  }
+  return diff === 0;
 }
 
 // Latest snapshot. If none has been computed yet (fresh deploy before the first
