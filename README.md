@@ -119,6 +119,7 @@ Umami measures. This bucket-wide metric includes conversion reads and does not
 identify a caller or prove a completed human download. AWS describes the metric
 as response-body bytes and S3 request metrics as best-effort, opt-in telemetry
 billed at standard CloudWatch rates ([metric definition](https://docs.aws.amazon.com/AmazonS3/latest/userguide/metrics-dimensions.html),
+[best-effort delivery](https://docs.aws.amazon.com/AmazonS3/latest/userguide/metrics-configurations.html),
 [request-metric behavior](https://docs.aws.amazon.com/AmazonS3/latest/userguide/configure-request-metrics-bucket.html)).
 The collector only reads the existing metrics configuration; it does not
 enable or change it.
