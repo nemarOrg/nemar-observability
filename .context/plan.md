@@ -43,7 +43,7 @@ handoff.
       counts, completed downloads, anonymous sessions, and bytes according
       to what each source measures; never present request counts as people or mix analytics
       planes on one series. Do not sum daily unique-session counts to claim range-wide uniques.
-- [ ] **Storage egress accounting** — a separate follow-up beyond the Umami setup. Collect the
+- [ ] **Storage egress accounting (issue #59; implementation in progress)** — a separate follow-up beyond the Umami setup. Collect the
       existing `AWS/S3:BytesDownloaded` metric for bucket `nemar` in `us-east-2` and chart the
       bucket-wide response bytes at daily resolution. Include conversion reads in this total and
       label it as S3 bytes downloaded. Weekly, monthly, and custom views should roll up the daily
@@ -51,9 +51,11 @@ handoff.
       from Cloudflare edge bytes and Worker-observed bytes; use Umami, Cloudflare, and API
       analytics for website/API use and access-location questions. No billing reconciliation is
       needed. Show coverage and freshness; represent missing telemetry as unknown, not zero.
-      Reader IAM access, the scoped Infisical path, and an end-to-end `GetMetricData` query were
-      verified on nemaring on 2026-09-26; the scheduled collector and dashboard series remain to
-      be implemented.
+      Earlier notes record a successful AWS query on 2026-09-26, but that read path did not
+      reproduce during the current implementation pass: the scoped Infisical CLI returned zero
+      variables even with explicit domain and token flags. The metric access and Infisical scope
+      therefore remain an operational acceptance gate; the failure is tracked in
+      `.context/phase4-plan.md` and must not be represented as a verified current read path.
 - [ ] **Website and viewer use** — query self-hosted Umami page/session analytics and add
       anonymous custom events for citation clicks, viewer opens, and viewer interactions.
       Prioritize usage counts and trends; treat time-on-page as optional context. Show citation

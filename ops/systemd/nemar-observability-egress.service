@@ -1,0 +1,23 @@
+[Unit]
+Description=Collect daily NEMAR S3 download bytes for observability
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=yahya
+Group=yahya
+Environment=HOME=/home/yahya
+Environment=PATH=/home/yahya/.local/bin:/home/yahya/.bun/bin:/usr/local/bin:/usr/bin:/bin
+WorkingDirectory=/opt/nemar-observability
+ExecStart=/opt/nemar-observability/ops/with-egress-secrets.sh /opt/nemar-observability/scripts/push-s3-egress.ts
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+LockPersonality=true
+RestrictSUIDSGID=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6

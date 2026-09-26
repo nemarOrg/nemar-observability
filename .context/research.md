@@ -122,6 +122,18 @@ TB decimal). This confirms the read path works. The production collector still n
 daily totals and expose a date-range chart. The metric is best-effort and bucket-wide, including
 conversion reads; it does not attribute bytes to a source.
 
+### Current implementation verification (2026-09-26)
+
+The earlier audit above is a historical record and is not a current acceptance result. During
+the S3-egress collector implementation, the scoped token file on nemaring was used with the
+installed Infisical CLI against `https://infisical.nemar.org`, project `nemar`, environment
+`prod`, and path `/observability/egress`. Both `infisical run` and `infisical export` reported or
+returned zero variables, including when the token and domain were passed explicitly. A names-only
+check found `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, and `AWS_REGION` absent from the child
+process. No AWS query was made in that attempt, no credentials were printed, and no AWS profile
+was substituted. The token's effective project/environment/path access needs an administrator
+check before end-to-end acceptance.
+
 Do not grant write permissions to inspect or collect the metric. Add log-destination
 `s3:ListBucket` and `s3:GetObject` only if a retained access-log destination is later configured
 and needs querying. AWS references:
