@@ -9,6 +9,8 @@ and push it through the section-keyed ingest endpoint. The first machine-side
 attempt on 2026-09-26 used the public Infisical hostname and loaded no variables.
 A later run through the local listener loaded the scoped AWS credentials and a
 fresh daily CloudWatch query succeeded; see `research.md` for the evidence. The
+2026-08-01 UTC backfill window returned all 56 expected daily points through
+2026-09-25, with no missing days and 386.294 TB decimal total. The
 collector has not yet pushed a section or run on its schedule. The Infisical UI
 confirms the AWS secrets exist in project `nemar` (ID
 `817f7473-a318-4e99-9cf4-a89db057f5fc`), production environment `prod`
@@ -36,8 +38,8 @@ Run a small Bun collector on nemaring once daily. It asks AWS CLI v2 for
 `AWS/S3:BytesDownloaded`, statistic `Sum`, period `86400`, and the fixed
 dimensions `BucketName=nemar` and `FilterId=EntireBucket` in `us-east-2`. Both
 query bounds are UTC midnights and the end is exclusive, so only complete UTC
-days are requested. The operator runs a one-time 397-day backfill, then the
-daily timer re-reads a 14-day rolling window to replace late-corrected
+days are requested. The operator runs a one-time backfill from 2026-08-01 UTC,
+then the daily timer re-reads a 14-day rolling window to replace late-corrected
 observations without querying the full history each day. Returned dates are
 published as-is: absent dates are never converted to zeros. The collector
 publishes one clearly dated latest-observed-day headline plus the complete
@@ -75,9 +77,10 @@ the failure without publishing zeros or claiming coverage.
 
 ## Open judgment calls resolved for this phase
 
-- Use a one-time 397-day backfill followed by a 14-day repeated query instead
-  of maintaining local collector state; the dashboard stores overlap
-  replacements and remains the source of chart history.
+- Start the initial backfill at 2026-08-01 UTC using `EGRESS_START_DATE`, then
+  use a 14-day repeated query instead of maintaining local collector state;
+  the dashboard stores overlap replacements and remains the source of chart
+  history.
 - Set series freshness to 36 hours for a daily collector and label the
   headline as the latest reported UTC day so delayed or older observations
   cannot be mistaken for a rolling total.

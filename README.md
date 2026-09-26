@@ -110,9 +110,11 @@ The **public snapshot and time-series API contain aggregates only**, never priva
 `scripts/push-s3-egress.ts` reads the existing CloudWatch `AWS/S3:BytesDownloaded`
 metric for bucket `nemar`, filter `EntireBucket`, in `us-east-2`. It requests
 daily `Sum` values with an 86,400-second period and UTC-midnight bounds. Run
-the collector once with a 397-day lookback to fill available history; its
-default daily run re-reads the latest 14 days so late-corrected observations
-replace earlier values without repeating the full backfill.
+the initial collector once with `EGRESS_START_DATE=2026-08-01` to backfill from
+August 1, 2026 UTC through the last complete UTC day. Its default daily run
+re-reads the latest 14 days so late-corrected observations replace earlier
+values without repeating the full backfill. Set either `EGRESS_START_DATE` or
+`EGRESS_LOOKBACK_DAYS`, not both; the daily timer sets neither.
 Missing CloudWatch datapoints stay missing; the collector never fills them with
 zero. The chart keeps S3 response bytes separate from Cloudflare, Worker, and
 Umami measures. This bucket-wide metric includes conversion reads and does not
@@ -146,7 +148,7 @@ environment targets `api-test.nemar.org`, and local development uses
 For the initial backfill and acceptance run from `/opt/nemar-observability`:
 
 ```bash
-EGRESS_LOOKBACK_DAYS=397 ops/with-egress-secrets.sh /opt/nemar-observability/scripts/push-s3-egress.ts
+EGRESS_START_DATE=2026-08-01 ops/with-egress-secrets.sh /opt/nemar-observability/scripts/push-s3-egress.ts
 ```
 
 The collector publishes a red `Latest collector run errors` status metric when

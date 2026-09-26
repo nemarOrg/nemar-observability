@@ -51,6 +51,26 @@ function lookbackDays(): number {
   return days;
 }
 
+function startDateForWindow(endDate: string): string {
+  const configured = Bun.env.EGRESS_START_DATE;
+  if (configured === undefined) {
+    const days = lookbackDays();
+    return utcDate(new Date(Date.parse(midnight(endDate)) - days * DAY_MS));
+  }
+  if (Bun.env.EGRESS_LOOKBACK_DAYS !== undefined) {
+    fail("set only one of EGRESS_START_DATE or EGRESS_LOOKBACK_DAYS");
+  }
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(configured)) {
+    fail("EGRESS_START_DATE must be a valid UTC date in YYYY-MM-DD format");
+  }
+  const parsed = new Date(midnight(configured));
+  if (!Number.isFinite(parsed.getTime()) || utcDate(parsed) !== configured) {
+    fail("EGRESS_START_DATE must be a valid UTC date in YYYY-MM-DD format");
+  }
+  if (configured >= endDate) fail("EGRESS_START_DATE must be earlier than today's UTC date");
+  return configured;
+}
+
 function requiredSecret(name: string): string {
   const value = Bun.env[name];
   if (!value?.trim()) fail(`required Infisical variable ${name} is missing`);
@@ -282,9 +302,8 @@ async function main() {
   const configuredRegion = requiredSecret("AWS_REGION");
   if (configuredRegion !== AWS_REGION) fail(`AWS_REGION must be ${AWS_REGION}`);
 
-  const days = lookbackDays();
   const endDate = utcDate(new Date());
-  const startDate = utcDate(new Date(Date.parse(midnight(endDate)) - days * DAY_MS));
+  const startDate = startDateForWindow(endDate);
   const start = midnight(startDate);
   const end = midnight(endDate);
 

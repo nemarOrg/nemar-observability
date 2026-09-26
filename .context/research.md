@@ -161,6 +161,13 @@ reads and does not attribute bytes to callers. The section-ingest token is not
 among the three secrets currently shown, so no push or scheduled collector
 run has been accepted yet.
 
+To confirm the requested initial backfill window, the same read-only query ran
+from 2026-08-01 00:00 UTC inclusive through 2026-09-26 00:00 UTC exclusive.
+CloudWatch returned status `Complete`, all 56 expected daily points, and no
+missing UTC dates, totaling 386,294,472,966,476 bytes (386.294 TB decimal).
+This confirms source coverage for the planned baseline; the 56 points have not
+yet been posted to the dashboard.
+
 | UTC day | `BytesDownloaded` sum (bytes) |
 |---|---:|
 | 2026-09-16 | 8,053,428,080,289 |

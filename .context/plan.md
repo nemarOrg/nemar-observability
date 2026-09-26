@@ -51,11 +51,17 @@ handoff.
       from Cloudflare edge bytes and Worker-observed bytes; use Umami, Cloudflare, and API
       analytics for website/API use and access-location questions. No billing reconciliation is
       needed. Show coverage and freshness; represent missing telemetry as unknown, not zero.
-      Earlier notes record a successful AWS query on 2026-09-26, but that read path did not
-      reproduce during the current implementation pass: the scoped Infisical CLI returned zero
-      variables even with explicit domain and token flags. The metric access and Infisical scope
-      therefore remain an operational acceptance gate; the failure is tracked in
-      `.context/phase4-plan.md` and must not be represented as a verified current read path.
+      A fresh `GetMetricData` query succeeded on nemaring on 2026-09-26 through the local
+      Infisical listener: the planned 2026-08-01 UTC backfill returned all 56 expected daily
+      points through 2026-09-25, totaling 386,294,472,966,476 bytes
+      (386.294 TB decimal). The public Infisical host returns HTTP 302
+      through Cloudflare Access; `http://127.0.0.1:8080` returns 200 and injects the scoped AWS
+      secrets. The initial tracker backfill now starts at 2026-08-01 UTC; daily runs continue to
+      refresh the latest 14 days. The collector wrapper uses loopback. The
+      section-ingest token is not yet in the Infisical path and the scheduled
+      push remains pending deployment of the section-keyed ingest
+      API and completion of the live dashboard acceptance; details are in `.context/phase4-plan.md`
+      and `.context/research.md`.
 - [ ] **Website and viewer use** — query self-hosted Umami page/session analytics and add
       anonymous custom events for citation clicks, viewer opens, and viewer interactions.
       Prioritize usage counts and trends; treat time-on-page as optional context. Show citation
