@@ -77,7 +77,14 @@ function renderBreakdown(parent, items, unit, style) {
 
 function tile(metric) {
   const t = el("div", "tile sev-" + (metric.severity || "info"));
-  t.appendChild(el("div", "tile-label", metric.label));
+  const heading = el("div", "tile-heading");
+  heading.appendChild(el("div", "tile-label", metric.label));
+  if (metric.severity === "warn" || metric.severity === "error") {
+    const status = el("span", "tile-status status-" + metric.severity, metric.severity === "warn" ? "Warning" : "Error");
+    status.setAttribute("role", "status");
+    heading.appendChild(status);
+  }
+  t.appendChild(heading);
   const valRow = el("div", "tile-value");
   valRow.appendChild(el("span", "v", fmt(metric)));
   const p = pct(metric.value, metric.total);
@@ -131,6 +138,147 @@ function renderSnapshot(snap) {
   meta.appendChild(ts);
 }
 
+function isoDay(date) { return date.toISOString().slice(0, 10); }
+function shiftDay(day, offset) { const d = new Date(day + "T00:00:00.000Z"); d.setUTCDate(d.getUTCDate() + offset); return isoDay(d); }
+function rangeFor(days) { const end = isoDay(new Date()); return { start: shiftDay(end, 1 - days), end: end }; }
+let seriesRequestId = 0;
+let pendingSeriesRange = null;
+let cachedSeriesRange = null;
+function loadSeries() {
+  const start = document.getElementById("range-start").value;
+  const end = document.getElementById("range-end").value;
+  const root = document.getElementById("series"); root.textContent = "";
+  const requestId = ++seriesRequestId;
+  pendingSeriesRange = null;
+  if (!start || !end || start > end) { root.appendChild(el("p", "muted", "Choose a valid UTC date range.")); return; }
+  const days = (Date.parse(end + "T00:00:00Z") - Date.parse(start + "T00:00:00Z")) / 86400000 + 1;
+  if (!Number.isFinite(days) || days > 3660) {
+    root.appendChild(el("p", "muted", "Choose a valid UTC date range of 3,660 days or fewer."));
+    return;
+  }
+  if (cachedSeriesRange && cachedSeriesRange.start === start && cachedSeriesRange.end === end) {
+    renderSeries(cachedSeriesRange.payload, start, end);
+    return;
+  }
+  pendingSeriesRange = { start: start, end: end, requestId: requestId };
+  fetch(API + "/timeseries?start=" + encodeURIComponent(start) + "&end=" + encodeURIComponent(end))
+    .then(function (r) {
+      if (r.ok) return r.json();
+      return r.json().catch(function () { return null; }).then(function (body) {
+        throw new Error(body && body.error ? body.error : "Could not load daily series.");
+      });
+    })
+    .then(function (payload) {
+      if (requestId !== seriesRequestId) return;
+      if (document.getElementById("range-start").value !== start || document.getElementById("range-end").value !== end) return;
+      cachedSeriesRange = { start: start, end: end, payload: payload };
+      renderSeries(payload, start, end);
+    })
+    .catch(function (err) {
+      if (requestId !== seriesRequestId) return;
+      console.error("[ui] daily series render failed:", err);
+      root.appendChild(el("p", "muted", err && err.message ? err.message : "Could not load daily series."));
+    })
+    .finally(function () {
+      if (pendingSeriesRange && pendingSeriesRange.requestId === requestId) pendingSeriesRange = null;
+    });
+}
+function regroupSeries() {
+  const start = document.getElementById("range-start").value;
+  const end = document.getElementById("range-end").value;
+  if (cachedSeriesRange && cachedSeriesRange.start === start && cachedSeriesRange.end === end) {
+    renderSeries(cachedSeriesRange.payload, start, end);
+    return;
+  }
+  if (pendingSeriesRange && pendingSeriesRange.start === start && pendingSeriesRange.end === end) return;
+  loadSeries();
+}
+function renderSeries(payload, start, end) {
+  const root = document.getElementById("series"); root.textContent = "";
+  if (!payload.series.length) { root.appendChild(el("p", "muted", "No daily series in this range.")); return; }
+  payload.series.forEach(function (series) {
+    const card = el("section", "series-card");
+    card.appendChild(el("h3", null, series.label));
+    const lastDay = series.latest_observation_date;
+    const lastPeriodEnd = lastDay ? Date.parse(lastDay + "T00:00:00Z") + 86400000 : NaN;
+    const stale = !Number.isFinite(lastPeriodEnd) || Date.now() - lastPeriodEnd > series.freshness_after_hours * 3600000;
+    card.appendChild(el("p", stale ? "series-meta stale" : "series-meta", series.source + " / " + series.section + " · " + series.unit + " · declared UTC coverage " + series.coverage_start + " to " + series.coverage_end + " · latest observed day " + (lastDay || "none") + " · last received by dashboard " + series.updated_at + " · " + (stale ? "stale" : "fresh")));
+    const grouping = document.getElementById("grouping").value;
+    const buckets = seriesBuckets(series, start, end, grouping);
+    card.appendChild(chart(series, buckets, grouping, start, end));
+    card.appendChild(valuesTable(series, buckets));
+    root.appendChild(card);
+  });
+}
+function seriesBuckets(series, start, end, grouping) {
+  const values = new Map(series.points.map(function (p) { return [p.date, p.value]; }));
+  const buckets = []; let cursor = start;
+  while (cursor <= end) {
+    let bucketEnd = cursor;
+    if (grouping === "week") { const dow = new Date(cursor + "T00:00:00Z").getUTCDay(); bucketEnd = shiftDay(cursor, 6 - ((dow + 6) % 7)); }
+    if (grouping === "month") { const d = new Date(cursor + "T00:00:00Z"); bucketEnd = isoDay(new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 0))); }
+    if (bucketEnd > end) bucketEnd = end;
+    let sum = 0; let complete = true;
+    for (let d = cursor; d <= bucketEnd; d = shiftDay(d, 1)) {
+      if (d < series.coverage_start || d > series.coverage_end || !values.has(d)) complete = false;
+      else sum += values.get(d);
+    }
+    buckets.push({ start: cursor, end: bucketEnd, label: cursor === bucketEnd ? cursor : cursor + " – " + bucketEnd, value: complete ? sum : null });
+    cursor = shiftDay(bucketEnd, 1);
+  }
+  return buckets;
+}
+function seriesValue(value, unit) {
+  if (value === null) return "Unknown";
+  if (unit === "bytes") return value.toLocaleString() + " B (" + humanBytes(value) + ")";
+  return Number(value).toLocaleString();
+}
+function valuesTable(series, buckets) {
+  const details = el("details", "series-values");
+  details.appendChild(el("summary", null, "Show exact values (" + buckets.length + " periods)"));
+  const table = el("table", null);
+  const head = el("thead", null); const heading = el("tr", null);
+  heading.appendChild(el("th", null, "UTC period"));
+  heading.appendChild(el("th", null, "Value (" + series.unit + ")"));
+  head.appendChild(heading); table.appendChild(head);
+  const body = el("tbody", null);
+  buckets.forEach(function (bucket) {
+    const row = el("tr", null);
+    row.appendChild(el("td", null, bucket.label));
+    row.appendChild(el("td", null, seriesValue(bucket.value, series.unit)));
+    body.appendChild(row);
+  });
+  table.appendChild(body); details.appendChild(table);
+  return details;
+}
+function chart(series, buckets, grouping, start, end) {
+  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  svg.setAttribute("viewBox", "0 0 900 250"); svg.setAttribute("role", "img");
+  svg.setAttribute("aria-label", series.label + " by " + grouping + " in " + series.unit); svg.classList.add("series-chart");
+  const observed = buckets.filter(function (b) { return b.value !== null; });
+  const max = Math.max(1, ...observed.map(function (b) { return b.value; }));
+  const points = buckets.map(function (b, i) { return { bucket: b, x: 58 + (i * 800 / Math.max(1, buckets.length - 1)), y: 205 - ((b.value === null ? 0 : b.value) / max) * 175, value: b.value }; });
+  let path = ""; let active = false;
+  points.forEach(function (p) { if (p.value === null) { active = false; return; } path += (active ? " L" : " M") + p.x + " " + p.y; active = true; });
+  for (let i = 0; i <= 4; i++) {
+    const y = 205 - (i * 175 / 4);
+    const grid = document.createElementNS(svg.namespaceURI, "path"); grid.setAttribute("d", "M58 " + y + " H858"); grid.setAttribute("stroke", "#52606f"); grid.setAttribute("stroke-opacity", i === 0 ? "0.8" : "0.35"); grid.setAttribute("fill", "none"); svg.appendChild(grid);
+    const tick = document.createElementNS(svg.namespaceURI, "text"); tick.setAttribute("x", "52"); tick.setAttribute("y", y + 4); tick.setAttribute("text-anchor", "end"); tick.textContent = series.unit === "bytes" ? humanBytes(max * i / 4) : Math.round(max * i / 4).toLocaleString(); svg.appendChild(tick);
+  }
+  if (path) { const line = document.createElementNS(svg.namespaceURI, "path"); line.setAttribute("d", path); line.setAttribute("stroke", "#4aa3ff"); line.setAttribute("stroke-width", "3"); line.setAttribute("fill", "none"); svg.appendChild(line); }
+  points.forEach(function (p, i) {
+    if (p.value !== null) {
+      const dot = document.createElementNS(svg.namespaceURI, "circle"); dot.setAttribute("cx", p.x); dot.setAttribute("cy", p.y); dot.setAttribute("r", "3"); dot.setAttribute("fill", "#4aa3ff"); dot.setAttribute("tabindex", "0"); dot.setAttribute("aria-label", p.bucket.label + ": " + seriesValue(p.value, series.unit));
+      const title = document.createElementNS(svg.namespaceURI, "title"); title.textContent = p.bucket.label + " · " + seriesValue(p.value, series.unit); dot.appendChild(title); svg.appendChild(dot);
+    }
+    if (buckets.length < 20 || i % Math.ceil(buckets.length / 12) === 0) { const label = document.createElementNS(svg.namespaceURI, "text"); label.setAttribute("x", p.x); label.setAttribute("y", "230"); label.setAttribute("text-anchor", "middle"); label.textContent = start.slice(0, 4) === end.slice(0, 4) ? p.bucket.start.slice(5) : p.bucket.start; svg.appendChild(label); }
+  });
+  const gap = buckets.some(function (b) { return b.value === null; });
+  const observedTotal = series.points.reduce(function (sum, point) { return sum + point.value; }, 0);
+  const note = document.createElementNS(svg.namespaceURI, "text"); note.setAttribute("x", "58"); note.setAttribute("y", "18"); note.textContent = (gap ? "Observed total · " : "Range total · ") + seriesValue(observedTotal, series.unit) + (gap ? " · incomplete buckets plot as gaps" : ""); svg.appendChild(note);
+  return svg;
+}
+
 function load() {
   fetch(API + "/snapshot")
     .then(function (r) { return r.json(); })
@@ -141,6 +289,14 @@ function load() {
 }
 
 load();
+const initialRange = rangeFor(30);
+document.getElementById("range-start").value = initialRange.start;
+document.getElementById("range-end").value = initialRange.end;
+document.querySelectorAll("[data-range]").forEach(function (button) { button.addEventListener("click", function () { const r = rangeFor(Number(button.dataset.range)); document.getElementById("range-start").value = r.start; document.getElementById("range-end").value = r.end; loadSeries(); }); });
+document.getElementById("range-start").addEventListener("change", loadSeries);
+document.getElementById("range-end").addEventListener("change", loadSeries);
+document.getElementById("grouping").addEventListener("change", regroupSeries);
+loadSeries();
 `;
 
 const STYLES = String.raw`
@@ -179,7 +335,11 @@ main { padding: 20px 24px 60px; max-width: 1200px; margin: 0 auto; }
 .tile.sev-warn { border-left-color: var(--warn); }
 .tile.sev-error { border-left-color: var(--error); }
 .tile.sev-info { border-left-color: var(--info); }
+.tile-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; }
 .tile-label { color: var(--muted); font-size: 12.5px; margin-bottom: 6px; }
+.tile-status { border-radius: 4px; flex: none; font-size: 9px; font-weight: 700; letter-spacing: .04em; padding: 2px 5px; text-transform: uppercase; }
+.tile-status.status-warn { background: rgba(210,153,34,.16); color: #f0c65a; }
+.tile-status.status-error { background: rgba(248,81,73,.16); color: #ff8178; }
 .tile-value { display: flex; align-items: baseline; gap: 8px; }
 .tile-value .v { font-size: 26px; font-weight: 680; letter-spacing: -.01em; }
 .tile-value .pct { color: var(--muted); font-size: 13px; }
@@ -199,8 +359,23 @@ main { padding: 20px 24px 60px; max-width: 1200px; margin: 0 auto; }
 .errbar { background: rgba(248,81,73,.12); border: 1px solid var(--error); color: #ffd7d4;
   border-radius: 10px; padding: 10px 14px; margin-bottom: 16px; font-size: 13px; }
 .errbar-hint { color: var(--muted); }
+.series-controls { display: flex; flex-wrap: wrap; align-items: end; gap: 10px; margin-bottom: 16px; }
+.series-controls label { display: grid; color: var(--muted); font-size: 12px; gap: 3px; }
+.series-controls button, .series-controls input, .series-controls select { color: var(--fg); background: var(--panel-2); border: 1px solid var(--border); border-radius: 6px; padding: 6px 9px; }
+.series-card { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; margin: 12px 0; padding: 14px; overflow: hidden; }
+.series-card h3 { margin: 0; font-size: 14px; }
+.series-meta { color: var(--muted); font-size: 11px; margin: 4px 0; }
+.series-meta.stale { color: var(--warn); }
+.series-chart { display: block; width: 100%; min-height: 150px; }
+.series-chart text { fill: var(--muted); font-size: 11px; }
+.series-values { color: var(--muted); font-size: 12px; margin-top: 8px; }
+.series-values summary { cursor: pointer; }
+.series-values table { border-collapse: collapse; margin-top: 8px; width: 100%; }
+.series-values th, .series-values td { border-bottom: 1px solid var(--border); padding: 5px 8px; text-align: left; }
+.series-values th:last-child, .series-values td:last-child { text-align: right; font-variant-numeric: tabular-nums; }
+@media (max-width: 600px) { header { padding: 12px; flex-wrap: wrap; } main { padding: 14px 12px 40px; } #meta { display: none; } }
 `;
 
 export function renderDashboardPage(): string {
-  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>NEMAR Observability</title><meta name="robots" content="noindex"><style>${STYLES}</style></head><body><header><h1>NEMAR Observability</h1><span class="sub">dataset &amp; pipeline health</span><span class="spacer"></span><span id="meta"></span><a class="portal" href="https://app.nemar.org/admin" target="_blank" rel="noopener">Admin portal &rarr;</a></header><main><div id="sections"></div></main><script>${CLIENT_JS}</script></body></html>`;
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>NEMAR Observability</title><meta name="robots" content="noindex"><style>${STYLES}</style></head><body><header><h1>NEMAR Observability</h1><span class="sub">dataset &amp; pipeline health</span><span class="spacer"></span><span id="meta"></span><a class="portal" href="https://app.nemar.org/admin" target="_blank" rel="noopener">Admin portal &rarr;</a></header><main><div id="sections"></div><section class="card"><h2>Daily usage</h2><div class="series-controls"><button type="button" data-range="7">7 days</button><button type="button" data-range="30">30 days</button><button type="button" data-range="90">90 days</button><button type="button" data-range="365">365 days</button><label>Start (UTC)<input id="range-start" type="date"></label><label>End (UTC)<input id="range-end" type="date"></label><label>Group<select id="grouping"><option value="day">Day</option><option value="week">Week</option><option value="month">Month</option></select></label></div><div id="series" aria-live="polite"></div></section></main><script>${CLIENT_JS}</script></body></html>`;
 }

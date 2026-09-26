@@ -25,3 +25,4 @@ Do not write one for routine choices that are obvious from reading the code.
 Add new entries here as you create ADRs:
 
 - ADR 0000 - template (do not edit)
+- ADR 0001 - store source-backed daily series separately

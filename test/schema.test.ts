@@ -72,6 +72,98 @@ describe("SectionIngestSchema (push mode)", () => {
     const r = SectionIngestSchema.safeParse({ key: "qa", label: "QA", source: "qa-pipeline" });
     expect(r.success).toBe(false);
   });
+
+  test("accepts bounded UTC additive series and defaults freshness", () => {
+    const r = SectionIngestSchema.safeParse({
+      key: "website",
+      label: "Website",
+      source: "umami",
+      metrics: [{ key: "x", label: "x", value: 1 }],
+      daily_series: [
+        {
+          key: "pageviews",
+          label: "Pageviews",
+          unit: "count",
+          aggregation: "sum",
+          timezone: "UTC",
+          coverage_start: "2026-09-01",
+          coverage_end: "2026-09-02",
+          points: [
+            { date: "2026-09-01", value: 0 },
+            { date: "2026-09-02", value: 3 },
+          ],
+        },
+      ],
+    });
+    expect(r.success).toBe(true);
+    expect(r.success && r.data.daily_series?.[0].freshness_after_hours).toBe(36);
+  });
+
+  test("rejects invalid calendar dates, duplicates, out-of-coverage and non-finite values", () => {
+    const base = {
+      key: "x",
+      label: "X",
+      unit: "bytes",
+      aggregation: "sum",
+      timezone: "UTC",
+      coverage_start: "2026-02-30",
+      coverage_end: "2026-03-02",
+      freshness_after_hours: 169,
+      points: [
+        { date: "2026-03-01", value: -1 },
+        { date: "2026-03-01", value: Number.POSITIVE_INFINITY },
+        { date: "2026-03-03", value: 2 },
+      ],
+    };
+    const parsed = SectionIngestSchema.safeParse({
+      key: "qa",
+      label: "QA",
+      source: "qa",
+      metrics: [{ key: "x", label: "x", value: 1 }],
+      daily_series: [base],
+    });
+    expect(parsed.success).toBe(false);
+  });
+
+  test("enforces ordered coverage, unique dates, and point coverage", () => {
+    const base = {
+      key: "views",
+      label: "Views",
+      unit: "count",
+      aggregation: "sum",
+      timezone: "UTC",
+      coverage_start: "2026-09-01",
+      coverage_end: "2026-09-02",
+      points: [{ date: "2026-09-01", value: 2 }],
+    };
+    const sectionWith = (series: typeof base) => ({
+      key: "website",
+      label: "Website",
+      source: "umami",
+      metrics: [{ key: "views", label: "Views", value: 2 }],
+      daily_series: [series],
+    });
+    expect(SectionIngestSchema.safeParse(sectionWith(base)).success).toBe(true);
+    expect(
+      SectionIngestSchema.safeParse(sectionWith({ ...base, coverage_start: "2026-09-03" })).success,
+    ).toBe(false);
+    expect(
+      SectionIngestSchema.safeParse(
+        sectionWith({
+          ...base,
+          points: [
+            { date: "2026-09-01", value: 2 },
+            { date: "2026-09-01", value: 3 },
+          ],
+        }),
+      ).success,
+    ).toBe(false);
+    expect(
+      SectionIngestSchema.safeParse(
+        sectionWith({ ...base, points: [{ date: "2026-09-03", value: 2 }] }),
+      ).success,
+    ).toBe(false);
+  });
 });
 
 // breakdown_unit is consumed downstream by routes/ui.ts's

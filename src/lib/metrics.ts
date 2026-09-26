@@ -219,7 +219,7 @@ export async function archiveSection(db: D1Database, now: string): Promise<Secti
     `SELECT
        (SELECT COUNT(*) FROM datasets WHERE ${PUBLISHED}) as published,
        (SELECT COUNT(*) FROM datasets WHERE ${PUBLISHED} AND archive_skip_reason IS NOT NULL) as skipped,
-       (SELECT COUNT(*) FROM datasets WHERE ${PUBLISHED} AND archive_status = 'ready') as ready,
+       (SELECT COUNT(*) FROM datasets WHERE ${PUBLISHED} AND archive_skip_reason IS NULL AND archive_status = 'ready') as ready,
        (SELECT COUNT(*) FROM datasets WHERE ${PUBLISHED} AND archive_status = 'pending') as pending,
        (SELECT COUNT(*) FROM datasets WHERE ${PUBLISHED} AND archive_status = 'failed') as failed,
        (SELECT COUNT(*) FROM datasets WHERE ${PUBLISHED}

@@ -24,6 +24,6 @@ export interface Bindings {
    *  does NOT grant zone analytics. Optional: the cf section degrades to a
    *  single "unconfigured" metric when unset. */
   CF_ZONE_ANALYTICS_TOKEN?: string;
-  /** Bearer token external pipelines present to POST /api/sections/:key. */
-  OBS_INGEST_TOKEN?: string;
+  /** JSON object mapping pushed section keys to their dedicated bearer tokens. */
+  OBS_INGEST_TOKENS_JSON?: string;
 }
