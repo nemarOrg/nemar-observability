@@ -8,9 +8,13 @@ declare const Bun: {
     options: {
       env: Record<string, string>;
       stdout: "pipe";
-      stderr: "ignore";
+      stderr: "pipe";
     },
-  ): { stdout: ReadableStream<Uint8Array>; exited: Promise<number> };
+  ): {
+    stdout: ReadableStream<Uint8Array>;
+    stderr: ReadableStream<Uint8Array>;
+    exited: Promise<number>;
+  };
 };
 
 const AWS_REGION = "us-east-2";
@@ -18,6 +22,7 @@ const BUCKET_NAME = "nemar";
 const FILTER_ID = "EntireBucket";
 const PERIOD_SECONDS = 86_400;
 const DAY_MS = PERIOD_SECONDS * 1_000;
+const FRESHNESS_AFTER_HOURS = 36;
 const DASHBOARD_ENDPOINT = "https://dashboard.nemar.org/observability/api/sections/egress";
 
 type CloudWatchResult = {
@@ -28,6 +33,16 @@ type CloudWatchResult = {
 };
 
 class CollectionError extends Error {}
+export class IngestError extends Error {}
+
+export function shouldPublishFailureStatus(error: unknown): boolean {
+  return !(error instanceof IngestError);
+}
+
+export function extractAwsErrorCode(stderr: string): string | undefined {
+  const match = stderr.match(/An error occurred \(([A-Za-z0-9_.:-]{1,80})\)/);
+  return match?.[1];
+}
 
 function fail(message: string): never {
   throw new CollectionError(message);
@@ -41,8 +56,7 @@ function midnight(date: string): string {
   return `${date}T00:00:00Z`;
 }
 
-function lookbackDays(): number {
-  const configured = Bun.env.EGRESS_LOOKBACK_DAYS ?? "14";
+export function lookbackDays(configured = "14"): number {
   if (!/^\d+$/.test(configured)) fail("EGRESS_LOOKBACK_DAYS must be an integer from 1 to 455");
   const days = Number(configured);
   if (!Number.isSafeInteger(days) || days < 1 || days > 455) {
@@ -51,24 +65,27 @@ function lookbackDays(): number {
   return days;
 }
 
-function startDateForWindow(endDate: string): string {
-  const configured = Bun.env.EGRESS_START_DATE;
-  if (configured === undefined) {
-    const days = lookbackDays();
+export function startDateForWindow(
+  endDate: string,
+  configuredStart: string | undefined,
+  configuredLookback: string | undefined,
+): string {
+  if (configuredStart === undefined) {
+    const days = lookbackDays(configuredLookback ?? "14");
     return utcDate(new Date(Date.parse(midnight(endDate)) - days * DAY_MS));
   }
-  if (Bun.env.EGRESS_LOOKBACK_DAYS !== undefined) {
+  if (configuredLookback !== undefined) {
     fail("set only one of EGRESS_START_DATE or EGRESS_LOOKBACK_DAYS");
   }
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(configured)) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(configuredStart)) {
     fail("EGRESS_START_DATE must be a valid UTC date in YYYY-MM-DD format");
   }
-  const parsed = new Date(midnight(configured));
-  if (!Number.isFinite(parsed.getTime()) || utcDate(parsed) !== configured) {
+  const parsed = new Date(midnight(configuredStart));
+  if (!Number.isFinite(parsed.getTime()) || utcDate(parsed) !== configuredStart) {
     fail("EGRESS_START_DATE must be a valid UTC date in YYYY-MM-DD format");
   }
-  if (configured >= endDate) fail("EGRESS_START_DATE must be earlier than today's UTC date");
-  return configured;
+  if (configuredStart >= endDate) fail("EGRESS_START_DATE must be earlier than today's UTC date");
+  return configuredStart;
 }
 
 function requiredSecret(name: string): string {
@@ -77,15 +94,15 @@ function requiredSecret(name: string): string {
   return value;
 }
 
-function parsePoints(output: string, startDate: string, endDate: string) {
-  let response: { MetricDataResults?: CloudWatchResult[] };
+export function parsePoints(output: string, startDate: string, endDate: string) {
+  let response: { MetricDataResults?: CloudWatchResult[] } | null;
   try {
     response = JSON.parse(output) as { MetricDataResults?: CloudWatchResult[] };
   } catch {
     fail("CloudWatch returned an unreadable response; no section was published");
   }
 
-  const result = response.MetricDataResults?.find((candidate) => candidate.Id === "s3bytes");
+  const result = response?.MetricDataResults?.find((candidate) => candidate.Id === "s3bytes");
   if (!result || result.StatusCode !== "Complete") {
     fail("CloudWatch did not complete the daily S3 metric query; no section was published");
   }
@@ -103,21 +120,19 @@ function parsePoints(output: string, startDate: string, endDate: string) {
       fail("CloudWatch returned an invalid daily point; no section was published");
     }
     const parsed = new Date(timestamp);
-    const normalizedTimestamp = timestamp
-      .replace(/\.0+(?=Z|\+00:00$)/, "")
-      .replace(/\+00:00$/, "Z");
+    const localDate = timestamp.slice(0, 10);
+    const parsedLocalDate = new Date(midnight(localDate));
     if (
+      !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/.test(timestamp) ||
+      !Number.isFinite(parsedLocalDate.getTime()) ||
+      utcDate(parsedLocalDate) !== localDate ||
       !Number.isFinite(parsed.getTime()) ||
-      parsed.toISOString().replace(/\.000Z$/, "Z") !== normalizedTimestamp
-    ) {
-      fail("CloudWatch returned a non-UTC timestamp; no section was published");
-    }
-    if (
       parsed.getUTCHours() !== 0 ||
       parsed.getUTCMinutes() !== 0 ||
-      parsed.getUTCSeconds() !== 0
+      parsed.getUTCSeconds() !== 0 ||
+      parsed.getUTCMilliseconds() !== 0
     ) {
-      fail("CloudWatch returned a non-midnight point for a daily UTC query");
+      fail("CloudWatch returned a timestamp not aligned to UTC midnight; no section was published");
     }
     const date = utcDate(parsed);
     if (date < startDate || date >= endDate) {
@@ -137,6 +152,19 @@ function parsePoints(output: string, startDate: string, endDate: string) {
     fail("CloudWatch returned no daily observations; refusing to publish zero or empty coverage");
   }
   return points;
+}
+
+export function assertFresh(points: { date: string; value: number }[], now = Date.now()): void {
+  const latest = points[points.length - 1];
+  if (!latest) {
+    fail("CloudWatch returned no daily observations; refusing to publish zero or empty coverage");
+  }
+  const latestPeriodEnd = Date.parse(midnight(latest.date)) + DAY_MS;
+  if (now - latestPeriodEnd > FRESHNESS_AFTER_HOURS * 60 * 60 * 1_000) {
+    fail(
+      `latest CloudWatch observation ${latest.date} is older than ${FRESHNESS_AFTER_HOURS} hours`,
+    );
+  }
 }
 
 async function queryCloudWatch(
@@ -197,20 +225,47 @@ async function queryCloudWatch(
         "--output",
         "json",
       ],
-      { env: childEnv, stdout: "pipe", stderr: "ignore" },
+      { env: childEnv, stdout: "pipe", stderr: "pipe" },
     );
   } catch {
     fail("AWS CLI v2 could not be started; no section was published");
   }
 
-  const [output, exitCode] = await Promise.all([
+  const [output, errorCode, exitCode] = await Promise.all([
     new Response(command.stdout).text(),
+    awsErrorCode(command.stderr),
     command.exited,
   ]);
   if (exitCode !== 0) {
-    fail("CloudWatch query failed; check the scoped AWS read credentials and IAM permission");
+    fail(
+      `CloudWatch query failed${errorCode ? ` (${errorCode})` : ""}; check the scoped AWS read credentials and IAM permission`,
+    );
   }
   return output;
+}
+
+async function awsErrorCode(stderr: ReadableStream<Uint8Array>): Promise<string | undefined> {
+  const reader = stderr.getReader();
+  const decoder = new TextDecoder();
+  const limit = 4_096;
+  let retainedBytes = 0;
+  let retained = "";
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      const remaining = limit - retainedBytes;
+      if (remaining > 0) {
+        const prefix = value.subarray(0, remaining);
+        retained += decoder.decode(prefix, { stream: true });
+        retainedBytes += prefix.byteLength;
+      }
+    }
+    retained += decoder.decode();
+  } finally {
+    reader.releaseLock();
+  }
+  return extractAwsErrorCode(retained);
 }
 
 async function postSection(token: string, payload: unknown): Promise<void> {
@@ -226,9 +281,13 @@ async function postSection(token: string, payload: unknown): Promise<void> {
       signal: AbortSignal.timeout(30_000),
     });
   } catch {
-    fail("dashboard ingest request failed; no section was confirmed");
+    throw new IngestError("dashboard ingest request failed; the write outcome is unknown");
   }
-  if (!response.ok) fail(`dashboard rejected the section with HTTP ${response.status}`);
+  if (!response.ok) {
+    throw new IngestError(
+      `dashboard returned HTTP ${response.status}; the write outcome may be unknown`,
+    );
+  }
 }
 
 async function pushSection(token: string, points: { date: string; value: number }[]) {
@@ -303,7 +362,11 @@ async function main() {
   if (configuredRegion !== AWS_REGION) fail(`AWS_REGION must be ${AWS_REGION}`);
 
   const endDate = utcDate(new Date());
-  const startDate = startDateForWindow(endDate);
+  const startDate = startDateForWindow(
+    endDate,
+    Bun.env.EGRESS_START_DATE,
+    Bun.env.EGRESS_LOOKBACK_DAYS,
+  );
   const start = midnight(startDate);
   const end = midnight(endDate);
 
@@ -311,30 +374,39 @@ async function main() {
   // cannot use a profile, metadata credential, or the section-ingest token.
   const output = await queryCloudWatch(start, end, accessKey, secretKey);
   const points = parsePoints(output, startDate, endDate);
+  assertFresh(points);
   await pushSection(ingestToken, points);
 }
 
-main().catch(async (error: unknown) => {
-  const message =
-    error instanceof CollectionError
-      ? error.message
-      : "unexpected collection error; no credentials or response bodies were logged";
-  console.error(`[s3-egress] ${message}`);
+if ((import.meta as ImportMeta & { main?: boolean }).main) {
+  main().catch(async (error: unknown) => {
+    const message =
+      error instanceof CollectionError
+        ? error.message
+        : error instanceof IngestError
+          ? error.message
+          : "unexpected collection error; no credentials or response bodies were logged";
+    console.error(`[s3-egress] ${message}`);
 
-  const token = Bun.env.OBS_EGRESS_INGEST_TOKEN;
-  if (token?.trim()) {
-    try {
-      await postSection(token, failureStatus(message));
-      console.info(
-        "[s3-egress] published the collector failure status; daily points are unchanged",
-      );
-    } catch {
-      console.error(
-        "[s3-egress] could not publish collector status; the daily series will age stale",
-      );
+    // Once an ingest request has been sent, a timeout or server error can occur
+    // after D1 committed it. A second error-status push could overwrite success.
+    if (!shouldPublishFailureStatus(error)) {
+      process.exit(1);
     }
-  }
-  process.exit(1);
-});
 
-export {};
+    const token = Bun.env.OBS_EGRESS_INGEST_TOKEN;
+    if (token?.trim()) {
+      try {
+        await postSection(token, failureStatus(message));
+        console.info(
+          "[s3-egress] published the collector failure status; daily points are unchanged",
+        );
+      } catch {
+        console.error(
+          "[s3-egress] could not publish collector status; the daily series will age stale",
+        );
+      }
+    }
+    process.exit(1);
+  });
+}

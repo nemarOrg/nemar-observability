@@ -27,7 +27,7 @@ src/
 ├── index.ts            worker entry: { fetch, scheduled } + route mounting
 ├── cron.ts             hourly snapshot recompute
 ├── routes/
-│   ├── api.ts          /api/snapshot, /snapshot/history, /drilldown/:key, /sections/:key
+│   ├── api.ts          /api/snapshot, /snapshot/history, /timeseries, /drilldown/:key, /sections/:key
 │   └── ui.ts           the server-rendered dashboard page
 ├── lib/
 │   ├── schema.ts       the MetricSnapshot standard (Zod = source of truth)
@@ -152,12 +152,15 @@ EGRESS_START_DATE=2026-08-01 ops/with-egress-secrets.sh /opt/nemar-observability
 ```
 
 The collector publishes a red `Latest collector run errors` status metric when
-AWS collection fails but the section token and dashboard are available; it
-leaves stored daily points unchanged. If it cannot reach the dashboard or has
-no ingest token, the systemd journal records the failure and the last series
-eventually ages stale. Check the service logs and
+AWS collection or freshness validation fails but the section token and
+dashboard are available; it leaves stored daily points unchanged. If a section
+POST has an ambiguous outcome, the collector does not send a second status
+write that might replace a committed success. If it cannot reach the dashboard
+or has no ingest token, the systemd journal records the failure and the last
+series eventually ages stale. Check the service logs and
 `GET /observability/api/timeseries` for the returned dates.
-Only enable the timer after one real run is accepted and visible:
+
+Install the units and run the collector once for acceptance:
 
 ```bash
 sudo install -m 0644 ops/systemd/nemar-observability-egress.service /etc/systemd/system/
@@ -165,10 +168,20 @@ sudo install -m 0644 ops/systemd/nemar-observability-egress.timer /etc/systemd/s
 sudo systemctl daemon-reload
 sudo systemctl start nemar-observability-egress.service
 sudo journalctl -u nemar-observability-egress.service -n 100 --no-pager
+```
+
+After the real section is accepted, appears in the time-series API, and the
+dashboard shows the expected dates and gaps, enable the schedule:
+
+```bash
 sudo systemctl enable --now nemar-observability-egress.timer
 ```
 
-The timer runs daily at 08:17 UTC and catches up after downtime. CloudWatch's
+The timer is scheduled daily at 08:17 UTC with up to 15 minutes of randomized
+delay. `Persistent=true` catches up a missed timer activation after downtime;
+it does not retry a collector process that ran and failed. Failures remain in
+the journal and, when possible, as a collector error metric. The next scheduled
+run re-reads the 14-day overlap, replacing corrected observations. CloudWatch's
 `GetMetricData` API uses an exclusive end timestamp; the collector ends each
 query at today's UTC midnight so it requests only complete UTC days
 ([API reference](https://docs.aws.amazon.com/AmazonCloudWatch/latest/APIReference/API_GetMetricData.html)).

@@ -33,12 +33,19 @@ TOKEN_MODE="$(stat -c '%a' -- "$TOKEN_FILE")"
 
 INFISICAL_TOKEN="$(<"$TOKEN_FILE")"
 [ -n "$INFISICAL_TOKEN" ] || die "the Infisical token file is empty"
-export INFISICAL_TOKEN
-export INFISICAL_DISABLE_UPDATE_CHECK=true
-export NO_COLOR=1
+INFISICAL_RUN_ENV=()
+[[ ${EGRESS_START_DATE+x} ]] && INFISICAL_RUN_ENV+=("EGRESS_START_DATE=$EGRESS_START_DATE")
+[[ ${EGRESS_LOOKBACK_DAYS+x} ]] && INFISICAL_RUN_ENV+=("EGRESS_LOOKBACK_DAYS=$EGRESS_LOOKBACK_DAYS")
 
 # Use nemaring's local listener; the public hostname requires Cloudflare Access.
-exec "$INFISICAL_CLI" run \
+exec env -i \
+  HOME="$HOME" \
+  PATH="${PATH:-/usr/local/bin:/usr/bin:/bin}" \
+  INFISICAL_TOKEN="$INFISICAL_TOKEN" \
+  INFISICAL_DISABLE_UPDATE_CHECK=true \
+  NO_COLOR=1 \
+  "${INFISICAL_RUN_ENV[@]}" \
+  "$INFISICAL_CLI" run \
   --domain "http://127.0.0.1:8080" \
   --projectId "817f7473-a318-4e99-9cf4-a89db057f5fc" \
   --env prod \
@@ -47,7 +54,6 @@ exec "$INFISICAL_CLI" run \
   --silent \
   -- \
   env -u INFISICAL_TOKEN -u INFISICAL_DOMAIN -u INFISICAL_PROFILE \
-    -u AWS_PROFILE -u AWS_DEFAULT_PROFILE \
     AWS_CONFIG_FILE=/dev/null \
     AWS_SHARED_CREDENTIALS_FILE=/dev/null \
     AWS_EC2_METADATA_DISABLED=true \

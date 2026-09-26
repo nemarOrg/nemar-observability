@@ -28,9 +28,9 @@ loopback; the separate section-ingest token is still required before a push.
   to that section and stores overlap replacements in the observability D1.
 - `GET /timeseries` and `src/routes/ui.ts` already serve and chart the stored
   daily values; missing dates stay gaps.
-- Infisical path-scoped read-token material is documented in the sibling
-  `nemar-umami` repository; this collector will keep its runtime token file
-  separate from the AWS access keys stored in Infisical.
+- Infisical setup and the collector's separate runtime token file are
+  documented in this repository's README; no separate authoritative setup
+  guide has been identified.
 
 ## Approach
 
@@ -84,16 +84,23 @@ the failure without publishing zeros or claiming coverage.
 - Set series freshness to 36 hours for a daily collector and label the
   headline as the latest reported UTC day so delayed or older observations
   cannot be mistaken for a rolling total.
-- Run at 08:17 UTC daily with systemd `Persistent=true`; a missed host run is
-  retried after the host returns.
+- Schedule at 08:17 UTC with up to 15 minutes of randomized delay. Systemd
+  `Persistent=true` catches up missed timer activations after downtime; a
+  collector run that exits unsuccessfully is recorded and retried by the next
+  scheduled run, which re-reads the 14-day overlap. Immediate process retries
+  are omitted because the oneshot is bounded and records its failure; the
+  daily overlap repairs late or missed observations.
 - Keep CloudWatch S3 bytes separate from Cloudflare edge bytes, Worker request
   estimates, and Umami activity. This is an observed S3 response-body metric,
   not a deduplicated client-download or billing total.
 
 ## Verification
 
-- Static review: Bash syntax, ShellCheck, and `git diff --check`.
-- No synthetic or mocked CloudWatch results are used.
-- Live query and push acceptance remain gated on resolving the current
-  Infisical zero-secret response and provisioning the section token after the
-  dashboard phase is deployed.
+- Static review: Bash syntax, ShellCheck, targeted parser/window tests using an
+  actual captured CloudWatch response, and `git diff --check`.
+- The Infisical local-listener injection and a read-only CloudWatch query have
+  succeeded. The public Infisical hostname's Cloudflare Access redirect is a
+  known headless-client limitation, not a current zero-secret injection gate.
+- Live section push acceptance and scheduled operation remain gated on the
+  section-keyed ingest token being installed and deployed, followed by a real
+  push and verification that the API and chart show returned dates and gaps.
