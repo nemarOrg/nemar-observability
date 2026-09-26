@@ -18,8 +18,10 @@ import { isKnownDrilldown, runDrilldown } from "../lib/drilldown";
 import { buildSnapshot } from "../lib/metrics";
 import { BUILTIN_SECTION_KEYS, SectionIngestSchema } from "../lib/schema";
 import {
+  loadDailySeries,
   loadLatestSnapshot,
   loadMetricHistory,
+  saveDailySeries,
   savePushedSection,
   saveSnapshot,
 } from "../lib/store";
@@ -68,6 +70,24 @@ apiRoutes.get("/snapshot/history", async (c) => {
   return c.json({ metric: key, points }, 200, { "Cache-Control": PUBLIC_CACHE });
 });
 
+function validDate(value: string | undefined): value is string {
+  if (!value || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const date = new Date(`${value}T00:00:00.000Z`);
+  return Number.isFinite(date.getTime()) && date.toISOString().slice(0, 10) === value;
+}
+
+apiRoutes.get("/timeseries", async (c) => {
+  const start = c.req.query("start");
+  const end = c.req.query("end");
+  if (!validDate(start) || !validDate(end) || start > end) {
+    return c.json({ error: "Valid start and end dates are required" }, 400);
+  }
+  const days = (Date.parse(`${end}T00:00:00.000Z`) - Date.parse(`${start}T00:00:00.000Z`)) / 86_400_000 + 1;
+  if (days > 3660) return c.json({ error: "Date range cannot exceed 3660 days" }, 400);
+  const series = await loadDailySeries(c.env.OBS_DB, start, end);
+  return c.json({ start, end, series }, 200, { "Cache-Control": PUBLIC_CACHE });
+});
+
 // Admin drill-down: the list behind a tile. Bearer admin only (delegated to
 // nemar-cli /users/me). Never cached — it can contain private dataset ids.
 apiRoutes.get("/drilldown/:key", async (c) => {
@@ -81,16 +101,28 @@ apiRoutes.get("/drilldown/:key", async (c) => {
   return c.json(result, 200, noStore);
 });
 
-// Push a pipeline section (push mode). Bearer must equal OBS_INGEST_TOKEN.
+// Push a pipeline section (push mode). Bearer is scoped to the URL section key.
 // Body must be a schema-conformant Section whose `key` matches the path.
 apiRoutes.post("/sections/:key", async (c) => {
-  const expected = c.env.OBS_INGEST_TOKEN;
-  if (!expected) return c.json({ error: "Section ingest is not configured" }, 503);
+  let tokenMap: unknown;
+  try {
+    tokenMap = JSON.parse(c.env.OBS_INGEST_TOKENS_JSON ?? "");
+  } catch {
+    return c.json({ error: "Section ingest is not configured" }, 503);
+  }
+  if (!tokenMap || typeof tokenMap !== "object" || Array.isArray(tokenMap)) {
+    return c.json({ error: "Section ingest is not configured" }, 503);
+  }
+  if (Object.values(tokenMap).some((value) => typeof value !== "string" || value.trim().length === 0)) {
+    return c.json({ error: "Section ingest is not configured" }, 503);
+  }
   const auth = c.req.header("Authorization") ?? "";
   const token = /^Bearer\s+(.+)$/i.exec(auth.trim())?.[1]?.trim();
-  if (!token || !safeEqual(token, expected)) return c.json({ error: "Invalid ingest token" }, 401);
-
   const key = c.req.param("key");
+  const expected = Object.prototype.hasOwnProperty.call(tokenMap, key) ? (tokenMap as Record<string, unknown>)[key] : undefined;
+  if (typeof expected !== "string" || !token || !safeEqual(token, expected)) {
+    return c.json({ error: "Invalid ingest token" }, 401);
+  }
   // Reject a built-in key at ingest (409) instead of accepting it, storing it,
   // and silently dropping it at snapshot-assembly time (which would 200 a push
   // that never appears and pollute ingested_sections).
@@ -110,7 +142,9 @@ apiRoutes.post("/sections/:key", async (c) => {
   if (parsed.data.key !== key) {
     return c.json({ error: "Body key must match the URL key" }, 400);
   }
-  const section = { ...parsed.data, updated_at: new Date().toISOString() };
+  const { daily_series: series, ...sectionInput } = parsed.data;
+  const section = { ...sectionInput, updated_at: new Date().toISOString() };
   await savePushedSection(c.env.OBS_DB, section);
+  if (series) await saveDailySeries(c.env.OBS_DB, key, section.source, series, section.updated_at);
   return c.json({ ok: true, key, merged_on_next_snapshot: true });
 });

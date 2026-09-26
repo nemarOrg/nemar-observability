@@ -69,6 +69,37 @@ export const SectionSchema = z.object({
 });
 export type Section = z.infer<typeof SectionSchema>;
 
+/** Strict calendar date (not merely a parseable JS date), interpreted as UTC. */
+export const UtcDateSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/).refine((value) => {
+  const date = new Date(`${value}T00:00:00.000Z`);
+  return Number.isFinite(date.getTime()) && date.toISOString().slice(0, 10) === value;
+}, "Expected a valid YYYY-MM-DD UTC date");
+
+export const DailySeriesSchema = z.object({
+  key: z.string().min(1),
+  label: z.string().min(1),
+  unit: z.enum(["count", "bytes"]),
+  aggregation: z.literal("sum"),
+  timezone: z.literal("UTC"),
+  coverage_start: UtcDateSchema,
+  coverage_end: UtcDateSchema,
+  freshness_after_hours: z.number().int().min(1).max(168).default(36),
+  points: z.array(z.object({ date: UtcDateSchema, value: z.number().finite().nonnegative() }).strict()).min(1),
+}).strict().superRefine((series, ctx) => {
+  if (series.coverage_start > series.coverage_end) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["coverage_end"], message: "Must not precede coverage_start" });
+  }
+  const seen = new Set<string>();
+  series.points.forEach((point, index) => {
+    if (seen.has(point.date)) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["points", index, "date"], message: "Duplicate daily date" });
+    seen.add(point.date);
+    if (point.date < series.coverage_start || point.date > series.coverage_end) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["points", index, "date"], message: "Point outside declared coverage" });
+    }
+  });
+});
+export type DailySeries = z.infer<typeof DailySeriesSchema>;
+
 /** A built-in section that failed to compute this run (surfaced in the UI). */
 export const SectionErrorSchema = z.object({ key: z.string(), error: z.string() });
 export type SectionError = z.infer<typeof SectionErrorSchema>;
@@ -106,7 +137,13 @@ export const BUILTIN_SECTION_KEYS: ReadonlySet<string> = new Set([
  * but `updated_at` is server-stamped, and `source`/`key` are taken from the
  * body (must match the :key path param).
  */
-export const SectionIngestSchema = SectionSchema.omit({ updated_at: true });
+export const SectionIngestSchema = SectionSchema.omit({ updated_at: true }).extend({ daily_series: z.array(DailySeriesSchema).optional() }).superRefine((section, ctx) => {
+  const keys = new Set<string>();
+  section.daily_series?.forEach((series, index) => {
+    if (keys.has(series.key)) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["daily_series", index, "key"], message: "Duplicate series key" });
+    keys.add(series.key);
+  });
+});
 export type SectionIngest = z.infer<typeof SectionIngestSchema>;
 
 /** Convenience: build a Metric with defaults applied (parse fills unit/severity). */

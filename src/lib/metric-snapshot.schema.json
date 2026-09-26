@@ -17,6 +17,23 @@
     }
   },
   "$defs": {
+    "utcDate": { "type": "string", "format": "date", "pattern": "^\\d{4}-\\d{2}-\\d{2}$" },
+    "dailySeriesPoint": {
+      "type": "object", "required": ["date", "value"], "additionalProperties": false,
+      "properties": { "date": { "$ref": "#/$defs/utcDate" }, "value": { "type": "number", "minimum": 0 } }
+    },
+    "dailySeries": {
+      "type": "object",
+      "required": ["key", "label", "unit", "aggregation", "timezone", "coverage_start", "coverage_end", "points"],
+      "additionalProperties": false,
+      "properties": {
+        "key": { "type": "string", "minLength": 1 }, "label": { "type": "string", "minLength": 1 },
+        "unit": { "enum": ["count", "bytes"] }, "aggregation": { "const": "sum" }, "timezone": { "const": "UTC" },
+        "coverage_start": { "$ref": "#/$defs/utcDate" }, "coverage_end": { "$ref": "#/$defs/utcDate" },
+        "freshness_after_hours": { "type": "integer", "minimum": 1, "maximum": 168, "default": 36 },
+        "points": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/dailySeriesPoint" }, "description": "Dates must be unique and within coverage; values are finite non-negative additive observations. Missing dates are unknown, not zero." }
+      }
+    },
     "severity": { "enum": ["ok", "warn", "error", "info"] },
     "breakdownItem": {
       "type": "object",
@@ -69,7 +86,7 @@
       }
     },
     "sectionIngest": {
-      "description": "POST /api/sections/:key body: a section WITHOUT updated_at (server-stamped). `key` must equal the URL :key and must not be a built-in (datasets|archive|zarr|sync|publication|access|users).",
+      "description": "POST /api/sections/:key body: a section WITHOUT updated_at (server-stamped). `key` must equal the URL :key and must not be a built-in (datasets|archive|zarr|sync|publication|access|users). Optional daily_series are additive UTC count/byte observations, separate from headline metrics.",
       "type": "object",
       "required": ["key", "label", "source", "metrics"],
       "additionalProperties": false,
@@ -77,7 +94,8 @@
         "key": { "type": "string", "minLength": 1 },
         "label": { "type": "string", "minLength": 1 },
         "source": { "type": "string", "minLength": 1 },
-        "metrics": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/metric" } }
+        "metrics": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/metric" } },
+        "daily_series": { "type": "array", "items": { "$ref": "#/$defs/dailySeries" } }
       }
     }
   }

@@ -2,7 +2,7 @@
 // pushed pipeline sections. Never touches nemar-db.
 
 import type { HostDay } from "./cf-analytics";
-import { type MetricSnapshot, MetricSnapshotSchema, type Section, SectionSchema } from "./schema";
+import { type DailySeries, type MetricSnapshot, MetricSnapshotSchema, type Section, SectionSchema } from "./schema";
 
 /** Persist a freshly computed snapshot (one row per cron run). */
 export async function saveSnapshot(db: D1Database, snapshot: MetricSnapshot): Promise<void> {
@@ -145,6 +145,53 @@ export async function savePushedSection(db: D1Database, section: Section): Promi
     )
     .bind(section.key, JSON.stringify(section), section.source, section.updated_at)
     .run();
+}
+
+export interface DailySeriesRecord extends DailySeries {
+  section: string;
+  source: string;
+  updated_at: string;
+}
+
+/** Persist metadata and source observations; a repeated push replaces each day. */
+export async function saveDailySeries(db: D1Database, section: string, source: string, series: DailySeries[], at: string): Promise<void> {
+  const statements: D1PreparedStatement[] = [];
+  for (const item of series) {
+    statements.push(db.prepare(`INSERT INTO daily_series
+      (section_key, series_key, source, label, unit, aggregation, timezone, coverage_start, coverage_end, freshness_after_hours, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(section_key, series_key) DO UPDATE SET source=excluded.source, label=excluded.label, unit=excluded.unit,
+      aggregation=excluded.aggregation, timezone=excluded.timezone, coverage_start=excluded.coverage_start,
+      coverage_end=excluded.coverage_end, freshness_after_hours=excluded.freshness_after_hours, updated_at=excluded.updated_at`)
+      .bind(section, item.key, source, item.label, item.unit, item.aggregation, item.timezone, item.coverage_start, item.coverage_end, item.freshness_after_hours, at));
+    for (const point of item.points) statements.push(db.prepare(`INSERT INTO daily_series_points (section_key, series_key, date, value, updated_at)
+      VALUES (?, ?, ?, ?, ?) ON CONFLICT(section_key, series_key, date) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at`)
+      .bind(section, item.key, point.date, point.value, at));
+  }
+  for (let offset = 0; offset < statements.length; offset += 100) await db.batch(statements.slice(offset, offset + 100));
+}
+
+export async function loadDailySeries(db: D1Database, start: string, end: string): Promise<DailySeriesRecord[]> {
+  const rows = await db.prepare(`SELECT s.section_key, s.series_key, s.source, s.label, s.unit, s.aggregation, s.timezone,
+    s.coverage_start, s.coverage_end, s.freshness_after_hours, s.updated_at, p.date, p.value
+    FROM daily_series s LEFT JOIN daily_series_points p ON p.section_key=s.section_key AND p.series_key=s.series_key
+    AND p.date >= ? AND p.date <= ? AND p.date >= s.coverage_start AND p.date <= s.coverage_end WHERE s.coverage_start <= ? AND s.coverage_end >= ?
+    ORDER BY s.section_key, s.series_key, p.date`).bind(start, end, end, start)
+    .all<{ section_key: string; series_key: string; source: string; label: string; unit: "count" | "bytes"; aggregation: "sum"; timezone: "UTC"; coverage_start: string; coverage_end: string; freshness_after_hours: number; updated_at: string; date: string | null; value: number | null }>();
+  const grouped = new Map<string, DailySeriesRecord>();
+  for (const row of rows.results ?? []) {
+    const id = `${row.section_key}\u0000${row.series_key}`;
+    let record = grouped.get(id);
+    if (!record) {
+      record = { section: row.section_key, source: row.source, key: row.series_key, label: row.label, unit: row.unit,
+        aggregation: row.aggregation, timezone: row.timezone, coverage_start: row.coverage_start,
+        coverage_end: row.coverage_end, freshness_after_hours: row.freshness_after_hours,
+        updated_at: row.updated_at, points: [] };
+      grouped.set(id, record);
+    }
+    if (row.date !== null && row.value !== null) record.points.push({ date: row.date, value: row.value });
+  }
+  return [...grouped.values()];
 }
 
 /**

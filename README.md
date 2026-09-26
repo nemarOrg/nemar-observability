@@ -38,7 +38,7 @@ src/
 │   ├── store.ts        own-DB reads/writes (snapshot history, pushed sections)
 │   ├── auth.ts         admin check via /users/me delegation
 │   └── sql.ts          shared predicates (must match nemar-cli's WHERE clauses)
-└── db/migrations/      own-DB schema (snapshots, ingested_sections)
+└── db/migrations/      own-DB schema (snapshots, ingested sections, daily series)
 ```
 
 ## The metrics standard (plugging in a pipeline)
@@ -50,7 +50,7 @@ The dashboard renders one versioned `MetricSnapshot`. A pipeline contributes a *
 
 ```bash
 curl -X POST https://dashboard.nemar.org/observability/api/sections/qa \
-  -H "Authorization: Bearer $OBS_INGEST_TOKEN" \
+  -H "Authorization: Bearer $QA_INGEST_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
     "key": "qa",
@@ -59,11 +59,26 @@ curl -X POST https://dashboard.nemar.org/observability/api/sections/qa \
     "metrics": [
       { "key": "qa.pass", "label": "Passing", "value": 612, "total": 700, "severity": "ok" },
       { "key": "qa.fail", "label": "Failing", "value": 12, "severity": "error", "drilldown": "qa.fail" }
-    ]
+    ],
+    "daily_series": [{
+      "key": "pageviews", "label": "Pageviews", "unit": "count",
+      "aggregation": "sum", "timezone": "UTC",
+      "coverage_start": "2026-09-01", "coverage_end": "2026-09-02",
+      "points": [{ "date": "2026-09-01", "value": 120 }, { "date": "2026-09-02", "value": 0 }]
+    }]
   }'
 ```
 
-The body must conform to `src/lib/metric-snapshot.schema.json` (a `Section`), its `key` must match the URL, and it is merged into the next snapshot. A pushed section cannot shadow a built-in key.
+Set `OBS_INGEST_TOKENS_JSON` to a JSON object mapping section keys to distinct
+bearer tokens (for example `{"website":"…","egress":"…"}`). There is no
+endpoint-wide token fallback. A token is valid only for its matching URL key.
+Daily series accept additive `count` or `bytes` values in UTC. Missing dates
+remain unknown; an observed zero is stored as zero. Repeated pushes replace
+overlapping dates. Browser week/month views sum daily values only when every
+date in the selected bucket has an observation and is within declared coverage.
+Non-additive measures such as daily unique visitors must not be sent as series.
+
+The body must conform to `src/lib/metric-snapshot.schema.json` (`$defs/sectionIngest`), its `key` must match the URL, and its headline metrics are merged into the next snapshot. Optional daily series are stored separately. A pushed section cannot shadow a built-in key.
 
 ### Metric shape
 
@@ -85,9 +100,10 @@ The body must conform to `src/lib/metric-snapshot.schema.json` (a `Section`), it
 | `GET /observability/api/snapshot/history?metric=KEY` | public | trend points for a metric |
 | `GET /observability/api/drilldown/:key` | **admin** Bearer | the list behind a tile |
 | `POST /observability/api/sections/:key` | ingest Bearer | push a pipeline section |
+| `GET /observability/api/timeseries?start=YYYY-MM-DD&end=YYYY-MM-DD` | public | daily points and metadata, inclusive UTC range (maximum 3660 days) |
 | `GET /observability/health` | public | liveness |
 
-The **public snapshot never contains private dataset ids** — those appear only in admin drill-downs, computed on demand. v1 admin auth is the admin's NEMAR API key (Bearer), entered in the UI and stored in that browser's localStorage.
+The **public snapshot and time-series API contain aggregates only**, never private dataset ids or credentials. The page is zero-auth and zero-write. Daily usage controls support 7/30/90/365-day presets, custom UTC dates, and day/week/month grouping. Chart gaps mean missing or out-of-coverage observations.
 
 ## Development
 
@@ -112,7 +128,7 @@ env -u CLOUDFLARE_API_TOKEN CLOUDFLARE_ACCOUNT_ID=da8d7a2a8680dab01592bbbc6f67f1
 npx cfman wrangler --account sccn d1 migrations apply nemar-observability-db-dev -c wrangler.toml --env dev
 npx cfman wrangler --account sccn secret put CF_ANALYTICS_TOKEN -c wrangler.toml --env dev   # Account Analytics Read
 npx cfman wrangler --account sccn secret put CF_ZONE_ANALYTICS_TOKEN -c wrangler.toml --env dev   # Zone Analytics Read (nemar.org)
-npx cfman wrangler --account sccn secret put OBS_INGEST_TOKEN -c wrangler.toml --env dev
+npx cfman wrangler --account sccn secret put OBS_INGEST_TOKENS_JSON -c wrangler.toml --env dev
 npx cfman wrangler --account sccn deploy -c wrangler.toml --env dev
 ```
 
