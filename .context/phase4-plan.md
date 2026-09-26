@@ -5,10 +5,18 @@
 The dashboard already accepts and stores additive daily byte series, then
 renders them with UTC day, week, month, and custom-range controls. The
 remaining work is to collect the existing bucket-wide CloudWatch request metric
-and push it through the section-keyed ingest endpoint. The last machine-side
-attempt on 2026-09-26 could not load any values from the scoped Infisical token,
-so the earlier successful-query notes in `research.md` are historical claims,
-not a currently reproducible acceptance result.
+and push it through the section-keyed ingest endpoint. The first machine-side
+attempt on 2026-09-26 used the public Infisical hostname and loaded no variables.
+A later run through the local listener loaded the scoped AWS credentials and a
+fresh daily CloudWatch query succeeded; see `research.md` for the evidence. The
+collector has not yet pushed a section or run on its schedule. The Infisical UI
+confirms the AWS secrets exist in project `nemar` (ID
+`817f7473-a318-4e99-9cf4-a89db057f5fc`), production environment `prod`
+(`api.nemar.org`), and path `/observability/egress`; it also lists the scoped
+read-only token. On nemaring, the public API returns HTTP 302 through Cloudflare
+Access while `http://127.0.0.1:8080/api/status` returns 200. Using that loopback
+domain with the token injects exactly the three AWS variables. Keep the CLI on
+loopback; the separate section-ingest token is still required before a push.
 
 ## What already exists to reuse
 

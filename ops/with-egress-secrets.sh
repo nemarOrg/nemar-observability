@@ -37,8 +37,9 @@ export INFISICAL_TOKEN
 export INFISICAL_DISABLE_UPDATE_CHECK=true
 export NO_COLOR=1
 
+# Use nemaring's local listener; the public hostname requires Cloudflare Access.
 exec "$INFISICAL_CLI" run \
-  --domain "https://infisical.nemar.org" \
+  --domain "http://127.0.0.1:8080" \
   --projectId "817f7473-a318-4e99-9cf4-a89db057f5fc" \
   --env prod \
   --path /observability/egress \

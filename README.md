@@ -127,12 +127,21 @@ enable or change it.
 On nemaring, install Bun, AWS CLI v2, and Infisical CLI. The read-only Infisical
 token file belongs at
 `$HOME/.config/infisical/nemar-observability-egress.token` with owner-only
-permissions (`0600`). The exact Infisical path is `nemar/prod:/observability/egress`;
+permissions (`0600`). The Infisical target is project `nemar` (ID
+`817f7473-a318-4e99-9cf4-a89db057f5fc`), production environment `prod`
+(displayed as `Production - api.nemar.org`), path `/observability/egress`;
 it must expose `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, and
 `AWS_REGION=us-east-2`. Once section-keyed ingest is deployed, add
 `OBS_EGRESS_INGEST_TOKEN` to that same path, with a token authorized only for
 section key `egress`. Do not put AWS values or the ingest token in this repo,
 shell history, systemd files, or logs.
+
+On nemaring, use the local Infisical listener at `http://127.0.0.1:8080` for
+headless CLI access. The public `https://infisical.nemar.org` endpoint returns
+a Cloudflare Access redirect to unauthenticated CLI requests. The `prod`
+environment supplies production `api.nemar.org` credentials; the `dev`
+environment targets `api-test.nemar.org`, and local development uses
+`.dev.vars`.
 
 For the initial backfill and acceptance run from `/opt/nemar-observability`:
 
