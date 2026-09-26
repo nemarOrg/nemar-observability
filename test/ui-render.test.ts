@@ -171,7 +171,17 @@ const SNAPSHOT = {
 async function renderClientScript(
   snapshot: unknown,
   omitDayOffset?: number,
-): Promise<{ sections: FakeNode; meta: FakeNode; series: FakeNode; grouping: FakeNode }> {
+  deferTimeseries = false,
+): Promise<{
+  sections: FakeNode;
+  meta: FakeNode;
+  series: FakeNode;
+  grouping: FakeNode;
+  rangeStart: FakeNode;
+  rangeEnd: FakeNode;
+  seriesRequests: { url: string; respond: () => void }[];
+  getTimeseriesFetchCount: () => number;
+}> {
   const js = renderDashboardPage().match(/<script>([\s\S]*?)<\/script>/)?.[1] ?? "";
   expect(js.length).toBeGreaterThan(0);
 
@@ -199,40 +209,52 @@ async function renderClientScript(
   const done = new Promise<void>((r) => {
     settle = r;
   });
+  const seriesRequests: { url: string; respond: () => void }[] = [];
+  let timeseriesFetchCount = 0;
+  function makeTimeseriesResponse(url: string) {
+    const query = new URL(url, "https://test.local").searchParams;
+    const start = query.get("start") ?? "2026-07-01";
+    const end = query.get("end") ?? start;
+    const points: { date: string; value: number }[] = [];
+    let offset = 0;
+    for (let cursor = start; cursor <= end; ) {
+      if (offset !== omitDayOffset) points.push({ date: cursor, value: 1 });
+      const next = new Date(`${cursor}T00:00:00.000Z`);
+      next.setUTCDate(next.getUTCDate() + 1);
+      cursor = next.toISOString().slice(0, 10);
+      offset++;
+    }
+    return {
+      ok: true,
+      status: 200,
+      json: async () => ({
+        series: [
+          {
+            section: "website",
+            source: "umami",
+            key: "views",
+            label: "Pageviews",
+            unit: "count",
+            coverage_start: start,
+            coverage_end: end,
+            latest_observation_date: end,
+            freshness_after_hours: 36,
+            updated_at: "2026-07-03T12:00:00.000Z",
+            points,
+          },
+        ],
+      }),
+    };
+  }
   const fetchImpl = async (url: string) => {
     if (url.includes("/timeseries")) {
-      const query = new URL(url, "https://test.local").searchParams;
-      const start = query.get("start") ?? "2026-07-01";
-      const end = query.get("end") ?? start;
-      const points: { date: string; value: number }[] = [];
-      let offset = 0;
-      for (let cursor = start; cursor <= end; ) {
-        if (offset !== omitDayOffset) points.push({ date: cursor, value: 1 });
-        const next = new Date(`${cursor}T00:00:00.000Z`);
-        next.setUTCDate(next.getUTCDate() + 1);
-        cursor = next.toISOString().slice(0, 10);
-        offset++;
+      timeseriesFetchCount++;
+      if (deferTimeseries) {
+        return await new Promise<unknown>((resolve) =>
+          seriesRequests.push({ url, respond: () => resolve(makeTimeseriesResponse(url)) }),
+        );
       }
-      return {
-        ok: true,
-        status: 200,
-        json: async () => ({
-          series: [
-            {
-              section: "website",
-              source: "umami",
-              key: "views",
-              label: "Pageviews",
-              unit: "count",
-              coverage_start: start,
-              coverage_end: end,
-              freshness_after_hours: 36,
-              updated_at: "2026-07-03T12:00:00.000Z",
-              points,
-            },
-          ],
-        }),
-      };
+      return makeTimeseriesResponse(url);
     }
     expect(url).toContain("/snapshot");
     return {
@@ -254,7 +276,16 @@ async function renderClientScript(
   );
   await done;
   await new Promise((resolve) => setTimeout(resolve, 0));
-  return { sections, meta, series: byId.series, grouping: byId.grouping };
+  return {
+    sections,
+    meta,
+    series: byId.series,
+    grouping: byId.grouping,
+    rangeStart: byId["range-start"],
+    rangeEnd: byId["range-end"],
+    seriesRequests,
+    getTimeseriesFetchCount: () => timeseriesFetchCount,
+  };
 }
 
 function tableValues(n: FakeNode): number[] {
@@ -314,10 +345,11 @@ describe("client script renders a real snapshot", () => {
   });
 
   test("week and month grouping sum the daily points", async () => {
-    const { series, grouping } = await renderClientScript(SNAPSHOT);
+    const { series, grouping, getTimeseriesFetchCount } = await renderClientScript(SNAPSHOT);
     grouping.value = "week";
     grouping.dispatch("change");
     await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(getTimeseriesFetchCount()).toBe(1);
     expect(attributeValues(series, "aria-label")).toContain("Pageviews by week in count");
     const weekly = tableValues(series);
     expect(weekly.reduce((sum, value) => sum + value, 0)).toBe(30);
@@ -378,7 +410,48 @@ describe("client script renders a real snapshot", () => {
     expect(html).toContain('id="range-start"');
     const { series } = await renderClientScript(SNAPSHOT, 2);
     expect(textOf(series)).toContain("Pageviews");
-    expect(textOf(series)).toContain("gaps are unknown");
+    expect(textOf(series)).toContain("incomplete buckets plot as gaps");
     expect(series.children[0]?.children[2]?.attributes.role).toBe("img");
+  });
+
+  test("a late response for an older range cannot replace the selected range", async () => {
+    const { series, rangeStart, rangeEnd, seriesRequests } = await renderClientScript(
+      SNAPSHOT,
+      undefined,
+      true,
+    );
+    expect(seriesRequests).toHaveLength(1);
+    rangeStart.value = "2026-08-01";
+    rangeEnd.value = "2026-08-02";
+    rangeEnd.dispatch("change");
+    expect(seriesRequests).toHaveLength(2);
+
+    seriesRequests[1].respond();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(tableValues(series)).toHaveLength(2);
+    seriesRequests[0].respond();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(tableValues(series)).toHaveLength(2);
+  });
+
+  test("uses full dates on chart axes when the selected range crosses years", async () => {
+    const { series, rangeStart, rangeEnd } = await renderClientScript(SNAPSHOT);
+    rangeStart.value = "2025-12-31";
+    rangeEnd.value = "2026-01-02";
+    rangeEnd.dispatch("change");
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    const chart = series.children[0]?.children[2];
+    expect(textOf(chart)).toContain("2025-12-31");
+    expect(textOf(chart)).toContain("2026-01-01");
+  });
+
+  test("explains the public API's maximum custom range", async () => {
+    const { series, rangeStart, rangeEnd, getTimeseriesFetchCount } =
+      await renderClientScript(SNAPSHOT);
+    rangeStart.value = "2000-01-01";
+    rangeEnd.value = "2026-01-01";
+    rangeEnd.dispatch("change");
+    expect(textOf(series)).toContain("3,660 days or fewer");
+    expect(getTimeseriesFetchCount()).toBe(1);
   });
 });

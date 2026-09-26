@@ -24,6 +24,7 @@
     },
     "dailySeries": {
       "type": "object",
+      "description": "Cross-field rules also enforced by the section-ingest endpoint's Zod validator: coverage_start must not follow coverage_end, point dates must be unique, and every point date must fall within declared coverage. Standard JSON Schema cannot express uniqueness by one object property or compare these instance fields, so non-TypeScript producers must enforce these three rules before POSTing.",
       "required": ["key", "label", "unit", "aggregation", "timezone", "coverage_start", "coverage_end", "points"],
       "additionalProperties": false,
       "properties": {
@@ -31,7 +32,7 @@
         "unit": { "enum": ["count", "bytes"] }, "aggregation": { "const": "sum" }, "timezone": { "const": "UTC" },
         "coverage_start": { "$ref": "#/$defs/utcDate" }, "coverage_end": { "$ref": "#/$defs/utcDate" },
         "freshness_after_hours": { "type": "integer", "minimum": 1, "maximum": 168, "default": 36 },
-        "points": { "type": "array", "minItems": 1, "maxItems": 3660, "items": { "$ref": "#/$defs/dailySeriesPoint" }, "description": "Dates must be unique and within coverage; values are finite non-negative additive observations. Missing dates are unknown, not zero." }
+        "points": { "type": "array", "minItems": 1, "maxItems": 3660, "uniqueItems": true, "items": { "$ref": "#/$defs/dailySeriesPoint" }, "description": "Dates must be unique and within coverage; values are finite non-negative additive observations. Missing dates are unknown, not zero. uniqueItems rejects identical points; the API additionally rejects repeated dates with different values." }
       }
     },
     "severity": { "enum": ["ok", "warn", "error", "info"] },
