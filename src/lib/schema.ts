@@ -70,37 +70,56 @@ export const SectionSchema = z.object({
 export type Section = z.infer<typeof SectionSchema>;
 
 /** Strict calendar date (not merely a parseable JS date), interpreted as UTC. */
-export const UtcDateSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/).refine((value) => {
-  const date = new Date(`${value}T00:00:00.000Z`);
-  return Number.isFinite(date.getTime()) && date.toISOString().slice(0, 10) === value;
-}, "Expected a valid YYYY-MM-DD UTC date");
+export const UtcDateSchema = z
+  .string()
+  .regex(/^\d{4}-\d{2}-\d{2}$/)
+  .refine((value) => {
+    const date = new Date(`${value}T00:00:00.000Z`);
+    return Number.isFinite(date.getTime()) && date.toISOString().slice(0, 10) === value;
+  }, "Expected a valid YYYY-MM-DD UTC date");
 
-export const DailySeriesSchema = z.object({
-  key: z.string().min(1).max(128),
-  label: z.string().min(1).max(256),
-  unit: z.enum(["count", "bytes"]),
-  aggregation: z.literal("sum"),
-  timezone: z.literal("UTC"),
-  coverage_start: UtcDateSchema,
-  coverage_end: UtcDateSchema,
-  freshness_after_hours: z.number().int().min(1).max(168).default(36),
-  points: z
-    .array(z.object({ date: UtcDateSchema, value: z.number().finite().nonnegative() }).strict())
-    .min(1)
-    .max(3660),
-}).strict().superRefine((series, ctx) => {
-  if (series.coverage_start > series.coverage_end) {
-    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["coverage_end"], message: "Must not precede coverage_start" });
-  }
-  const seen = new Set<string>();
-  series.points.forEach((point, index) => {
-    if (seen.has(point.date)) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["points", index, "date"], message: "Duplicate daily date" });
-    seen.add(point.date);
-    if (point.date < series.coverage_start || point.date > series.coverage_end) {
-      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["points", index, "date"], message: "Point outside declared coverage" });
+export const DailySeriesSchema = z
+  .object({
+    key: z.string().min(1).max(128),
+    label: z.string().min(1).max(256),
+    unit: z.enum(["count", "bytes"]),
+    aggregation: z.literal("sum"),
+    timezone: z.literal("UTC"),
+    coverage_start: UtcDateSchema,
+    coverage_end: UtcDateSchema,
+    freshness_after_hours: z.number().int().min(1).max(168).default(36),
+    points: z
+      .array(z.object({ date: UtcDateSchema, value: z.number().finite().nonnegative() }).strict())
+      .min(1)
+      .max(3660),
+  })
+  .strict()
+  .superRefine((series, ctx) => {
+    if (series.coverage_start > series.coverage_end) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["coverage_end"],
+        message: "Must not precede coverage_start",
+      });
     }
+    const seen = new Set<string>();
+    series.points.forEach((point, index) => {
+      if (seen.has(point.date))
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["points", index, "date"],
+          message: "Duplicate daily date",
+        });
+      seen.add(point.date);
+      if (point.date < series.coverage_start || point.date > series.coverage_end) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["points", index, "date"],
+          message: "Point outside declared coverage",
+        });
+      }
+    });
   });
-});
 export type DailySeries = z.infer<typeof DailySeriesSchema>;
 
 /** A built-in section that failed to compute this run (surfaced in the UI). */

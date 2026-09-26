@@ -66,7 +66,10 @@ async function readBoundedJsonBody(request: Request): Promise<JsonBodyResult> {
       body.set(chunk, offset);
       offset += chunk.byteLength;
     }
-    return { ok: true, value: JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(body)) };
+    return {
+      ok: true,
+      value: JSON.parse(new TextDecoder("utf-8", { fatal: true, ignoreBOM: false }).decode(body)),
+    };
   } catch {
     return { ok: false, tooLarge: false };
   } finally {
@@ -124,7 +127,8 @@ apiRoutes.get("/timeseries", async (c) => {
   if (!validDate(start) || !validDate(end) || start > end) {
     return c.json({ error: "Valid start and end dates are required" }, 400);
   }
-  const days = (Date.parse(`${end}T00:00:00.000Z`) - Date.parse(`${start}T00:00:00.000Z`)) / 86_400_000 + 1;
+  const days =
+    (Date.parse(`${end}T00:00:00.000Z`) - Date.parse(`${start}T00:00:00.000Z`)) / 86_400_000 + 1;
   if (days > 3660) return c.json({ error: "Date range cannot exceed 3660 days" }, 400);
   const series = await loadDailySeries(c.env.OBS_DB, start, end);
   return c.json({ start, end, series }, 200, { "Cache-Control": PUBLIC_CACHE });
@@ -155,13 +159,17 @@ apiRoutes.post("/sections/:key", async (c) => {
   if (!tokenMap || typeof tokenMap !== "object" || Array.isArray(tokenMap)) {
     return c.json({ error: "Section ingest is not configured" }, 503);
   }
-  if (Object.values(tokenMap).some((value) => typeof value !== "string" || value.trim().length === 0)) {
+  if (
+    Object.values(tokenMap).some((value) => typeof value !== "string" || value.trim().length === 0)
+  ) {
     return c.json({ error: "Section ingest is not configured" }, 503);
   }
   const auth = c.req.header("Authorization") ?? "";
   const token = /^Bearer\s+(.+)$/i.exec(auth.trim())?.[1]?.trim();
   const key = c.req.param("key");
-  const expected = Object.prototype.hasOwnProperty.call(tokenMap, key) ? (tokenMap as Record<string, unknown>)[key] : undefined;
+  const expected = Object.prototype.hasOwnProperty.call(tokenMap, key)
+    ? (tokenMap as Record<string, unknown>)[key]
+    : undefined;
   if (typeof expected !== "string" || !token || !(await safeEqual(token, expected))) {
     return c.json({ error: "Invalid ingest token" }, 401);
   }
@@ -172,7 +180,11 @@ apiRoutes.post("/sections/:key", async (c) => {
     return c.json({ error: "Cannot shadow a built-in section key" }, 409);
   }
   const body = await readBoundedJsonBody(c.req.raw);
-  if (!body.ok) return c.json({ error: body.tooLarge ? "Section payload exceeds 1 MB" : "Invalid JSON" }, body.tooLarge ? 413 : 400);
+  if (!body.ok)
+    return c.json(
+      { error: body.tooLarge ? "Section payload exceeds 1 MB" : "Invalid JSON" },
+      body.tooLarge ? 413 : 400,
+    );
   const parsed = SectionIngestSchema.safeParse(body.value);
   if (!parsed.success) {
     return c.json({ error: "Section does not match schema", issues: parsed.error.issues }, 422);

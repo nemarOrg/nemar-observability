@@ -35,7 +35,9 @@ describe("worker routing", () => {
 // The section-ingest guards reject before any D1 access, so they are testable
 // with only the section-token map set (no binding / no mocks).
 describe("section ingest guards", () => {
-  const ingestEnv = { OBS_INGEST_TOKENS_JSON: JSON.stringify({ qa: "secret-token", datasets: "dataset-token" }) } as unknown as Bindings;
+  const ingestEnv = {
+    OBS_INGEST_TOKENS_JSON: JSON.stringify({ qa: "secret-token", datasets: "dataset-token" }),
+  } as unknown as Bindings;
   const post = (path: string, headers: Record<string, string> = {}, bodyKey = "qa") =>
     worker.fetch(
       new Request(`https://x${path}`, {
@@ -67,12 +69,20 @@ describe("section ingest guards", () => {
   });
 
   test("a section token cannot push a different section", async () => {
-    const res = await post("/observability/api/sections/egress", { Authorization: "Bearer secret-token" }, "egress");
+    const res = await post(
+      "/observability/api/sections/egress",
+      { Authorization: "Bearer secret-token" },
+      "egress",
+    );
     expect(res.status).toBe(401);
   });
 
   test("malformed token maps fail closed", async () => {
-    const res = await worker.fetch(new Request("https://x/observability/api/sections/qa", { method: "POST" }), { OBS_INGEST_TOKENS_JSON: "[" } as unknown as Bindings, ctx);
+    const res = await worker.fetch(
+      new Request("https://x/observability/api/sections/qa", { method: "POST" }),
+      { OBS_INGEST_TOKENS_JSON: "[" } as unknown as Bindings,
+      ctx,
+    );
     expect(res.status).toBe(503);
   });
 

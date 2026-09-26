@@ -1,14 +1,25 @@
 import { Database } from "bun:sqlite";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import type { MetricSnapshot, Section } from "../src/lib/schema";
-import { loadMetricHistory, loadPushedSections, savePushedSection, saveSnapshot } from "../src/lib/store";
+import {
+  loadMetricHistory,
+  loadPushedSections,
+  savePushedSection,
+  saveSnapshot,
+} from "../src/lib/store";
 import { asD1 } from "./helpers/d1";
 
-const MIGRATION = await Bun.file(new URL("../src/db/migrations/0001_init.sql", import.meta.url)).text();
+const MIGRATION = await Bun.file(
+  new URL("../src/db/migrations/0001_init.sql", import.meta.url),
+).text();
 let engine: Database;
 let db: D1Database;
 
-beforeEach(() => { engine = new Database(":memory:"); engine.run(MIGRATION); db = asD1(engine); });
+beforeEach(() => {
+  engine = new Database(":memory:");
+  engine.run(MIGRATION);
+  db = asD1(engine);
+});
 afterEach(() => engine.close());
 
 function section(value: number, updatedAt: string): Section {
@@ -17,7 +28,9 @@ function section(value: number, updatedAt: string): Section {
     label: "Website usage",
     source: "umami",
     updated_at: updatedAt,
-    metrics: [{ key: "website.pageviews", label: "Pageviews", value, unit: "count", severity: "info" }],
+    metrics: [
+      { key: "website.pageviews", label: "Pageviews", value, unit: "count", severity: "info" },
+    ],
   };
 }
 

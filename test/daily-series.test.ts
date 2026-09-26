@@ -4,7 +4,9 @@ import worker from "../src/index";
 import { loadDailySeries, saveDailySeries } from "../src/lib/store";
 import { asD1 } from "./helpers/d1";
 
-const MIGRATION = await Bun.file(new URL("../src/db/migrations/0003_daily_series.sql", import.meta.url)).text();
+const MIGRATION = await Bun.file(
+  new URL("../src/db/migrations/0003_daily_series.sql", import.meta.url),
+).text();
 let engine: Database;
 let db: D1Database;
 beforeEach(() => {
@@ -36,15 +38,17 @@ describe("daily series store and API", () => {
       db,
       "website",
       "umami",
-      [{
-        ...SERIES,
-        coverage_start: "2026-09-02",
-        coverage_end: "2026-09-04",
-        points: [
-          { date: "2026-09-02", value: 9 },
-          { date: "2026-09-04", value: 5 },
-        ],
-      }],
+      [
+        {
+          ...SERIES,
+          coverage_start: "2026-09-02",
+          coverage_end: "2026-09-04",
+          points: [
+            { date: "2026-09-02", value: 9 },
+            { date: "2026-09-04", value: 5 },
+          ],
+        },
+      ],
       "2026-09-03T11:00:00.000Z",
     );
     const rows = await loadDailySeries(db, "2026-09-01", "2026-09-04");
@@ -55,7 +59,11 @@ describe("daily series store and API", () => {
       coverage_end: "2026-09-04",
       updated_at: "2026-09-03T11:00:00.000Z",
     });
-    expect(rows[0].points).toEqual([{ date: "2026-09-01", value: 4 }, { date: "2026-09-02", value: 9 }, { date: "2026-09-04", value: 5 }]);
+    expect(rows[0].points).toEqual([
+      { date: "2026-09-01", value: 4 },
+      { date: "2026-09-02", value: 9 },
+      { date: "2026-09-04", value: 5 },
+    ]);
   });
 
   test("GET validates range and returns aggregate metadata and only in-range observations", async () => {

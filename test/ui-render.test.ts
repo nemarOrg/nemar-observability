@@ -47,8 +47,13 @@ function makeNode(tagName: string): FakeNode {
   const node: FakeNode = {
     tagName,
     className: "",
-    get textContent() { return textContent; },
-    set textContent(value: string) { textContent = value; if (value === "") node.children = []; },
+    get textContent() {
+      return textContent;
+    },
+    set textContent(value: string) {
+      textContent = value;
+      if (value === "") node.children = [];
+    },
     style: {},
     namespaceURI: "http://www.w3.org/2000/svg",
     attributes: {},
@@ -59,9 +64,15 @@ function makeNode(tagName: string): FakeNode {
       node.children.push(child);
       return child;
     },
-    addEventListener(type, listener) { node.listeners[type] = [...(node.listeners[type] ?? []), listener]; },
-    dispatch(type) { node.listeners[type]?.forEach((listener) => listener()); },
-    setAttribute(name: string, value: string) { node.attributes[name] = value; },
+    addEventListener(type, listener) {
+      node.listeners[type] = [...(node.listeners[type] ?? []), listener];
+    },
+    dispatch(type) {
+      node.listeners[type]?.forEach((listener) => listener());
+    },
+    setAttribute(name: string, value: string) {
+      node.attributes[name] = value;
+    },
   };
   return node;
 }
@@ -72,7 +83,10 @@ function textOf(n: FakeNode): string {
 }
 
 function attributeValues(n: FakeNode, name: string): string[] {
-  return [n.attributes[name], ...n.children.flatMap((child) => attributeValues(child, name))].filter((value): value is string => value !== undefined);
+  return [
+    n.attributes[name],
+    ...n.children.flatMap((child) => attributeValues(child, name)),
+  ].filter((value): value is string => value !== undefined);
 }
 
 /** A snapshot shaped like production: a plain section, a section with a
@@ -163,7 +177,14 @@ async function renderClientScript(
 
   const sections = makeNode("div");
   const meta = makeNode("span");
-  const byId: Record<string, FakeNode> = { sections, meta, "range-start": makeNode("input"), "range-end": makeNode("input"), grouping: makeNode("select"), series: makeNode("div") };
+  const byId: Record<string, FakeNode> = {
+    sections,
+    meta,
+    "range-start": makeNode("input"),
+    "range-end": makeNode("input"),
+    grouping: makeNode("select"),
+    series: makeNode("div"),
+  };
   byId.grouping.value = "day";
 
   const document = {
@@ -187,11 +208,31 @@ async function renderClientScript(
       let offset = 0;
       for (let cursor = start; cursor <= end; ) {
         if (offset !== omitDayOffset) points.push({ date: cursor, value: 1 });
-        const next = new Date(cursor + "T00:00:00.000Z"); next.setUTCDate(next.getUTCDate() + 1);
+        const next = new Date(`${cursor}T00:00:00.000Z`);
+        next.setUTCDate(next.getUTCDate() + 1);
         cursor = next.toISOString().slice(0, 10);
         offset++;
       }
-      return { ok: true, status: 200, json: async () => ({ series: [{ section: "website", source: "umami", key: "views", label: "Pageviews", unit: "count", coverage_start: start, coverage_end: end, freshness_after_hours: 36, updated_at: "2026-07-03T12:00:00.000Z", points }] }) };
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          series: [
+            {
+              section: "website",
+              source: "umami",
+              key: "views",
+              label: "Pageviews",
+              unit: "count",
+              coverage_start: start,
+              coverage_end: end,
+              freshness_after_hours: 36,
+              updated_at: "2026-07-03T12:00:00.000Z",
+              points,
+            },
+          ],
+        }),
+      };
     }
     expect(url).toContain("/snapshot");
     return {
@@ -223,7 +264,10 @@ function tableValues(n: FakeNode): number[] {
     node.children.forEach(visit);
   };
   visit(n);
-  return cells.filter((_, index) => index % 2 === 1).map((cell) => Number(cell.textContent)).filter(Number.isFinite);
+  return cells
+    .filter((_, index) => index % 2 === 1)
+    .map((cell) => Number(cell.textContent))
+    .filter(Number.isFinite);
 }
 
 describe("client script renders a real snapshot", () => {
