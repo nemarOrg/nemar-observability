@@ -33,12 +33,12 @@ TOKEN_MODE="$(stat -c '%a' -- "$TOKEN_FILE")"
 
 INFISICAL_TOKEN="$(<"$TOKEN_FILE")"
 [ -n "$INFISICAL_TOKEN" ] || die "the Infisical token file is empty"
+export INFISICAL_TOKEN
 export INFISICAL_DISABLE_UPDATE_CHECK=true
 export NO_COLOR=1
 
 exec "$INFISICAL_CLI" run \
   --domain "https://infisical.nemar.org" \
-  --token "$INFISICAL_TOKEN" \
   --projectId "817f7473-a318-4e99-9cf4-a89db057f5fc" \
   --env prod \
   --path /observability/egress \
