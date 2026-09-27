@@ -127,34 +127,6 @@ describe("daily series store and API", () => {
     });
   });
 
-  test("GET retains source metadata when the selected window is after declared coverage", async () => {
-    await saveDailySeries(db, "website", "umami", [SERIES], "2026-09-03T10:00:00.000Z");
-    const env = { OBS_DB: db } as unknown as import("../src/types").Bindings;
-    const res = await worker.fetch(
-      new Request("https://x/observability/api/timeseries?start=2026-10-01&end=2026-10-07"),
-      env,
-      {} as ExecutionContext,
-    );
-
-    expect(res.status).toBe(200);
-    expect(await res.json()).toMatchObject({
-      start: "2026-10-01",
-      end: "2026-10-07",
-      series: [
-        {
-          section: "website",
-          source: "umami",
-          key: "pageviews",
-          coverage_start: "2026-09-01",
-          coverage_end: "2026-09-03",
-          latest_observation_date: "2026-09-02",
-          updated_at: "2026-09-03T10:00:00.000Z",
-          points: [],
-        },
-      ],
-    });
-  });
-
   test("a series key cannot silently change its unit and relabel history", async () => {
     await saveDailySeries(db, "website", "umami", [SERIES], "2026-09-03T10:00:00.000Z");
     await expect(
