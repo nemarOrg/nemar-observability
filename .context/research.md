@@ -296,3 +296,38 @@ Current primary references checked against official docs on 2026-09-27:
 - Umami [self-hosted API overview](https://docs.umami.is/docs/api)
 - Cloudflare [GraphQL limits and per-dataset range constraints](https://developers.cloudflare.com/analytics/graphql-api/limits/)
 - Cloudflare [filtering and date bounds](https://developers.cloudflare.com/analytics/graphql-api/features/filtering/)
+
+### Infisical public-host access and current S3 egress receipt (2026-09-27)
+
+The 2026-09-26 notes above record the state before the Cloudflare Access
+change: `infisical.nemar.org` redirected unauthenticated CLI requests to the
+email challenge. On 2026-09-27, the Cloudflare Access policy for the exact
+`infisical.nemar.org` application was changed to `Bypass / Everyone`; the
+Cloudflare Tunnel's hostname-to-origin route did not change. A public
+`GET https://infisical.nemar.org/api/status` then returned HTTP 200 with zero
+redirects. Nemaring's Infisical CLI authenticated through the public HTTPS
+hostname using its existing path-scoped read-only service token and injected
+the expected names `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, and
+`AWS_REGION`. It did not expose their values. `OBS_EGRESS_INGEST_TOKEN` was
+absent from the path. Infisical native authentication remains enabled; public
+signups are disabled and the administrator's passkey MFA was verified. The
+Cloudflare Access email challenge is gone for this hostname, but Cloudflare
+Access policy enforcement and its request logging no longer protect it.
+
+The corrected collector wrapper now targets `https://infisical.nemar.org`
+directly. Do not switch it to `127.0.0.1`; that would hide the Access-policy
+configuration problem and make automation depend on a local listener. The
+historical loopback commands above explain the earlier successful test only.
+
+A fresh read-only AWS CloudWatch `GetMetricData` query used metric
+`AWS/S3:BytesDownloaded`, `Stat=Sum`, `Period=86400`, dimensions
+`BucketName=nemar` and `FilterId=EntireBucket`, region `us-east-2`, and the UTC
+range 2026-08-01 inclusive to 2026-09-27 exclusive. The response was complete
+with 57 expected daily points and no missing dates, totaling
+394,926,061,470,340 bytes (394.926 TB decimal). This is the entire bucket's
+response-byte total, so Zarr conversion reads and other internal reads are
+included. It is not an estimate of one person's client-side download volume.
+The points have not yet been pushed to the observability API. Production also
+does not yet have the `OBS_INGEST_TOKENS_JSON` Worker secret map, so the
+section-keyed `egress` push and systemd timer remain disabled pending secure
+provisioning and live API/chart acceptance.

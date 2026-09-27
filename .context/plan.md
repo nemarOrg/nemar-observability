@@ -4,28 +4,30 @@ Epic: nemarOrg/nemar-cli#695. This repo covers Phases 2-7.
 
 ## NEMAR observability dashboard epic (#52)
 
-Last reconciled with GitHub on 2026-09-26. The local shell could not reach
-GitHub on 2026-09-27, so these remote statuses need a refresh before the next
-push or merge.
+Last reconciled with GitHub on 2026-09-27. Epic #52 is closed.
 
-- Phase 2, issue #51: daily range-series substrate merged as PR #60.
-- Phase 4, issue #62: question-led usage layout merged as PR #64 at commit
+- Issue #51 and daily-series/API work PR #60 are closed/merged. Per-section
+  ingest authorization is deployed; each producer still needs its own token
+  configured.
+- Issue #62 and question-led usage layout PR #64 are closed/merged at
   `91a4306`; its production deployment succeeded. Usage charts and the latest
   dataset/pipeline state remain separate.
-- Phase 5, issue #63: selected-range visitor/request totals and completed-day
-  country metrics. The active
-  worktree is `/private/tmp/nemar-observability-phase5` on
-  `feature/issue-63-range-visitor-country`, based at `91a4306`.
-- Umami deployment issue `nemarOrg/nemar-umami#1` and website instrumentation
-  issue `nemarOrg/website#345` still needed owner-run deployment/configuration
-  and live acceptance at the last check. Website PR #363 had merged to staging;
-  production tracking was not accepted yet.
-- S3 `BytesDownloaded` collection is a separate follow-up in issue #59. It is
-  not a prerequisite for landing the core usage-observability work.
+- Issue #63 and range-aware visitor/country metrics PR #65 are closed/merged.
+- Follow-up fixes PR #66 (stale-series visibility) and PR #67 (Cloudflare byte
+  labels) are merged to `main`.
+- Umami issue `nemarOrg/nemar-umami#1` and website issue
+  `nemarOrg/website#345` remain open for owner-run service, configuration,
+  privacy, and live-browser acceptance. Their implementation PRs #2-#6 and
+  #363 have merged; see those issues for remaining gates.
+- S3 `BytesDownloaded` collection is the separate active follow-up in issue
+  #59. It does not block the closed core usage epic.
 
-Refresh issue/PR, CI, deployment, and machine access state before external GitHub
-operations. Preserve the source-backed data boundaries in `.context/research.md`
-and Phase 5's API/coverage decisions in `.context/phase5-plan.md`.
+The first dashboard implementation (schema, Worker/API, UI, D1 history, cron,
+deployment, and docs) is already on `main`; the old P2-P7 scaffold checklist is
+not an active backlog. Recheck issue/PR, CI, deployment, and machine access
+before external operations. Preserve source definitions and caveats in
+`.context/research.md` and range API/coverage decisions in
+`.context/phase5-plan.md`.
 
 ## Phase 2: daily usage series and dashboard (issue #51)
 
@@ -39,61 +41,47 @@ week, or month; a bucket with any missing or out-of-coverage date is a chart
 gap. Partial first and last buckets require only dates inside the selected
 range. Unique visitors and other non-additive metrics are excluded.
 
-The local Phase 2 implementation is in progress on issue #51; completion is
-subject to the focused and full repository gates recorded in the implementation
-handoff.
+The daily series contract is shipped: the API stores additive UTC counts or
+bytes in the observability Worker's D1, overlapping observations replace prior
+values, and the browser can group covered daily values by day, week, or month
+for preset and custom UTC ranges. A date with no source observation remains a
+gap. Visitor/session totals are queried for the selected range and are never
+summed across buckets as unique people.
 
-## Phases
+## Active follow-ups
 
-- [x] **P1 (nemar-cli, separate repo):** instrumentation — Analytics Engine access counters + archive-status D1 columns/webhook/sweep (nemar-cli PR #697, issue #696). Ships dark.
-- [ ] **P2 Scaffold** — repo + init-project conventions + Bun/Biome/Astro-Workers stack skeleton.
-- [ ] **P3 Schema** — versioned `MetricSnapshot` (JSON Schema + TS types); pull + push contribution modes. The standard.
-- [ ] **P4 Worker** — snapshot compute (D1 aggregates + AE SQL), hourly cron, own D1 (`nemar-observability-db`) for history + pushed sections, API: `/api/snapshot`, `/api/snapshot/history`, `/api/drilldown/:key` (admin via `/auth/me`), `/api/sections/:key` (push).
-- [ ] **P5 UI** — `/observability` page: section cards, metric tiles (number + % + severity), tile -> drill-down (admin API key in localStorage), access table, sparkline trends. Reuse website Base layout + tokens.
-- [ ] **P6 Deploy** — SCCN dev then prod; `nemar-observability-db` migrations; route `dashboard.nemar.org/observability*`; verify counts vs `/admin/stats`, drilldown auth, access metrics, hourly cron.
-- [ ] **P7 Docs** — README (schema + how to plug in a pipeline); cross-repo follow-up: nemarDatasets/.github `run-generate-archive.yml` archive-ready callback.
-
-## Cross-project follow-ups
-
-- [ ] **Per-section ingest authorization (issue #51)** — section-keyed tokens are
-      configured with `OBS_INGEST_TOKENS_JSON`; no endpoint-wide fallback exists. Provision
-      the secret map before enabling the Umami `website` or S3-egress pusher. The implementation
-      is in the local Phase 2 branch and still needs review, CI, and owner approval before merge.
-- [ ] **Usage time-series and dashboard substrate (issue #51)** — controls provide 7/30/90/365
-      day presets, custom UTC dates, and day/week/month grouping over additive daily count or
-      byte series. The browser requests daily points for the chosen range; incomplete or
-      out-of-coverage buckets remain gaps. The 30-day access snapshot is not treated as a trend.
-      Future browser-source work adds archive redirects; Zarr opens, Worker-served chunks, and S3
-      chunk redirects as separate series; citation clicks; and viewer interactions. Label request
-      counts, completed downloads, anonymous sessions, and bytes according
-      to what each source measures; never present request counts as people or mix analytics
-      planes on one series. Do not sum daily unique-session counts to claim range-wide uniques.
-- [ ] **Storage egress accounting (issue #59; implementation in progress)** — a separate follow-up beyond the Umami setup. Collect the
-      existing `AWS/S3:BytesDownloaded` metric for bucket `nemar` in `us-east-2` and chart the
-      bucket-wide response bytes at daily resolution. Include conversion reads in this total and
-      label it as S3 bytes downloaded. Weekly, monthly, and custom views should roll up the daily
-      points. No S3 caller, machine, or location attribution is needed. Keep this series separate
-      from Cloudflare edge bytes and Worker-observed bytes; use Umami, Cloudflare, and API
-      analytics for website/API use and access-location questions. No billing reconciliation is
-      needed. Show coverage and freshness; represent missing telemetry as unknown, not zero.
-      A fresh `GetMetricData` query succeeded on nemaring on 2026-09-26 through the local
-      Infisical listener: the planned 2026-08-01 UTC backfill returned all 56 expected daily
-      points through 2026-09-25, totaling 386,294,472,966,476 bytes
-      (386.294 TB decimal). The public Infisical host returns HTTP 302
-      through Cloudflare Access; `http://127.0.0.1:8080` returns 200 and injects the scoped AWS
-      secrets. The initial tracker backfill now starts at 2026-08-01 UTC; daily runs continue to
-      refresh the latest 14 days. The collector wrapper uses loopback. The
-      section-ingest token is not yet in the Infisical path and the scheduled
-      push remains pending deployment of the section-keyed ingest
-      API and completion of the live dashboard acceptance; details are in `.context/phase4-plan.md`
-      and `.context/research.md`.
-- [ ] **Website and viewer use** — query self-hosted Umami page/session analytics and add
-      anonymous custom events for citation clicks, viewer opens, and viewer interactions.
-      Prioritize usage counts and trends; treat time-on-page as optional context. Show citation
-      click events and the number of anonymous sessions that clicked, not an identified-person
-      count. Use Umami, Cloudflare, and API analytics for website/API access patterns and
-      location; keep individual session details in Umami's admin surface. A browser download
-      event is intent, not proof of completed bytes.
+- [ ] **S3 response-byte collection (issue #59)** — the collector and systemd
+      units from PR #61 are in the repo, but the timer is not installed or
+      enabled. Query `AWS/S3:BytesDownloaded`, `Stat=Sum`, `Period=86400`,
+      `BucketName=nemar`, `FilterId=EntireBucket`, in `us-east-2`. These are
+      bucket-wide response bytes, including conversion reads; they cannot
+      identify a caller, machine, or location. Keep them separate from
+      Cloudflare edge bytes and Worker-observed bytes. There is no billing
+      reconciliation requirement.
+      The 2026-08-01 through 2026-09-26 UTC CloudWatch backfill returned all 57
+      expected daily points, totaling 394,926,061,470,340 bytes (394.926 TB
+      decimal); this is a source query, not yet a dashboard series.
+      Nemaring now reads AWS secrets from `https://infisical.nemar.org` through
+      the existing tunnel. The exact-host Cloudflare Access app is
+      `Bypass / Everyone`; the public API status check returned HTTP 200 with
+      no redirect. Infisical still authenticates its scoped service token;
+      public signup is disabled and administrator passkey MFA is enabled. Do
+      not route this collector through loopback or claim Cloudflare Access
+      continues to protect the Infisical hostname.
+      Activation is gated on an `egress` section token in Infisical and the
+      corresponding `OBS_INGEST_TOKENS_JSON` production Worker secret, then a
+      real section push and chart verification. Both are currently missing;
+      keep the timer disabled until these gates pass. Details and verification
+      receipts are in `.context/phase4-plan.md` and `.context/research.md`.
+- [ ] **Website and viewer interaction analytics** — website issue #345 is
+      still open. PR #363 is merged; the consent-gated tracker emits generic
+      page categories and fixed citation/viewer/upload events without
+      identifiers, URLs, or event properties. Umami deployment issue
+      `nemarOrg/nemar-umami#1` also remains open for owner-run service setup,
+      Access/rate-limit checks, credentials, backup, and live ingestion. Keep
+      these anonymous browser/event metrics separate from S3 bytes, server
+      requests, and distinct visitors. Follow both issues for their acceptance
+      gates.
 
 ## v1 metric catalog (all derivable now)
 
@@ -102,7 +90,7 @@ handoff.
 | datasets | total/catalog, public%, private, with-DOI%, by-license, by-modality, total bytes | — |
 | archive | with-archive%, pending, failed | missing / failed |
 | zarr | ready%, pending (processing), failed, total stores | pending / failed |
-| sync | synced, pending, failed | failed |
+| sync | reserved; retired with nemar-cli migration 0053 | — |
 | publication | open requests, prescreen-failed | requests / failed |
 | access (30d) | downloads, zarr reads, bytes, top-N | top-N |
 | users (admin) | pending, approved, active tokens | pending |
