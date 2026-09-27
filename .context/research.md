@@ -327,6 +327,12 @@ with 57 expected daily points and no missing dates, totaling
 394,926,061,470,340 bytes (394.926 TB decimal). This is the entire bucket's
 response-byte total, so Zarr conversion reads and other internal reads are
 included. It is not an estimate of one person's client-side download volume.
+On nemaring, AWS CLI serialized the UTC-midnight timestamps with its local
+`-07:00` offset: the first was `2026-07-31T17:00:00-07:00` (2026-08-01 UTC),
+and the last was `2026-09-25T17:00:00-07:00` (2026-09-26 UTC). Do not assign
+the UTC date by taking the raw timestamp's first ten characters. The collector
+parses the timestamp and converts it with `toISOString()` before choosing its
+UTC day; the captured-offset parser test covers this behavior.
 The points have not yet been pushed to the observability API. Production also
 does not yet have the `OBS_INGEST_TOKENS_JSON` Worker secret map, so the
 section-keyed `egress` push and systemd timer remain disabled pending secure
