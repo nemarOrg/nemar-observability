@@ -118,11 +118,11 @@ export async function computeCfSection(env: Bindings, now: string): Promise<Sect
     metrics: [
       metric({
         key: "cf.bytes",
-        label: "Data transferred",
+        label: "Cloudflare edge bytes",
         value: totals.bytes,
         unit: "bytes",
         severity: "info",
-        hint: `Everything Cloudflare served for the nemar.org zone over ${totals.days} days, S3 origin traffic included.`,
+        hint: `Bytes Cloudflare returned for the nemar.org zone over ${totals.days} days. Direct presigned S3 downloads bypass this metric and need separate S3 accounting.`,
       }),
       metric({
         key: "cf.requests",
@@ -173,7 +173,7 @@ export async function computeCfSection(env: Bindings, now: string): Promise<Sect
           .sort((a, b) => b.value - a.value)
           .slice(0, 10),
         breakdown_unit: "bytes",
-        hint: `Which hosts the egress actually goes to.${hostNote}`,
+        hint: `Separate per-host Cloudflare report from a different analytics query; values are not reconciled to the zone total and may include Cloudflare product traffic. Direct presigned S3 object responses bypass the zone.${hostNote}`,
       }),
       metric({
         key: "cf.by_country",
