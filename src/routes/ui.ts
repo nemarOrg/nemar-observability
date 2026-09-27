@@ -208,6 +208,48 @@ function audienceSourceCard(title, source, definitions, metrics, showCountries) 
   if (source.note) card.appendChild(el("p", "audience-note", source.note));
   return card;
 }
+function audienceEvents(parent, report) {
+  const section = el("section", "audience-events");
+  const heading = el("div", "audience-source-heading");
+  heading.appendChild(el("h4", null, "Consented website interactions"));
+  const status = report && typeof report.status === "string" ? report.status : "unavailable";
+  const statusClass = ["available", "partial", "unconfigured", "unavailable"].indexOf(status) >= 0 ? status : "unknown";
+  heading.appendChild(el("span", "audience-status audience-status-" + statusClass, audienceStatus(status)));
+  section.appendChild(heading);
+  section.appendChild(el("p", "audience-note", "Events are recorded only after consent. Event-associated visitors are anonymous distinct sessions, not people."));
+  const coverage = report && report.coverage && report.coverage.start && report.coverage.end
+    ? "Verified event coverage: " + report.coverage.start + " to " + report.coverage.end + " UTC"
+    : "Verified event coverage: unavailable";
+  section.appendChild(el("p", "audience-coverage", coverage));
+
+  const labels = {
+    citation_click: "Citation clicks",
+    viewer_open: "Viewer opens",
+    viewer_interaction: "Viewer interactions",
+    upload_started: "Upload starts",
+    upload_completed: "Upload completions"
+  };
+  const rows = Array.isArray(report && report.metrics) ? report.metrics : [];
+  const table = el("table", "audience-event-table");
+  const headRow = el("tr");
+  ["Interaction", "Events", "Anonymous sessions"].forEach(function (label) {
+    headRow.appendChild(el("th", null, label));
+  });
+  const thead = el("thead"); thead.appendChild(headRow); table.appendChild(thead);
+  const body = el("tbody");
+  rows.forEach(function (metric) {
+    if (!metric || !Object.prototype.hasOwnProperty.call(labels, metric.name)) return;
+    const row = el("tr");
+    row.appendChild(el("th", null, labels[metric.name]));
+    row.appendChild(el("td", null, audienceNumber(metric.events)));
+    row.appendChild(el("td", null, audienceNumber(metric.visitors)));
+    body.appendChild(row);
+  });
+  table.appendChild(body);
+  section.appendChild(table);
+  if (report && report.note) section.appendChild(el("p", "audience-note", report.note));
+  parent.appendChild(section);
+}
 function renderAudience(payload) {
   const root = document.getElementById("audience");
   root.textContent = "";
@@ -232,7 +274,7 @@ function renderAudience(payload) {
     ),
   );
   const grid = el("div", "audience-grid");
-  grid.appendChild(audienceSourceCard(
+  const umamiCard = audienceSourceCard(
     "What website activity is recorded?",
     payload.umami,
     "Umami visitors are anonymous unique-session estimates, not identified people. Visits use a separate visit identifier. Country estimates are not an exclusive partition; unreported countries are omitted.",
@@ -242,7 +284,9 @@ function renderAudience(payload) {
       { key: "pageviews", label: "Page views" }
     ],
     showCountries
-  ));
+  );
+  audienceEvents(umamiCard, payload.umami.event_metrics);
+  grid.appendChild(umamiCard);
   grid.appendChild(audienceSourceCard(
     "Where do Cloudflare requests come from?",
     payload.cloudflare,
@@ -585,6 +629,11 @@ main { padding: 20px 24px 60px; max-width: 1200px; margin: 0 auto; }
 .audience-country-fill { display: block; height: 100%; background: var(--accent); opacity: .8; }
 .audience-country-value { min-width: 54px; text-align: right; font-variant-numeric: tabular-nums; }
 .audience-note { margin-bottom: 0; }
+.audience-events { border-top: 1px solid var(--border); margin-top: 12px; padding-top: 9px; }
+.audience-events h4 { font-size: 12px; margin: 0; }
+.audience-event-table { border-collapse: collapse; font-size: 11px; margin-top: 8px; width: 100%; }
+.audience-event-table th, .audience-event-table td { border-bottom: 1px solid var(--border); padding: 5px; text-align: left; }
+.audience-event-table th:not(:first-child), .audience-event-table td { font-variant-numeric: tabular-nums; }
 .series-card { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; margin: 18px 0 12px; padding: 14px; overflow: hidden; }
 .series-card h3 { margin: 0; font-size: 15px; }
 .series-card h4, .series-measure h4 { margin: 4px 0 0; font-size: 14px; }

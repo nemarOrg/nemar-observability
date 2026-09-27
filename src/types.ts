@@ -31,6 +31,10 @@ export interface Bindings {
   /** Server-only Umami API key. Install as a Worker secret; never expose it to
    *  the dashboard page or include it in a public API response. */
   UMAMI_API_KEY?: string;
+  /** First complete UTC day covered by consent-gated event instrumentation.
+   *  This is non-secret deployment configuration and must match the website's
+   *  verified production instrumentation date. */
+  UMAMI_EVENTS_COVERAGE_START?: string;
   /** JSON object mapping pushed section keys to their dedicated bearer tokens. */
   OBS_INGEST_TOKENS_JSON?: string;
 }

@@ -1,5 +1,12 @@
 import type { Bindings } from "../types";
-import type { AudienceCoverage, AudienceSourceStatus, CountryRow } from "./audience";
+import {
+  type AudienceCoverage,
+  type AudienceSourceStatus,
+  type CountryRow,
+  UMAMI_EVENT_NAMES,
+  type UmamiEventReport,
+  emptyUmamiEventReport,
+} from "./audience";
 
 const REQUEST_TIMEOUT_MS = 8_000;
 
@@ -9,6 +16,7 @@ export interface UmamiAudience {
   visitors: number | null;
   visits: number | null;
   pageviews: number | null;
+  event_metrics: UmamiEventReport;
   countries: CountryRow[];
   note?: string;
 }
@@ -35,6 +43,13 @@ function emptyAudience(
     visitors: null,
     visits: null,
     pageviews: null,
+    event_metrics: emptyUmamiEventReport(
+      status,
+      status === "unconfigured"
+        ? "Umami event reporting is not configured."
+        : "Umami event data is unavailable because the Umami source is unavailable.",
+      coverage,
+    ),
     countries: [],
     note,
   };
@@ -46,6 +61,13 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function isCount(value: unknown): value is number {
   return typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
+}
+
+function parseCount(value: unknown): number | null {
+  if (isCount(value)) return value;
+  if (typeof value !== "string" || !/^(0|[1-9]\d*)$/.test(value)) return null;
+  const count = Number(value);
+  return Number.isSafeInteger(count) && count >= 0 ? count : null;
 }
 
 function parseIsoDateBound(value: unknown, endOfDate: boolean): number | null {
@@ -92,6 +114,13 @@ function parseStats(value: unknown): UmamiStats | null {
   return { visitors, visits, pageviews };
 }
 
+function parseEventStats(value: unknown): { events: number; visitors: number } | null {
+  if (!isRecord(value) || !isRecord(value.data)) return null;
+  const events = parseCount(value.data.events);
+  const visitors = parseCount(value.data.visitors);
+  return events === null || visitors === null ? null : { events, visitors };
+}
+
 function parseCountryRows(value: unknown): CountryRow[] | null {
   if (!Array.isArray(value)) return null;
   const rows: CountryRow[] = [];
@@ -109,6 +138,81 @@ function dateAtUtcMidnight(date: string): number {
 
 function isoDateAt(timestamp: number): string {
   return new Date(timestamp).toISOString().slice(0, 10);
+}
+
+function parseEventCoverageStart(value: unknown): number | null {
+  const startAt = parseIsoDateBound(value, false);
+  return startAt !== null && typeof value === "string" && isoDateAt(startAt) === value
+    ? startAt
+    : null;
+}
+
+async function fetchEventReport(
+  env: Bindings,
+  base: URL,
+  websitePath: string,
+  apiKey: string,
+  requestedStartAt: number,
+  requestedEndAt: number,
+  available: UmamiDateRange,
+): Promise<UmamiEventReport> {
+  const configuredStart = env.UMAMI_EVENTS_COVERAGE_START?.trim();
+  if (!configuredStart) {
+    return emptyUmamiEventReport(
+      "unconfigured",
+      "Consent-gated event metrics need a verified coverage start date.",
+    );
+  }
+  const eventCoverageStartAt = parseEventCoverageStart(configuredStart);
+  if (eventCoverageStartAt === null) {
+    console.error("[audience] Umami event coverage start configuration is invalid");
+    return emptyUmamiEventReport("unavailable", "Umami event coverage is currently unavailable.");
+  }
+
+  const startAt = Math.max(requestedStartAt, available.startAt, eventCoverageStartAt);
+  const endAt = Math.min(requestedEndAt, available.endAt);
+  if (startAt > endAt) {
+    return emptyUmamiEventReport(
+      "unavailable",
+      "The selected range does not overlap verified event coverage.",
+    );
+  }
+
+  const coverage = { start: isoDateAt(startAt), end: isoDateAt(endAt) };
+  const clipped = startAt > requestedStartAt || endAt < requestedEndAt;
+  const params = { startAt: String(startAt), endAt: String(endAt) };
+  const results = await Promise.allSettled(
+    UMAMI_EVENT_NAMES.map(async (name) => {
+      const response = await fetchJson(
+        endpoint(base, `${websitePath}/events/stats`, { ...params, event: name }),
+        apiKey,
+      );
+      return { name, stats: parseEventStats(response) };
+    }),
+  );
+
+  let successful = 0;
+  const metrics = results.map((result, index) => {
+    const name = UMAMI_EVENT_NAMES[index];
+    if (result.status === "rejected" || !result.value.stats) {
+      console.error(`[audience] Umami event request failed or was invalid: ${name}`);
+      return { name, events: null, visitors: null };
+    }
+    successful++;
+    return { name, ...result.value.stats };
+  });
+  const status: AudienceSourceStatus =
+    successful === 0
+      ? "unavailable"
+      : clipped || successful < UMAMI_EVENT_NAMES.length
+        ? "partial"
+        : "available";
+  const notes: string[] = [
+    "Event-associated visitors are distinct anonymous Umami sessions, not identified people.",
+  ];
+  if (clipped) notes.push("Event values cover only the verified portion of the selected range.");
+  if (successful < UMAMI_EVENT_NAMES.length) notes.push("Some event metrics are unavailable.");
+  return { status, coverage, metrics, note: notes.join(" ") };
 }
 
 function isSafeBaseUrl(value: string): URL | null {
@@ -190,14 +294,30 @@ export async function fetchUmamiAudience(
     return emptyAudience("unavailable", "No Umami data overlaps the selected range.");
   }
 
+  const eventMetricsPromise = fetchEventReport(
+    env,
+    base,
+    websitePath,
+    apiKey,
+    requestedStartAt,
+    requestedEndAt,
+    available,
+  );
+
   const coverage = { start: isoDateAt(startAt), end: isoDateAt(endAt) };
   const clipped = startAt > requestedStartAt || endAt < requestedEndAt;
   const params = { startAt: String(startAt), endAt: String(endAt) };
-  const [statsResult, countryResult] = await Promise.allSettled([
-    fetchJson(endpoint(base, `${websitePath}/stats`, params), apiKey),
-    includeCountryBreakdown
-      ? fetchJson(endpoint(base, `${websitePath}/metrics`, { ...params, type: "country" }), apiKey)
-      : Promise.resolve(null),
+  const [[statsResult, countryResult], eventMetrics] = await Promise.all([
+    Promise.allSettled([
+      fetchJson(endpoint(base, `${websitePath}/stats`, params), apiKey),
+      includeCountryBreakdown
+        ? fetchJson(
+            endpoint(base, `${websitePath}/metrics`, { ...params, type: "country" }),
+            apiKey,
+          )
+        : Promise.resolve(null),
+    ]),
+    eventMetricsPromise,
   ]);
 
   const stats = statsResult.status === "fulfilled" ? parseStats(statsResult.value) : null;
@@ -213,7 +333,10 @@ export async function fetchUmamiAudience(
   }
 
   if (!statsAvailable && (!includeCountryBreakdown || !countriesAvailable)) {
-    return emptyAudience("unavailable", "Umami data is currently unavailable.", coverage);
+    return {
+      ...emptyAudience("unavailable", "Umami data is currently unavailable.", coverage),
+      event_metrics: eventMetrics,
+    };
   }
 
   const status: AudienceSourceStatus =
@@ -236,6 +359,7 @@ export async function fetchUmamiAudience(
     visitors: stats?.visitors ?? null,
     visits: stats?.visits ?? null,
     pageviews: stats?.pageviews ?? null,
+    event_metrics: eventMetrics,
     countries: countries ?? [],
     note: notes.join(" "),
   };

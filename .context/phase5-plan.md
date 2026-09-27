@@ -35,6 +35,15 @@ downloads, or caller attribution.
   cells by subtraction, while future dates have no observations yet. The existing
   day/week/month grouping selector applies to
   additive time-series only; the UI says so.
+- Report the fixed, consent-gated event names `citation_click`, `viewer_open`,
+  `viewer_interaction`, `upload_started`, and `upload_completed`. Query
+  `/events/stats` once per event over the intersection of the selected range,
+  Umami's available dates, and verified event coverage; show event counts and
+  event-associated anonymous sessions as separate values. The `event_metrics`
+  object reports its independent status and exact covered dates. The non-secret Worker variable
+  `UMAMI_EVENTS_COVERAGE_START` must be set to the first complete UTC date
+  verified for production instrumentation. Until then, event values are unknown,
+  not zero. Event-associated sessions are anonymous and are not people.
 - Label Umami visitors as anonymous, unique-session estimates. Umami's session
   hash changes monthly, so this is not an identified-person count. Country
   estimates are not an exclusive partition: a session may be observed in more
@@ -77,6 +86,16 @@ interface AudienceResponse {
     visitors: number | null;
     visits: number | null;
     pageviews: number | null;
+    event_metrics: {
+      status: SourceStatus;
+      coverage: Coverage;
+      metrics: Array<{
+        name: "citation_click" | "viewer_open" | "viewer_interaction" | "upload_started" | "upload_completed";
+        events: number | null;
+        visitors: number | null;
+      }>;
+      note?: string;
+    };
     countries: CountryRow[];
     suppressed_small_countries: boolean;
     note?: string;
@@ -106,8 +125,10 @@ details. Numeric `0` means the source successfully measured a covered range;
    and UI. Unknown, missing, unconfigured, partial, and measured-zero states
    remain distinguishable.
 3. Umami visitors/visits and single-day country estimates are separate from
-   Cloudflare request/country counts. Country values appear only for a single
-   completed UTC day; small country groups are suppressed.
+   Cloudflare request/country counts. Event counts and event-associated
+   anonymous sessions use verified instrumentation coverage. Country values
+   appear only for a single completed UTC day; small country groups are
+   suppressed.
 4. The page remains credential-free and the endpoint returns aggregate values
    only.
 5. The UI updates audience summaries when the selected dates change and ignores
@@ -117,5 +138,6 @@ details. Numeric `0` means the source successfully measured a covered range;
 
 This implementation does not install or rotate Infisical/Cloudflare secrets,
 deploy the Umami instance, or claim live acceptance. Those steps require the
-owner-managed Umami deployment and the existing Phase 4 Worker deployment path.
+owner-managed Umami deployment, real-browser website acceptance, verified
+`UMAMI_EVENTS_COVERAGE_START`, and the existing Phase 4 Worker deployment path.
 S3 egress collection remains the separate follow-up in issue #59.

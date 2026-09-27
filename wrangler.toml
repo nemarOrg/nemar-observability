@@ -48,6 +48,7 @@ AE_DATASET = "nemar_access_metrics"
 # when the matching self-hosted Umami website is ready:
 # UMAMI_BASE_URL = "https://umami.nemar.org"
 # UMAMI_WEBSITE_ID = "<website-id>"
+# UMAMI_EVENTS_COVERAGE_START = "YYYY-MM-DD" # set after production instrumentation is verified
 
 # Secrets (npx cfman wrangler --account sccn secret put <NAME> -c wrangler.toml):
 # - CF_ANALYTICS_TOKEN       (Bearer w/ Account Analytics Read; reads the AE SQL API)
@@ -83,3 +84,4 @@ AE_DATASET = "nemar_access_metrics_dev"
 # Optional dev audience source; keep any API key in a Worker secret:
 # UMAMI_BASE_URL = "https://umami.nemar.org"
 # UMAMI_WEBSITE_ID = "<website-id>"
+# UMAMI_EVENTS_COVERAGE_START = "YYYY-MM-DD" # set after production instrumentation is verified

@@ -10,6 +10,42 @@ export interface CountryRow {
   value: number;
 }
 
+export const UMAMI_EVENT_NAMES = [
+  "citation_click",
+  "viewer_open",
+  "viewer_interaction",
+  "upload_started",
+  "upload_completed",
+] as const;
+
+export type UmamiEventName = (typeof UMAMI_EVENT_NAMES)[number];
+
+export interface UmamiEventMetric {
+  name: UmamiEventName;
+  events: number | null;
+  visitors: number | null;
+}
+
+export interface UmamiEventReport {
+  status: AudienceSourceStatus;
+  coverage: AudienceCoverage | null;
+  metrics: UmamiEventMetric[];
+  note?: string;
+}
+
+export function emptyUmamiEventReport(
+  status: AudienceSourceStatus,
+  note: string,
+  coverage: AudienceCoverage | null = null,
+): UmamiEventReport {
+  return {
+    status,
+    coverage,
+    metrics: UMAMI_EVENT_NAMES.map((name) => ({ name, events: null, visitors: null })),
+    note,
+  };
+}
+
 export interface AudienceResponse {
   start: string;
   end: string;
@@ -21,6 +57,7 @@ export interface AudienceResponse {
     visitors: number | null;
     visits: number | null;
     pageviews: number | null;
+    event_metrics: UmamiEventReport;
     countries: CountryRow[];
     suppressed_small_countries: boolean;
     note?: string;

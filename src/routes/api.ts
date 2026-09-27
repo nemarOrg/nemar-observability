@@ -18,6 +18,7 @@ import { Hono } from "hono";
 import {
   type AudienceResponse,
   type AudienceSourceStatus,
+  emptyUmamiEventReport,
   summarizeCountries,
 } from "../lib/audience";
 import { resolveAdmin } from "../lib/auth";
@@ -265,6 +266,10 @@ apiRoutes.get("/audience", async (c) => {
       visitors: null,
       visits: null,
       pageviews: null,
+      event_metrics: emptyUmamiEventReport(
+        "unavailable",
+        "Umami event data is currently unavailable.",
+      ),
       countries: [],
       note: "Umami data is currently unavailable.",
     };
@@ -297,6 +302,7 @@ apiRoutes.get("/audience", async (c) => {
       visitors: umami.visitors,
       visits: umami.visits,
       pageviews: umami.pageviews,
+      event_metrics: umami.event_metrics,
       countries: umamiCountries.countries,
       suppressed_small_countries: umamiCountries.suppressedSmallCountries,
       ...(umamiNotes.filter(Boolean).length ? { note: umamiNotes.filter(Boolean).join(" ") } : {}),
