@@ -239,10 +239,24 @@ apiRoutes.get("/audience", async (c) => {
   if (days > 3660) return c.json({ error: "Date range cannot exceed 3660 days" }, 400);
 
   const now = new Date();
-  const includeCountryBreakdown = start === end;
-  const countryRangeNote = includeCountryBreakdown
-    ? undefined
-    : "Country breakdowns are withheld for multi-day ranges to prevent overlapping-range differencing; select one UTC day to view them.";
+  const today = now.toISOString().slice(0, 10);
+  const countryBreakdownScope =
+    start !== end
+      ? "multi_day"
+      : start > today
+        ? "future_day"
+        : start === today
+          ? "in_progress_day"
+          : "single_completed_day";
+  const includeCountryBreakdown = countryBreakdownScope === "single_completed_day";
+  const countryRangeNote =
+    countryBreakdownScope === "single_completed_day"
+      ? undefined
+      : countryBreakdownScope === "in_progress_day"
+        ? "Country breakdowns are available only for completed UTC days; select a date before today."
+        : countryBreakdownScope === "future_day"
+          ? "Country breakdowns are unavailable for future UTC days; select a completed UTC day."
+          : "Country breakdowns are withheld for multi-day ranges to prevent overlapping-range differencing; select one completed UTC day to view them.";
   const umamiPromise = fetchUmamiAudience(c.env, start, end, includeCountryBreakdown).catch(() => {
     console.error("[api] Umami audience request failed");
     return {
@@ -276,6 +290,7 @@ apiRoutes.get("/audience", async (c) => {
     start,
     end,
     observed_at: new Date().toISOString(),
+    country_breakdown_scope: countryBreakdownScope,
     umami: {
       status: umami.status,
       coverage: umami.coverage,

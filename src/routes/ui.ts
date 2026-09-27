@@ -159,7 +159,7 @@ function audienceCountries(parent, rows, showCountries) {
   const section = el("div", "audience-countries");
   section.appendChild(el("h4", null, "Country breakdown"));
   if (!showCountries) {
-    section.appendChild(el("p", "muted", "Country breakdowns are available only for single-day selections."));
+    section.appendChild(el("p", "muted", "Country breakdowns are available only for a single completed UTC day."));
     parent.appendChild(section);
     return;
   }
@@ -211,7 +211,7 @@ function audienceSourceCard(title, source, definitions, metrics, showCountries) 
 function renderAudience(payload) {
   const root = document.getElementById("audience");
   root.textContent = "";
-  const singleDay = payload.start === payload.end;
+  const showCountries = payload.country_breakdown_scope === "single_completed_day";
   const observedAt = typeof payload.observed_at === "string" ? new Date(payload.observed_at) : null;
   const observationLabel =
     observedAt && Number.isFinite(observedAt.getTime())
@@ -222,9 +222,13 @@ function renderAudience(payload) {
     el(
       "p",
       "audience-range-note",
-      singleDay
-        ? "Country breakdowns are shown for this single UTC day."
-        : "Country breakdowns are withheld for multi-day ranges to prevent overlapping-range differencing. Visitors and request totals still cover the selected range.",
+      showCountries
+        ? "Country breakdowns are shown for this completed UTC day."
+        : payload.country_breakdown_scope === "in_progress_day"
+          ? "Country breakdowns are limited to completed UTC days; select a date before today. Each source reports its own coverage for the selected date."
+          : payload.country_breakdown_scope === "future_day"
+            ? "Country breakdowns are unavailable for future UTC days. Each source reports whether data exists for the selected date."
+            : "Country breakdowns are withheld for multi-day ranges to prevent overlapping-range differencing. Each source reports its own coverage for the selected range.",
     ),
   );
   const grid = el("div", "audience-grid");
@@ -237,14 +241,14 @@ function renderAudience(payload) {
       { key: "visits", label: "Visits" },
       { key: "pageviews", label: "Page views" }
     ],
-    singleDay
+    showCountries
   ));
   grid.appendChild(audienceSourceCard(
     "Where do Cloudflare requests come from?",
     payload.cloudflare,
     "Counts are zone-wide Cloudflare HTTP requests by country. They can include bots and repeat clients; they are not unique visitors or completed downloads. Unreported country values are omitted.",
     [{ key: "requests", label: "Edge requests" }],
-    singleDay
+    showCountries
   ));
   root.appendChild(grid);
 }
