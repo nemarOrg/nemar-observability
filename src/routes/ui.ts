@@ -208,23 +208,23 @@ function renderSeries(payload, start, end) {
     groups.get(plane.key).series.push(series);
   });
   groups.forEach(function (group) {
-    const section = el("section", "source-plane");
-    section.appendChild(el("h3", null, group.plane.label));
-    section.appendChild(el("p", "plane-description", group.plane.description));
-    group.series.forEach(function (series) {
-    const card = el("article", "series-card");
-    card.appendChild(el("h4", null, series.label));
-    const lastDay = series.latest_observation_date;
-    const lastPeriodEnd = lastDay ? Date.parse(lastDay + "T00:00:00Z") + 86400000 : NaN;
-    const stale = !Number.isFinite(lastPeriodEnd) || Date.now() - lastPeriodEnd > series.freshness_after_hours * 3600000;
-    const grouping = document.getElementById("grouping").value;
-    const buckets = seriesBuckets(series, start, end, grouping);
-    card.appendChild(chart(series, buckets, grouping, start, end));
-    card.appendChild(el("p", stale ? "series-meta stale" : "series-meta", "Source " + series.source + " · " + series.unit + " per UTC day · declared coverage " + series.coverage_start + " to " + series.coverage_end + " · latest observed day " + (lastDay || "none") + " · last received by dashboard " + series.updated_at + " · " + (stale ? "stale" : "fresh")));
-    card.appendChild(valuesTable(series, buckets));
-    section.appendChild(card);
+    const card = el("section", "series-card");
+    card.appendChild(el("h3", null, group.plane.label));
+    group.series.forEach(function (series, index) {
+      const measure = index === 0 ? card : el("article", "series-measure");
+      measure.appendChild(el("h4", null, series.label));
+      const lastDay = series.latest_observation_date;
+      const lastPeriodEnd = lastDay ? Date.parse(lastDay + "T00:00:00Z") + 86400000 : NaN;
+      const stale = !Number.isFinite(lastPeriodEnd) || Date.now() - lastPeriodEnd > series.freshness_after_hours * 3600000;
+      const grouping = document.getElementById("grouping").value;
+      const buckets = seriesBuckets(series, start, end, grouping);
+      measure.appendChild(chart(series, buckets, grouping, start, end, group.plane.description));
+      if (index === 0) measure.appendChild(el("p", "plane-description", group.plane.description));
+      measure.appendChild(el("p", stale ? "series-meta stale" : "series-meta", "Source " + series.source + " · " + series.unit + " per UTC day · declared coverage " + series.coverage_start + " to " + series.coverage_end + " · latest observed day " + (lastDay || "none") + " · last received by dashboard " + series.updated_at + " · " + (stale ? "stale" : "fresh")));
+      measure.appendChild(valuesTable(series, buckets));
+      if (index > 0) card.appendChild(measure);
     });
-    root.appendChild(section);
+    root.appendChild(card);
   });
 }
 function seriesPlane(series) {
@@ -294,10 +294,12 @@ function valuesTable(series, buckets) {
   table.appendChild(body); details.appendChild(table);
   return details;
 }
-function chart(series, buckets, grouping, start, end) {
+function chart(series, buckets, grouping, start, end, description) {
   const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
   svg.setAttribute("viewBox", "0 0 900 250"); svg.setAttribute("role", "img");
-  svg.setAttribute("aria-label", series.label + " by " + grouping + " in " + series.unit); svg.classList.add("series-chart");
+  svg.setAttribute("aria-label", series.label + " by " + grouping + " in " + series.unit);
+  svg.setAttribute("aria-description", description);
+  svg.classList.add("series-chart");
   const partialPeriods = buckets.filter(function (bucket) { return bucket.partial; }).map(function (bucket) { return bucket.label; });
   if (partialPeriods.length) {
     const description = document.createElementNS(svg.namespaceURI, "desc");
@@ -411,10 +413,10 @@ main { padding: 20px 24px 60px; max-width: 1200px; margin: 0 auto; }
 .series-controls { display: flex; flex-wrap: wrap; align-items: end; gap: 10px; margin-bottom: 16px; }
 .series-controls label { display: grid; color: var(--muted); font-size: 12px; gap: 3px; }
 .series-controls button, .series-controls input, .series-controls select { color: var(--fg); background: var(--panel-2); border: 1px solid var(--border); border-radius: 6px; padding: 6px 9px; }
-.series-card { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; margin: 12px 0; padding: 14px; overflow: hidden; }
-.source-plane { margin-top: 18px; }
-.source-plane > h3 { margin: 0; font-size: 15px; }
-.series-card h4 { margin: 0; font-size: 14px; }
+.series-card { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; margin: 18px 0 12px; padding: 14px; overflow: hidden; }
+.series-card h3 { margin: 0; font-size: 15px; }
+.series-card h4, .series-measure h4 { margin: 4px 0 0; font-size: 14px; }
+.series-measure { border-top: 1px solid var(--border); margin-top: 14px; padding-top: 10px; }
 .plane-description { color: var(--muted); font-size: 12px; margin: 3px 0 8px; }
 .health-intro { margin: 0 0 14px; color: var(--muted); font-size: 13px; }
 .health-meta { color: var(--muted); font-size: 12px; margin: -4px 0 12px; }
