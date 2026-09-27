@@ -9,7 +9,7 @@ It answers, at a glance:
 - How many OpenNeuro imports are stuck? How many publication requests are open?
 - Which public datasets are accessed the most (downloads, Zarr reads)?
 
-Tiles show aggregate headline numbers. Some public breakdowns, such as the largest and most-read datasets, include public dataset IDs; private IDs are filtered out. Administrators review item-level health lists in the website admin portal.
+Tiles show aggregate headline numbers. Built-in breakdowns such as the largest and most-read datasets include only bounded lists of public dataset IDs. Pushed sections are public too, so their producers must keep private identifiers and other sensitive details out. Administrators review item-level health lists in the website admin portal.
 
 ### How to read usage
 
@@ -114,7 +114,7 @@ The body must conform to `src/lib/metric-snapshot.schema.json` (`$defs/sectionIn
 | `GET /observability/api/timeseries?start=YYYY-MM-DD&end=YYYY-MM-DD` | public | daily points and metadata, inclusive UTC range (maximum 3660 days) |
 | `GET /observability/health` | public | liveness |
 
-The **public snapshot and time-series API contain aggregate measures**; the snapshot may also include bounded breakdowns labeled with public dataset IDs. Private dataset IDs and credentials are never exposed. The page is zero-auth and zero-write. Daily usage controls support 7/30/90/365-day presets, custom UTC dates, and day/week/month grouping. Chart gaps mean missing or out-of-coverage observations.
+The **public snapshot and time-series API contain aggregate measures**; built-in snapshot sections may include bounded breakdowns labeled with public dataset IDs. Pushed sections are also public, and schema validation does not check their labels against dataset visibility. Pipeline producers must keep private identifiers and credentials out of all pushed fields. The page is zero-auth and zero-write. Daily usage controls support 7/30/90/365-day presets, custom UTC dates, and day/week/month grouping. Chart gaps mean missing or out-of-coverage observations.
 
 ## Daily S3 egress series
 
