@@ -391,9 +391,9 @@ export async function loadDailySeries(
       WHERE latest.section_key=s.section_key AND latest.series_key=s.series_key) AS latest_observation_date,
     p.date, p.value
     FROM daily_series s LEFT JOIN daily_series_points p ON p.section_key=s.section_key AND p.series_key=s.series_key
-    AND p.date >= ? AND p.date <= ? AND p.date >= s.coverage_start AND p.date <= s.coverage_end WHERE s.coverage_start <= ? AND s.coverage_end >= ?
+    AND p.date >= ? AND p.date <= ? AND p.date >= s.coverage_start AND p.date <= s.coverage_end
     ORDER BY s.section_key, s.series_key, p.date`)
-    .bind(start, end, end, start)
+    .bind(start, end)
     .all<{
       section_key: string;
       series_key: string;

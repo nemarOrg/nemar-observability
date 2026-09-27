@@ -19,3 +19,31 @@ an actual endpoint failure; do not substitute a stub server or mocked `fetch`.
 Until then, the relevant external acceptance gates remain nemar-umami#1 and
 website#345. Static typechecking, linting, and the existing repository test
 suite do not prove live audience integration.
+
+## Dashboard browser acceptance
+
+The previous `ui-render.test.ts` harness ran the client script against a fake
+DOM and supplied invented snapshot and daily-series values through fake
+`fetch` responses. That harness was removed to comply with `.rules/testing.md`.
+The replacement checks only real server-rendered markup. Do not add another
+mocked browser surface or fabricated snapshot or time-series response.
+
+On 2026-09-27, the production `/observability/api/timeseries` query for
+2026-08-01 through 2026-09-26 returned no reporting series, and the Umami host
+setup was still incomplete. Therefore no regression test was added for a series
+whose selected range starts after its coverage ends: the real-data prerequisite
+is unavailable and a hand-authored `SERIES` fixture would violate the project
+rule. After Umami or another authorized real source is active, use Chrome on the
+dashboard to select a range after the source's reported `coverage_end`; verify
+the source, latest observation, freshness status, and empty selected-range
+values remain visible.
+
+The same real-browser acceptance is required after a source publishes daily
+points. Use ranges that start and end midweek and midmonth. Verify calendar
+alignment and partial-period labels, displayed bucket totals against the selected
+daily API points, unknown gaps, and stale-source metadata. With a real production
+snapshot containing representative metrics, also verify tile rendering and
+formatting, drilldown links, and the `section_errors` banner. Record the source,
+selected UTC dates, snapshot/API revision, deployed revision, and observed
+results. CI currently covers none of these client-side behaviors; do not claim
+otherwise before the browser acceptance is complete.
