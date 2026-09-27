@@ -229,7 +229,7 @@ function renderSeries(payload, start, end) {
 }
 function seriesPlane(series) {
   const key = String(series.section || "").toLowerCase();
-  if (key === "website") return { key: "website", label: "What activity is recorded on the website?", description: "Browser analytics record consented page views and action events. These are events, not unique people." };
+  if (key === "website") return { key: "website", label: "What activity is recorded on the website?", description: "Anonymous browser analytics record page views and action events. These are events, not unique people." };
   if (key === "access") return { key: "access", label: "How is data accessed through NEMAR?", description: "Server-side access counts represent requests or redirects. Archive redirects do not confirm completed downloads; response bytes are shown only where the server records them." };
   if (key === "cf") return { key: "cf", label: "What traffic reaches the Cloudflare edge?", description: "Edge requests and bytes can include bots and repeat clients. They do not represent unique people or completed downloads." };
   if (key === "egress") return { key: "egress", label: "How many bytes did S3 return?", description: "Bucket-level response bytes include conversion reads and do not identify a caller or prove a completed human download." };
@@ -325,8 +325,12 @@ function chart(series, buckets, grouping, start, end, description) {
     if (buckets.length < 20 || i % Math.ceil(buckets.length / 12) === 0) { const label = document.createElementNS(svg.namespaceURI, "text"); label.setAttribute("x", p.x); label.setAttribute("y", "230"); label.setAttribute("text-anchor", "middle"); label.textContent = start.slice(0, 4) === end.slice(0, 4) ? p.bucket.start.slice(5) : p.bucket.start; svg.appendChild(label); }
   });
   const gap = buckets.some(function (b) { return b.value === null; });
-  const observedTotal = series.points.reduce(function (sum, point) { return point.date >= start && point.date <= end ? sum + point.value : sum; }, 0);
-  const note = document.createElementNS(svg.namespaceURI, "text"); note.setAttribute("x", "58"); note.setAttribute("y", "18"); note.textContent = (gap ? "Observed total · " : "Range total · ") + seriesValue(observedTotal, series.unit) + (gap ? " · incomplete buckets plot as gaps" : ""); svg.appendChild(note);
+  const observedPoints = series.points.filter(function (point) { return point.date >= start && point.date <= end; });
+  const observedTotal = observedPoints.reduce(function (sum, point) { return sum + point.value; }, 0);
+  const totalLabel = observedPoints.length === 0
+    ? "Range total · Unknown (no observations)"
+    : (gap ? "Observed total · " : "Range total · ") + seriesValue(observedTotal, series.unit) + (gap ? " · incomplete buckets plot as gaps" : "");
+  const note = document.createElementNS(svg.namespaceURI, "text"); note.setAttribute("x", "58"); note.setAttribute("y", "18"); note.textContent = totalLabel; svg.appendChild(note);
   return svg;
 }
 
@@ -335,6 +339,7 @@ function load() {
     .then(function (r) { return r.json(); })
     .then(renderSnapshot)
     .catch(function () {
+      document.getElementById("health-meta").textContent = "Could not load latest-state snapshot.";
       document.getElementById("sections").appendChild(el("p", "muted", "Could not load metrics."));
     });
 }
