@@ -207,6 +207,15 @@ const ZONE_COUNTRY_QUERY = `query($zone:String!,$since:Date!,$until:Date!){
   }}
 }`;
 
+const ZONE_REQUESTS_QUERY = `query($zone:String!,$since:Date!,$until:Date!){
+  viewer{zones(filter:{zoneTag:$zone}){
+    httpRequests1dGroups(limit:${WINDOW_DAYS + 2},filter:{date_geq:$since,date_lt:$until},orderBy:[date_ASC]){
+      dimensions{date}
+      sum{requests}
+    }
+  }}
+}`;
+
 export interface ZoneCountryRange {
   coverage: AudienceCoverage | null;
   requests: number | null;
@@ -233,6 +242,7 @@ export async function fetchZoneCountryRange(
   requestedStart: string,
   requestedEnd: string,
   now: Date,
+  includeCountryBreakdown = true,
 ): Promise<ZoneCountryRange> {
   if (
     !validIsoDate(requestedStart) ||
@@ -258,12 +268,17 @@ export async function fetchZoneCountryRange(
           dimensions: { date: string };
           sum: {
             requests: number;
-            countryMap: { clientCountryName: string; requests: number }[];
+            countryMap?: { clientCountryName: string; requests: number }[];
           };
         }[];
       }[];
     };
-  }>(env, ZONE_COUNTRY_QUERY, { zone: env.CF_ZONE_ID, since: start, until: nextDay }, 8_000);
+  }>(
+    env,
+    includeCountryBreakdown ? ZONE_COUNTRY_QUERY : ZONE_REQUESTS_QUERY,
+    { zone: env.CF_ZONE_ID, since: start, until: nextDay },
+    8_000,
+  );
 
   const rows = firstZone(data.viewer.zones).httpRequests1dGroups;
   if (!Array.isArray(rows)) throw new Error("CF GraphQL audience response was invalid");
@@ -280,12 +295,12 @@ export async function fetchZoneCountryRange(
       row.dimensions.date > end ||
       !row.sum ||
       !isRequestCount(row.sum.requests) ||
-      !Array.isArray(row.sum.countryMap)
+      (includeCountryBreakdown && !Array.isArray(row.sum.countryMap))
     ) {
       throw new Error("CF GraphQL audience response was invalid");
     }
     requests += row.sum.requests;
-    for (const country of row.sum.countryMap) {
+    for (const country of row.sum.countryMap ?? []) {
       if (
         !country ||
         typeof country.clientCountryName !== "string" ||

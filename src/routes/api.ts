@@ -170,6 +170,7 @@ async function loadCloudflareAudience(
   start: string,
   end: string,
   now: Date,
+  includeCountryBreakdown: boolean,
 ): Promise<AudienceResponse["cloudflare"]> {
   if (!env.CF_ZONE_ANALYTICS_TOKEN?.trim()) {
     return unavailableCloudflare("unconfigured", "Cloudflare zone analytics is not configured.");
@@ -177,7 +178,7 @@ async function loadCloudflareAudience(
 
   let result: Awaited<ReturnType<typeof fetchZoneCountryRange>>;
   try {
-    result = await fetchZoneCountryRange(env, start, end, now);
+    result = await fetchZoneCountryRange(env, start, end, now, includeCountryBreakdown);
   } catch {
     console.error("[api] Cloudflare audience request failed");
     return unavailableCloudflare(
@@ -189,13 +190,23 @@ async function loadCloudflareAudience(
     return unavailableCloudflare("unavailable", "No Cloudflare data overlaps the selected range.");
   }
 
-  const countrySummary = summarizeCountries(result.countries);
+  const countrySummary = includeCountryBreakdown
+    ? summarizeCountries(result.countries)
+    : { countries: [], suppressedSmallCountries: false, omittedUnreportedCountries: false };
   const clipped = result.coverage.start > start || result.coverage.end < end;
-  const notes = [
-    "Counts are Cloudflare zone requests, not visitors or completed downloads.",
-    "Country values omit requests without a reported country.",
-  ];
+  const currentUtcDay = now.toISOString().slice(0, 10);
+  const includesCurrentUtcDay =
+    result.coverage.start <= currentUtcDay && result.coverage.end >= currentUtcDay;
+  const notes = ["Counts are Cloudflare zone requests, not visitors or completed downloads."];
+  if (includeCountryBreakdown) {
+    notes.push("Country values omit requests without a reported country.");
+  }
   if (clipped) notes.unshift("Cloudflare data covers only part of the selected range.");
+  if (includesCurrentUtcDay) {
+    notes.push(
+      "The current UTC day is still in progress, so its Cloudflare totals may be incomplete.",
+    );
+  }
   if (countrySummary.suppressedSmallCountries) {
     notes.push(
       "Country values below 10 are withheld; smaller rows are combined only when their total reaches 10.",
@@ -206,7 +217,7 @@ async function loadCloudflareAudience(
   }
 
   return {
-    status: clipped ? "partial" : "available",
+    status: clipped || includesCurrentUtcDay ? "partial" : "available",
     coverage: result.coverage,
     requests: result.requests,
     countries: countrySummary.countries,
@@ -228,7 +239,11 @@ apiRoutes.get("/audience", async (c) => {
   if (days > 3660) return c.json({ error: "Date range cannot exceed 3660 days" }, 400);
 
   const now = new Date();
-  const umamiPromise = fetchUmamiAudience(c.env, start, end).catch(() => {
+  const includeCountryBreakdown = start === end;
+  const countryRangeNote = includeCountryBreakdown
+    ? undefined
+    : "Country breakdowns are withheld for multi-day ranges to prevent overlapping-range differencing; select one UTC day to view them.";
+  const umamiPromise = fetchUmamiAudience(c.env, start, end, includeCountryBreakdown).catch(() => {
     console.error("[api] Umami audience request failed");
     return {
       status: "unavailable" as const,
@@ -242,10 +257,12 @@ apiRoutes.get("/audience", async (c) => {
   });
   const [umami, cloudflare] = await Promise.all([
     umamiPromise,
-    loadCloudflareAudience(c.env, start, end, now),
+    loadCloudflareAudience(c.env, start, end, now, includeCountryBreakdown),
   ]);
-  const umamiCountries = summarizeCountries(umami.countries);
-  const umamiNotes = [umami.note];
+  const umamiCountries = includeCountryBreakdown
+    ? summarizeCountries(umami.countries)
+    : { countries: [], suppressedSmallCountries: false, omittedUnreportedCountries: false };
+  const umamiNotes = [umami.note, countryRangeNote];
   if (umamiCountries.suppressedSmallCountries) {
     umamiNotes.push(
       "Country values below 10 are withheld; smaller rows are combined only when their total reaches 10.",
@@ -269,7 +286,14 @@ apiRoutes.get("/audience", async (c) => {
       suppressed_small_countries: umamiCountries.suppressedSmallCountries,
       ...(umamiNotes.filter(Boolean).length ? { note: umamiNotes.filter(Boolean).join(" ") } : {}),
     },
-    cloudflare,
+    cloudflare: countryRangeNote
+      ? {
+          ...cloudflare,
+          countries: [],
+          suppressed_small_countries: false,
+          note: [cloudflare.note, countryRangeNote].filter(Boolean).join(" "),
+        }
+      : cloudflare,
   };
   return c.json(response, 200, { "Cache-Control": PUBLIC_CACHE });
 });

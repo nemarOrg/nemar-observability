@@ -155,9 +155,14 @@ function audienceMeasure(parent, label, value) {
   card.appendChild(el("strong", "audience-measure-value", audienceNumber(value)));
   parent.appendChild(card);
 }
-function audienceCountries(parent, rows) {
+function audienceCountries(parent, rows, showCountries) {
   const section = el("div", "audience-countries");
   section.appendChild(el("h4", null, "Country breakdown"));
+  if (!showCountries) {
+    section.appendChild(el("p", "muted", "Country breakdowns are available only for single-day selections."));
+    parent.appendChild(section);
+    return;
+  }
   if (!Array.isArray(rows) || rows.length === 0) {
     section.appendChild(el("p", "muted", "No country values were returned. This does not mean there was no activity."));
     parent.appendChild(section);
@@ -183,7 +188,7 @@ function audienceCountries(parent, rows) {
   section.appendChild(list);
   parent.appendChild(section);
 }
-function audienceSourceCard(title, source, definitions, metrics) {
+function audienceSourceCard(title, source, definitions, metrics, showCountries) {
   const card = el("article", "audience-source");
   const heading = el("div", "audience-source-heading");
   heading.appendChild(el("h3", null, title));
@@ -198,7 +203,7 @@ function audienceSourceCard(title, source, definitions, metrics) {
   const measures = el("div", "audience-measures");
   metrics.forEach(function (metric) { audienceMeasure(measures, metric.label, source[metric.key]); });
   card.appendChild(measures);
-  audienceCountries(card, source.countries);
+  audienceCountries(card, source.countries, showCountries);
   if (source.suppressed_small_countries) card.appendChild(el("p", "audience-note", "Small country values were withheld; values below 10 are combined only when their total reaches 10."));
   if (source.note) card.appendChild(el("p", "audience-note", source.note));
   return card;
@@ -206,6 +211,22 @@ function audienceSourceCard(title, source, definitions, metrics) {
 function renderAudience(payload) {
   const root = document.getElementById("audience");
   root.textContent = "";
+  const singleDay = payload.start === payload.end;
+  const observedAt = typeof payload.observed_at === "string" ? new Date(payload.observed_at) : null;
+  const observationLabel =
+    observedAt && Number.isFinite(observedAt.getTime())
+      ? "Sources observed at " + observedAt.toISOString() + " (UTC)"
+      : "Source observation time unavailable.";
+  root.appendChild(el("p", "audience-observed", observationLabel));
+  root.appendChild(
+    el(
+      "p",
+      "audience-range-note",
+      singleDay
+        ? "Country breakdowns are shown for this single UTC day."
+        : "Country breakdowns are withheld for multi-day ranges to prevent overlapping-range differencing. Visitors and request totals still cover the selected range.",
+    ),
+  );
   const grid = el("div", "audience-grid");
   grid.appendChild(audienceSourceCard(
     "What website activity is recorded?",
@@ -215,13 +236,15 @@ function renderAudience(payload) {
       { key: "visitors", label: "Visitors (unique sessions)" },
       { key: "visits", label: "Visits" },
       { key: "pageviews", label: "Page views" }
-    ]
+    ],
+    singleDay
   ));
   grid.appendChild(audienceSourceCard(
     "Where do Cloudflare requests come from?",
     payload.cloudflare,
     "Counts are zone-wide Cloudflare HTTP requests by country. They can include bots and repeat clients; they are not unique visitors or completed downloads. Unreported country values are omitted.",
-    [{ key: "requests", label: "Edge requests" }]
+    [{ key: "requests", label: "Edge requests" }],
+    singleDay
   ));
   root.appendChild(grid);
 }
@@ -544,6 +567,7 @@ main { padding: 20px 24px 60px; max-width: 1200px; margin: 0 auto; }
 .audience-status-partial { background: rgba(210,153,34,.16); color: #f0c65a; }
 .audience-status-unconfigured, .audience-status-unavailable, .audience-status-unknown { background: rgba(139,151,166,.16); color: var(--muted); }
 .audience-definition, .audience-coverage, .audience-note { color: var(--muted); font-size: 11.5px; line-height: 1.45; margin: 8px 0; }
+.audience-observed, .audience-range-note { color: var(--muted); font-size: 11.5px; margin: 0 0 8px; }
 .audience-measures { display: grid; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); gap: 8px; margin: 12px 0; }
 .audience-measure { display: grid; gap: 3px; border: 1px solid var(--border); border-radius: 8px; padding: 8px; min-width: 0; }
 .audience-measure-label { color: var(--muted); font-size: 10.5px; }

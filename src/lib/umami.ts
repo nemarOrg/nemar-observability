@@ -48,10 +48,41 @@ function isCount(value: unknown): value is number {
   return typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
 }
 
+function parseIsoDateBound(value: unknown, endOfDate: boolean): number | null {
+  if (typeof value !== "string") return null;
+  const dateOnly = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+  if (dateOnly) {
+    const timestamp = Date.parse(`${value}T00:00:00.000Z`);
+    if (!Number.isFinite(timestamp) || new Date(timestamp).toISOString().slice(0, 10) !== value) {
+      return null;
+    }
+    return endOfDate ? timestamp + 86_400_000 - 1 : timestamp;
+  }
+
+  const isoDateTime = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?(?:Z|[+-]\d{2}:?\d{2})$/i;
+  if (!isoDateTime.test(value)) return null;
+  const datePart = value.slice(0, 10);
+  const midnight = Date.parse(`${datePart}T00:00:00.000Z`);
+  if (!Number.isFinite(midnight) || new Date(midnight).toISOString().slice(0, 10) !== datePart) {
+    return null;
+  }
+  const timestamp = Date.parse(value);
+  return Number.isFinite(timestamp) ? timestamp : null;
+}
+
 function parseDateRange(value: unknown): UmamiDateRange | null {
-  if (!isRecord(value) || !isCount(value.startAt) || !isCount(value.endAt)) return null;
-  if (value.startAt > value.endAt) return null;
-  return { startAt: value.startAt, endAt: value.endAt };
+  if (!isRecord(value)) return null;
+  let startAt: number | null = null;
+  let endAt: number | null = null;
+  if (isCount(value.startAt) && isCount(value.endAt)) {
+    startAt = value.startAt;
+    endAt = value.endAt;
+  } else {
+    startAt = parseIsoDateBound(value.startDate, false);
+    endAt = parseIsoDateBound(value.endDate, true);
+  }
+  if (startAt === null || endAt === null || startAt > endAt) return null;
+  return { startAt, endAt };
 }
 
 function parseStats(value: unknown): UmamiStats | null {
@@ -122,6 +153,7 @@ export async function fetchUmamiAudience(
   env: Bindings,
   requestedStart: string,
   requestedEnd: string,
+  includeCountryBreakdown = true,
 ): Promise<UmamiAudience> {
   const baseUrl = env.UMAMI_BASE_URL?.trim();
   const websiteId = env.UMAMI_WEBSITE_ID?.trim();
@@ -163,18 +195,24 @@ export async function fetchUmamiAudience(
   const params = { startAt: String(startAt), endAt: String(endAt) };
   const [statsResult, countryResult] = await Promise.allSettled([
     fetchJson(endpoint(base, `${websitePath}/stats`, params), apiKey),
-    fetchJson(endpoint(base, `${websitePath}/metrics`, { ...params, type: "country" }), apiKey),
+    includeCountryBreakdown
+      ? fetchJson(endpoint(base, `${websitePath}/metrics`, { ...params, type: "country" }), apiKey)
+      : Promise.resolve(null),
   ]);
 
   const stats = statsResult.status === "fulfilled" ? parseStats(statsResult.value) : null;
   const countries =
-    countryResult.status === "fulfilled" ? parseCountryRows(countryResult.value) : null;
+    includeCountryBreakdown && countryResult.status === "fulfilled"
+      ? parseCountryRows(countryResult.value)
+      : null;
   const statsAvailable = stats !== null;
-  const countriesAvailable = countries !== null;
+  const countriesAvailable = !includeCountryBreakdown || countries !== null;
   if (!statsAvailable) console.error("[audience] Umami summary request failed or was invalid");
-  if (!countriesAvailable) console.error("[audience] Umami country request failed or was invalid");
+  if (includeCountryBreakdown && !countriesAvailable) {
+    console.error("[audience] Umami country request failed or was invalid");
+  }
 
-  if (!statsAvailable && !countriesAvailable) {
+  if (!statsAvailable && (!includeCountryBreakdown || !countriesAvailable)) {
     return emptyAudience("unavailable", "Umami data is currently unavailable.", coverage);
   }
 
@@ -183,8 +221,10 @@ export async function fetchUmamiAudience(
   const notes: string[] = [];
   if (clipped) notes.push("Umami data covers only part of the selected range.");
   if (!statsAvailable) notes.push("Umami summary values are unavailable.");
-  if (!countriesAvailable) notes.push("Umami country values are unavailable.");
-  if (countriesAvailable) {
+  if (includeCountryBreakdown && !countriesAvailable) {
+    notes.push("Umami country values are unavailable.");
+  }
+  if (includeCountryBreakdown && countriesAvailable) {
     notes.push(
       "Country values omit sessions without a reported country and are not an exclusive partition.",
     );
