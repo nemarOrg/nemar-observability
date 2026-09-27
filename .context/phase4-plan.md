@@ -3,22 +3,19 @@
 ## Context
 
 The dashboard already accepts and stores additive daily byte series, then
-renders them with UTC day, week, month, and custom-range controls. The
-remaining work is to collect the existing bucket-wide CloudWatch request metric
-and push it through the section-keyed ingest endpoint. The first machine-side
-attempt on 2026-09-26 used the public Infisical hostname and loaded no variables.
-A later run through the local listener loaded the scoped AWS credentials and a
-fresh daily CloudWatch query succeeded; see `research.md` for the evidence. The
-2026-08-01 UTC backfill window returned all 56 expected daily points through
-2026-09-25, with no missing days and 386.294 TB decimal total. The
-collector has not yet pushed a section or run on its schedule. The Infisical UI
-confirms the AWS secrets exist in project `nemar` (ID
-`817f7473-a318-4e99-9cf4-a89db057f5fc`), production environment `prod`
-(`api.nemar.org`), and path `/observability/egress`; it also lists the scoped
-read-only token. On nemaring, the public API returns HTTP 302 through Cloudflare
-Access while `http://127.0.0.1:8080/api/status` returns 200. Using that loopback
-domain with the token injects exactly the three AWS variables. Keep the CLI on
-loopback; the separate section-ingest token is still required before a push.
+renders them with UTC day, week, month, and custom-range controls. The remaining
+work is operational collection and acceptance. On 2026-09-27, the exact-host
+Cloudflare Access policy for Infisical changed to `Bypass / Everyone`, after
+public signups were disabled and the administrator's passkey two-factor
+authentication was verified. The public hostname now returns HTTP 200 without
+an Access challenge, and the read-only service token loads the three AWS
+variables through `https://infisical.nemar.org`. A fresh CloudWatch query for
+2026-08-01 through 2026-09-26 UTC returned all 57 expected daily points with no
+missing days, totaling 394,926,061,470,340 bytes. The Infisical path does not yet
+contain `OBS_EGRESS_INGEST_TOKEN`, so no section has been pushed and the timer
+must remain disabled. The earlier 2026-09-26 public-host attempt happened
+before the Access policy change; do not use the local listener for this
+collector. See `research.md` for the live verification receipt.
 
 ## What already exists to reuse
 
@@ -98,9 +95,9 @@ the failure without publishing zeros or claiming coverage.
 
 - Static review: Bash syntax, ShellCheck, targeted parser/window tests using an
   actual captured CloudWatch response, and `git diff --check`.
-- The Infisical local-listener injection and a read-only CloudWatch query have
-  succeeded. The public Infisical hostname's Cloudflare Access redirect is a
-  known headless-client limitation, not a current zero-secret injection gate.
+- The public Infisical hostname successfully injected the three AWS secrets and
+  the read-only 57-day CloudWatch query completed with no missing daily points.
 - Live section push acceptance and scheduled operation remain gated on the
-  section-keyed ingest token being installed and deployed, followed by a real
-  push and verification that the API and chart show returned dates and gaps.
+  `egress` section token being stored in Infisical and configured in the
+  deployed Worker, followed by a real push and verification that the API and
+  chart show returned dates and gaps.

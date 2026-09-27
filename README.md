@@ -172,12 +172,16 @@ it must expose `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, and
 section key `egress`. Do not put AWS values or the ingest token in this repo,
 shell history, systemd files, or logs.
 
-On nemaring, use the local Infisical listener at `http://127.0.0.1:8080` for
-headless CLI access. The public `https://infisical.nemar.org` endpoint returns
-a Cloudflare Access redirect to unauthenticated CLI requests. The `prod`
-environment supplies production `api.nemar.org` credentials; the `dev`
-environment targets `api-test.nemar.org`, and local development uses
-`.dev.vars`.
+On nemaring, use `https://infisical.nemar.org` through the existing
+`nemar-infisical` Cloudflare Tunnel. The exact-host Cloudflare Access app is
+`Bypass / Everyone`, so CLI requests do not need the Cloudflare email challenge;
+Infisical still authenticates the scoped service token. Public signups are
+disabled and the administrator has passkey two-factor authentication. On
+2026-09-27, the read-only token successfully loaded the three AWS variables
+through this public hostname. The same check found `OBS_EGRESS_INGEST_TOKEN`
+missing, so the collector cannot push its section yet. The `prod` environment
+supplies production `api.nemar.org` credentials; the `dev` environment targets
+`api-test.nemar.org`, and local development uses `.dev.vars`.
 
 For the initial backfill and acceptance run from `/opt/nemar-observability`:
 

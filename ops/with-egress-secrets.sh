@@ -37,7 +37,8 @@ INFISICAL_RUN_ENV=()
 [[ ${EGRESS_START_DATE+x} ]] && INFISICAL_RUN_ENV+=("EGRESS_START_DATE=$EGRESS_START_DATE")
 [[ ${EGRESS_LOOKBACK_DAYS+x} ]] && INFISICAL_RUN_ENV+=("EGRESS_LOOKBACK_DAYS=$EGRESS_LOOKBACK_DAYS")
 
-# Use nemaring's local listener; the public hostname requires Cloudflare Access.
+# Use the public Infisical hostname through the nemar-infisical tunnel. Cloudflare Access
+# bypasses the exact hostname; Infisical still authenticates this scoped service token.
 exec env -i \
   HOME="$HOME" \
   PATH="${PATH:-/usr/local/bin:/usr/bin:/bin}" \
@@ -46,7 +47,7 @@ exec env -i \
   NO_COLOR=1 \
   "${INFISICAL_RUN_ENV[@]}" \
   "$INFISICAL_CLI" run \
-  --domain "http://127.0.0.1:8080" \
+  --domain "https://infisical.nemar.org" \
   --projectId "817f7473-a318-4e99-9cf4-a89db057f5fc" \
   --env prod \
   --path /observability/egress \
