@@ -31,6 +31,9 @@ for (const feature of collection.features as CountryFeature[]) {
 }
 
 const sorted = Object.fromEntries([...countries.entries()].sort(([a], [b]) => a.localeCompare(b)));
-const output = `// Generated from Natural Earth 1:110m Admin 0 country boundaries (public domain).\n// Regenerate with: bun run scripts/generate-world-map.ts\nexport const WORLD_COUNTRY_PATHS: Record<string, string> = ${JSON.stringify(sorted)};\n`;
+const entries = Object.entries(sorted)
+  .map(([code, path]) => `  ${code}: ${JSON.stringify(path)},`)
+  .join("\n");
+const output = `// Generated from Natural Earth 1:110m Admin 0 country boundaries (public domain).\n// Regenerate with: bun run scripts/generate-world-map.ts\nexport const WORLD_COUNTRY_PATHS: Record<string, string> = {\n${entries}\n};\n`;
 await Bun.write(new URL("../src/lib/world-map.ts", import.meta.url), output);
 console.info(`Wrote ${countries.size} country paths from ${sourceUrl}`);
