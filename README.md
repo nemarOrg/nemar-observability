@@ -9,7 +9,11 @@ It answers, at a glance:
 - How many OpenNeuro imports are stuck? How many publication requests are open?
 - Which public datasets are accessed the most (downloads, Zarr reads)?
 
-Every tile is a headline number (a total, or a percent like "% with archive"). Tiles that have a list behind them drill into the exact datasets that need attention — **admin only**.
+Tiles show aggregate headline numbers only. The public dashboard does not expose dataset lists; administrators review item-level health in the website admin portal.
+
+### How to read usage
+
+Usage is grouped by reporting source: consented website/browser page views and action events, server-side access requests and redirects, Cloudflare edge requests and bytes, and S3 response bytes when those series are available. These are separate measures: page views and actions are events rather than people, access redirects do not confirm completed downloads, and edge traffic can include bots and repeat clients. The selected UTC date range controls every displayed additive series and total. Daily values are summed into calendar-aligned weeks or months only when the bucket has complete observations; a partial boundary bucket is labeled, and a missing observation stays **unknown**, never zero. Daily distinct visitors are not summed into a range total. Snapshot health is a separate point-in-time view labeled **latest state**, with its generated time shown.
 
 ## How it works
 
