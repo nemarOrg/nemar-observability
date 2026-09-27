@@ -50,6 +50,14 @@ summed across buckets as unique people.
 
 ## Active follow-ups
 
+- [ ] **Dashboard clarity and country map (issue #69)** — compact the public
+      usage view, keep daily points as the default with rolling date presets,
+      and move metric definitions and source coverage into info/details. Show
+      one completed UTC day on a country map with Cloudflare requests and
+      Umami sessions as separate selectable sources; preserve small-cell
+      suppression. S3 response bytes remain a bucket-wide measure across all
+      NEMAR data planes, include internal conversion reads, and have no country
+      attribution, so do not place them on the map.
 - [ ] **S3 response-byte collection (issue #59)** — the collector and systemd
       units from PR #61 are in the repo, but the timer is not installed or
       enabled. Query `AWS/S3:BytesDownloaded`, `Stat=Sum`, `Period=86400`,
