@@ -17,7 +17,15 @@
 // data (uses createElement/textContent) so it is safe inside this TS template
 // and free of injection from dataset ids / labels.
 
-import { WORLD_COUNTRY_PATHS } from "../lib/world-map";
+import {
+  WORLD_COUNTRY_CODES_BY_NAME,
+  WORLD_COUNTRY_NAMES,
+  WORLD_COUNTRY_PATHS,
+} from "../lib/world-map";
+
+const WORLD_COUNTRY_PATHS_JSON = JSON.stringify(WORLD_COUNTRY_PATHS);
+const WORLD_COUNTRY_NAMES_JSON = JSON.stringify(WORLD_COUNTRY_NAMES);
+const WORLD_COUNTRY_CODES_BY_NAME_JSON = JSON.stringify(WORLD_COUNTRY_CODES_BY_NAME);
 
 const CLIENT_JS = String.raw`
 const API = "/observability/api";
@@ -271,20 +279,23 @@ function renderAudience(payload) {
   root.appendChild(grid);
 }
 let geographyRequestId = 0;
-let geographyPayload = null;
 let geographySourceKey = "cloudflare";
+function normalizeCountryLabel(label) {
+  return typeof label === "string"
+    ? label.normalize("NFKD").replace(/\p{M}/gu, "").replace(/[^a-z0-9]/gi, "").toLowerCase()
+    : "";
+}
 function countryCode(label) {
-  const code = typeof label === "string" ? label.trim().toUpperCase() : "";
-  return /^[A-Z]{2}$/.test(code) ? code : null;
+  if (typeof label !== "string") return null;
+  const code = label.trim().toUpperCase();
+  if (/^[A-Z]{2}$/.test(code) && WORLD_COUNTRY_PATHS[code]) return code;
+  const mappedCode = WORLD_COUNTRY_CODES_BY_NAME[normalizeCountryLabel(label)];
+  return typeof mappedCode === "string" ? mappedCode : null;
 }
 function countryName(label) {
   const code = countryCode(label);
   if (!code) return label;
-  try {
-    return new Intl.DisplayNames(["en"], { type: "region" }).of(code) || label;
-  } catch {
-    return label;
-  }
+  return (WORLD_COUNTRY_NAMES[code] && WORLD_COUNTRY_NAMES[code][0]) || label;
 }
 function geographySources(payload) {
   return [
@@ -292,17 +303,17 @@ function geographySources(payload) {
     { key: "umami", label: "Website sessions", unit: "anonymous sessions", source: payload.umami }
   ];
 }
-function hasCountryValues(item) {
-  return Array.isArray(item.source.countries) && item.source.countries.length > 0;
+function hasCountryData(item) {
+  return (Array.isArray(item.source.countries) && item.source.countries.length > 0)
+    || item.source.suppressed_small_countries === true;
 }
 function renderGeography(payload, date) {
-  geographyPayload = payload;
   const root = document.getElementById("geography");
   root.textContent = "";
   const sources = geographySources(payload);
   const requested = sources.find(function (item) { return item.key === geographySourceKey; });
-  const active = (requested && hasCountryValues(requested) ? requested : null)
-    || sources.find(hasCountryValues)
+  const active = (requested && hasCountryData(requested) ? requested : null)
+    || sources.find(hasCountryData)
     || requested
     || sources[0];
   geographySourceKey = active.key;
@@ -311,7 +322,7 @@ function renderGeography(payload, date) {
   sourceTabs.setAttribute("aria-label", "Choose a location data source");
   sources.forEach(function (item) {
     const button = el("button", "geography-source", item.label);
-    const hasValues = hasCountryValues(item);
+    const hasValues = hasCountryData(item);
     const available = item.source.status === "available" || item.source.status === "partial";
     button.type = "button";
     button.disabled = !available || !hasValues;
@@ -319,7 +330,7 @@ function renderGeography(payload, date) {
     button.appendChild(el("span", "geography-source-status", audienceStatus(item.source.status)));
     button.addEventListener("click", function () {
       geographySourceKey = item.key;
-      renderGeography(geographyPayload, date);
+      renderGeography(payload, date);
     });
     sourceTabs.appendChild(button);
   });
@@ -373,9 +384,14 @@ function renderGeography(payload, date) {
   summary.appendChild(infoDisclosure("About location data", active.key === "cloudflare"
     ? "Cloudflare counts zone-wide edge requests, including repeat clients and automated traffic. This is not a visitor or completed-download count."
     : "Umami counts anonymous unique-session estimates. A session is not an identified person, and sessions without a reported country are not shown."));
+  const hasWithheldValues = active.source.suppressed_small_countries === true;
   const hint = el("p", "geography-map-hint", coded.size
-    ? "Showing reports for " + coded.size + " countries. Small or unreported totals may be omitted."
-    : "No country values were reported for this source and date.");
+    ? "Showing reported values for " + coded.size + " countries. Small or unreported values may be omitted."
+    : hasWithheldValues
+      ? "Country values are withheld under the privacy threshold; no country location is shown."
+      : countries.length
+        ? "Country values were reported, but none match a location on the map."
+        : "No country values were reported for this source and date.");
   summary.appendChild(hint);
   const legend = el("div", "geography-map-legend");
   legend.appendChild(el("span", null, "Fewer"));
@@ -410,7 +426,7 @@ function renderGeography(payload, date) {
     ? active.source.coverage.start + " to " + active.source.coverage.end + " UTC"
     : "Unavailable";
   sourceDetails.appendChild(el("p", null, "Source " + active.label + " · coverage " + coverage + " · status " + audienceStatus(active.source.status) + "."));
-  sourceDetails.appendChild(el("p", null, "The map uses one completed UTC day. Countries with fewer than 10 events are withheld; withheld totals are listed without a map location. NEMAR S3 byte totals are bucket-wide and do not include country attribution."));
+  sourceDetails.appendChild(el("p", null, "The map uses one completed UTC day. Country values below 10 are grouped as “Other / withheld” only when their combined total reaches 10; smaller combined totals are omitted. NEMAR S3 byte totals are bucket-wide and have no country attribution."));
   if (active.source.note) sourceDetails.appendChild(el("p", null, active.source.note));
   root.appendChild(sourceDetails);
 }
@@ -428,15 +444,16 @@ function loadGeography() {
   root.appendChild(el("p", "muted", "Loading country activity…"));
   fetch(API + "/audience?start=" + encodeURIComponent(date) + "&end=" + encodeURIComponent(date))
     .then(function (response) {
-      if (!response.ok) throw new Error("Could not load location data.");
+      if (!response.ok) throw new Error("Location data returned HTTP " + response.status + ".");
       return response.json();
     })
     .then(function (payload) {
       if (requestId !== geographyRequestId || input.value !== date) return;
       renderGeography(payload, date);
     })
-    .catch(function () {
+    .catch(function (error) {
       if (requestId !== geographyRequestId) return;
+      console.error("[observability] Country activity request failed", error);
       root.textContent = "";
       root.appendChild(el("p", "muted", "Could not load country activity."));
     });
@@ -923,7 +940,7 @@ export function renderDashboardPage(): string {
       <div id="sections"></div>
     </section>
   </main>
-  <script>const WORLD_COUNTRY_PATHS = ${JSON.stringify(WORLD_COUNTRY_PATHS)};${CLIENT_JS}</script>
+  <script>const WORLD_COUNTRY_PATHS = ${WORLD_COUNTRY_PATHS_JSON};const WORLD_COUNTRY_NAMES = ${WORLD_COUNTRY_NAMES_JSON};const WORLD_COUNTRY_CODES_BY_NAME = ${WORLD_COUNTRY_CODES_BY_NAME_JSON};${CLIENT_JS}</script>
 </body>
 </html>`;
 }
