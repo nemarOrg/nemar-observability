@@ -9,7 +9,11 @@ It answers, at a glance:
 - How many OpenNeuro imports are stuck? How many publication requests are open?
 - Which public datasets are accessed the most (downloads, Zarr reads)?
 
-Every tile is a headline number (a total, or a percent like "% with archive"). Tiles that have a list behind them drill into the exact datasets that need attention — **admin only**.
+Tiles show aggregate headline numbers. Built-in breakdowns such as the largest and most-read datasets include only bounded lists of public dataset IDs. Pushed sections are public too, so their producers must keep private identifiers and other sensitive details out. Administrators review item-level health lists in the website admin portal.
+
+### How to read usage
+
+Usage is grouped by reporting source: anonymous browser page views and action events, server-side access requests and redirects, Cloudflare edge requests and bytes, and S3 response bytes when those series are available. These are separate measures: page views and actions are events rather than people, access redirects do not confirm completed downloads, and edge traffic can include bots and repeat clients. The selected UTC date range controls every displayed additive series and total. Daily values are summed into calendar-aligned weeks or months only when the bucket has complete observations; a partial boundary bucket is labeled, and a missing observation stays **unknown**, never zero. Daily distinct visitors are not summed into a range total. Snapshot health is a separate point-in-time view labeled **latest state**, with its generated time shown.
 
 ## How it works
 
@@ -103,14 +107,14 @@ The body must conform to `src/lib/metric-snapshot.schema.json` (`$defs/sectionIn
 
 | route | auth | purpose |
 |---|---|---|
-| `GET /observability/api/snapshot` | public | latest snapshot (headline numbers only) |
+| `GET /observability/api/snapshot` | public | latest snapshot with aggregate headlines and bounded public-dataset breakdowns |
 | `GET /observability/api/snapshot/history?metric=KEY` | public | trend points for a metric |
 | `GET /observability/api/drilldown/:key` | **admin** Bearer | the list behind a tile |
 | `POST /observability/api/sections/:key` | ingest Bearer | push a pipeline section |
 | `GET /observability/api/timeseries?start=YYYY-MM-DD&end=YYYY-MM-DD` | public | daily points and metadata, inclusive UTC range (maximum 3660 days) |
 | `GET /observability/health` | public | liveness |
 
-The **public snapshot and time-series API contain aggregates only**, never private dataset ids or credentials. The page is zero-auth and zero-write. Daily usage controls support 7/30/90/365-day presets, custom UTC dates, and day/week/month grouping. Chart gaps mean missing or out-of-coverage observations.
+The **public snapshot and time-series API contain aggregate measures**; built-in snapshot sections may include bounded breakdowns labeled with public dataset IDs. Pushed sections are also public, and schema validation does not check their labels against dataset visibility. Pipeline producers must keep private identifiers and credentials out of all pushed fields. The page is zero-auth and zero-write. Daily usage controls support 7/30/90/365-day presets, custom UTC dates, and day/week/month grouping. Chart gaps mean missing or out-of-coverage observations.
 
 ## Daily S3 egress series
 

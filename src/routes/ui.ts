@@ -132,15 +132,15 @@ function renderSnapshot(snap) {
     card.appendChild(grid);
     root.appendChild(card);
   });
-  const ts = el("span", null, "Updated " + new Date(snap.generated_at).toLocaleString());
-  const meta = document.getElementById("meta");
+  const ts = el("span", null, "Latest state generated " + new Date(snap.generated_at).toLocaleString());
+  const meta = document.getElementById("health-meta");
   meta.textContent = "";
   meta.appendChild(ts);
 }
 
 function isoDay(date) { return date.toISOString().slice(0, 10); }
 function shiftDay(day, offset) { const d = new Date(day + "T00:00:00.000Z"); d.setUTCDate(d.getUTCDate() + offset); return isoDay(d); }
-function rangeFor(days) { const end = isoDay(new Date()); return { start: shiftDay(end, 1 - days), end: end }; }
+function rangeFor(days) { const end = shiftDay(isoDay(new Date()), -1); return { start: shiftDay(end, 1 - days), end: end }; }
 let seriesRequestId = 0;
 let pendingSeriesRange = null;
 let cachedSeriesRange = null;
@@ -195,35 +195,78 @@ function regroupSeries() {
 }
 function renderSeries(payload, start, end) {
   const root = document.getElementById("series"); root.textContent = "";
-  if (!payload.series.length) { root.appendChild(el("p", "muted", "No daily series in this range.")); return; }
+  const today = isoDay(new Date());
+  const rangeNote = document.getElementById("range-note");
+  rangeNote.textContent = end === today
+    ? "This custom range includes today (UTC), which may be incomplete. Presets include complete UTC days through yesterday."
+    : "Presets include complete UTC days through yesterday. Custom ranges use UTC dates and may include today.";
+  if (!payload.series.length) { root.appendChild(el("p", "muted", "No reporting series were returned for this range. Coverage is unavailable here; this does not mean usage was zero.")); return; }
+  const groups = new Map();
   payload.series.forEach(function (series) {
+    const plane = seriesPlane(series);
+    if (!groups.has(plane.key)) groups.set(plane.key, { plane: plane, series: [] });
+    groups.get(plane.key).series.push(series);
+  });
+  groups.forEach(function (group) {
     const card = el("section", "series-card");
-    card.appendChild(el("h3", null, series.label));
-    const lastDay = series.latest_observation_date;
-    const lastPeriodEnd = lastDay ? Date.parse(lastDay + "T00:00:00Z") + 86400000 : NaN;
-    const stale = !Number.isFinite(lastPeriodEnd) || Date.now() - lastPeriodEnd > series.freshness_after_hours * 3600000;
-    card.appendChild(el("p", stale ? "series-meta stale" : "series-meta", series.source + " / " + series.section + " · " + series.unit + " · declared UTC coverage " + series.coverage_start + " to " + series.coverage_end + " · latest observed day " + (lastDay || "none") + " · last received by dashboard " + series.updated_at + " · " + (stale ? "stale" : "fresh")));
-    const grouping = document.getElementById("grouping").value;
-    const buckets = seriesBuckets(series, start, end, grouping);
-    card.appendChild(chart(series, buckets, grouping, start, end));
-    card.appendChild(valuesTable(series, buckets));
+    card.appendChild(el("h3", null, group.plane.label));
+    group.series.forEach(function (series, index) {
+      const measure = index === 0 ? card : el("article", "series-measure");
+      measure.appendChild(el("h4", null, series.label));
+      const lastDay = series.latest_observation_date;
+      const lastPeriodEnd = lastDay ? Date.parse(lastDay + "T00:00:00Z") + 86400000 : NaN;
+      const stale = !Number.isFinite(lastPeriodEnd) || Date.now() - lastPeriodEnd > series.freshness_after_hours * 3600000;
+      const grouping = document.getElementById("grouping").value;
+      const buckets = seriesBuckets(series, start, end, grouping);
+      measure.appendChild(chart(series, buckets, grouping, start, end, group.plane.description));
+      if (index === 0) measure.appendChild(el("p", "plane-description", group.plane.description));
+      measure.appendChild(el("p", stale ? "series-meta stale" : "series-meta", "Source " + series.source + " · " + series.unit + " per UTC day · declared coverage " + series.coverage_start + " to " + series.coverage_end + " · latest observed day " + (lastDay || "none") + " · last received by dashboard " + series.updated_at + " · " + (stale ? "stale" : "fresh")));
+      measure.appendChild(valuesTable(series, buckets));
+      if (index > 0) card.appendChild(measure);
+    });
     root.appendChild(card);
   });
+}
+function seriesPlane(series) {
+  const key = String(series.section || "").toLowerCase();
+  if (key === "website") return { key: "website", label: "What activity is recorded on the website?", description: "Anonymous browser analytics record page views and action events. These are events, not unique people." };
+  if (key === "access") return { key: "access", label: "How is data accessed through NEMAR?", description: "Server-side access counts represent requests or redirects. Archive redirects do not confirm completed downloads; response bytes are shown only where the server records them." };
+  if (key === "cf") return { key: "cf", label: "What traffic reaches the Cloudflare edge?", description: "Edge requests and bytes can include bots and repeat clients. They do not represent unique people or completed downloads." };
+  if (key === "egress") return { key: "egress", label: "How many bytes did S3 return?", description: "Bucket-level response bytes include conversion reads and do not identify a caller or prove a completed human download." };
+  const section = series.section || "unknown section";
+  return { key: "other:" + section, label: "Additional source: " + section, description: "Source " + (series.source || "unknown") + " reports its own additive daily measures. Measures remain separate; missing observations are unknown, not zero." };
 }
 function seriesBuckets(series, start, end, grouping) {
   const values = new Map(series.points.map(function (p) { return [p.date, p.value]; }));
   const buckets = []; let cursor = start;
   while (cursor <= end) {
-    let bucketEnd = cursor;
-    if (grouping === "week") { const dow = new Date(cursor + "T00:00:00Z").getUTCDay(); bucketEnd = shiftDay(cursor, 6 - ((dow + 6) % 7)); }
-    if (grouping === "month") { const d = new Date(cursor + "T00:00:00Z"); bucketEnd = isoDay(new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 0))); }
-    if (bucketEnd > end) bucketEnd = end;
+    let calendarStart = cursor;
+    let calendarEnd = cursor;
+    if (grouping === "week") {
+      const dow = new Date(cursor + "T00:00:00Z").getUTCDay();
+      calendarStart = shiftDay(cursor, -((dow + 6) % 7));
+      calendarEnd = shiftDay(calendarStart, 6);
+    }
+    if (grouping === "month") {
+      const d = new Date(cursor + "T00:00:00Z");
+      calendarStart = isoDay(new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), 1)));
+      calendarEnd = isoDay(new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 0)));
+    }
+    const bucketStart = cursor > calendarStart ? cursor : calendarStart;
+    const bucketEnd = end < calendarEnd ? end : calendarEnd;
+    const partial = bucketStart !== calendarStart || bucketEnd !== calendarEnd;
     let sum = 0; let complete = true;
-    for (let d = cursor; d <= bucketEnd; d = shiftDay(d, 1)) {
+    for (let d = bucketStart; d <= bucketEnd; d = shiftDay(d, 1)) {
       if (d < series.coverage_start || d > series.coverage_end || !values.has(d)) complete = false;
       else sum += values.get(d);
     }
-    buckets.push({ start: cursor, end: bucketEnd, label: cursor === bucketEnd ? cursor : cursor + " – " + bucketEnd, value: complete ? sum : null });
+    const label = partial
+      ? "Partial " + (grouping === "week" ? "week" : grouping === "month" ? "month" : "period") + " (" + bucketStart + (bucketStart === bucketEnd ? "" : " – " + bucketEnd) + ")"
+      : grouping === "month"
+        ? new Date(bucketStart + "T00:00:00Z").toLocaleString("en-US", { month: "long", year: "numeric", timeZone: "UTC" })
+        : grouping === "week" ? "Week " + bucketStart + " – " + bucketEnd
+          : bucketStart;
+    buckets.push({ start: bucketStart, end: bucketEnd, label: label, value: complete ? sum : null, partial: partial });
     cursor = shiftDay(bucketEnd, 1);
   }
   return buckets;
@@ -251,10 +294,18 @@ function valuesTable(series, buckets) {
   table.appendChild(body); details.appendChild(table);
   return details;
 }
-function chart(series, buckets, grouping, start, end) {
+function chart(series, buckets, grouping, start, end, description) {
   const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
   svg.setAttribute("viewBox", "0 0 900 250"); svg.setAttribute("role", "img");
-  svg.setAttribute("aria-label", series.label + " by " + grouping + " in " + series.unit); svg.classList.add("series-chart");
+  svg.setAttribute("aria-label", series.label + " by " + grouping + " in " + series.unit);
+  svg.setAttribute("aria-description", description);
+  svg.classList.add("series-chart");
+  const partialPeriods = buckets.filter(function (bucket) { return bucket.partial; }).map(function (bucket) { return bucket.label; });
+  if (partialPeriods.length) {
+    const description = document.createElementNS(svg.namespaceURI, "desc");
+    description.textContent = "Partial calendar buckets: " + partialPeriods.join("; ");
+    svg.appendChild(description);
+  }
   const observed = buckets.filter(function (b) { return b.value !== null; });
   const max = Math.max(1, ...observed.map(function (b) { return b.value; }));
   const points = buckets.map(function (b, i) { return { bucket: b, x: 58 + (i * 800 / Math.max(1, buckets.length - 1)), y: 205 - ((b.value === null ? 0 : b.value) / max) * 175, value: b.value }; });
@@ -274,8 +325,12 @@ function chart(series, buckets, grouping, start, end) {
     if (buckets.length < 20 || i % Math.ceil(buckets.length / 12) === 0) { const label = document.createElementNS(svg.namespaceURI, "text"); label.setAttribute("x", p.x); label.setAttribute("y", "230"); label.setAttribute("text-anchor", "middle"); label.textContent = start.slice(0, 4) === end.slice(0, 4) ? p.bucket.start.slice(5) : p.bucket.start; svg.appendChild(label); }
   });
   const gap = buckets.some(function (b) { return b.value === null; });
-  const observedTotal = series.points.reduce(function (sum, point) { return sum + point.value; }, 0);
-  const note = document.createElementNS(svg.namespaceURI, "text"); note.setAttribute("x", "58"); note.setAttribute("y", "18"); note.textContent = (gap ? "Observed total · " : "Range total · ") + seriesValue(observedTotal, series.unit) + (gap ? " · incomplete buckets plot as gaps" : ""); svg.appendChild(note);
+  const observedPoints = series.points.filter(function (point) { return point.date >= start && point.date <= end; });
+  const observedTotal = observedPoints.reduce(function (sum, point) { return sum + point.value; }, 0);
+  const totalLabel = observedPoints.length === 0
+    ? "Range total · Unknown (no observations)"
+    : (gap ? "Observed total · " : "Range total · ") + seriesValue(observedTotal, series.unit) + (gap ? " · incomplete buckets plot as gaps" : "");
+  const note = document.createElementNS(svg.namespaceURI, "text"); note.setAttribute("x", "58"); note.setAttribute("y", "18"); note.textContent = totalLabel; svg.appendChild(note);
   return svg;
 }
 
@@ -284,6 +339,7 @@ function load() {
     .then(function (r) { return r.json(); })
     .then(renderSnapshot)
     .catch(function () {
+      document.getElementById("health-meta").textContent = "Could not load latest-state snapshot.";
       document.getElementById("sections").appendChild(el("p", "muted", "Could not load metrics."));
     });
 }
@@ -362,8 +418,14 @@ main { padding: 20px 24px 60px; max-width: 1200px; margin: 0 auto; }
 .series-controls { display: flex; flex-wrap: wrap; align-items: end; gap: 10px; margin-bottom: 16px; }
 .series-controls label { display: grid; color: var(--muted); font-size: 12px; gap: 3px; }
 .series-controls button, .series-controls input, .series-controls select { color: var(--fg); background: var(--panel-2); border: 1px solid var(--border); border-radius: 6px; padding: 6px 9px; }
-.series-card { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; margin: 12px 0; padding: 14px; overflow: hidden; }
-.series-card h3 { margin: 0; font-size: 14px; }
+.series-card { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; margin: 18px 0 12px; padding: 14px; overflow: hidden; }
+.series-card h3 { margin: 0; font-size: 15px; }
+.series-card h4, .series-measure h4 { margin: 4px 0 0; font-size: 14px; }
+.series-measure { border-top: 1px solid var(--border); margin-top: 14px; padding-top: 10px; }
+.plane-description { color: var(--muted); font-size: 12px; margin: 3px 0 8px; }
+.health-intro { margin: 0 0 14px; color: var(--muted); font-size: 13px; }
+.health-meta { color: var(--muted); font-size: 12px; margin: -4px 0 12px; }
+.range-note { color: var(--muted); font-size: 12px; margin: -8px 0 12px; }
 .series-meta { color: var(--muted); font-size: 11px; margin: 4px 0; }
 .series-meta.stale { color: var(--warn); }
 .series-chart { display: block; width: 100%; min-height: 150px; }
@@ -377,5 +439,5 @@ main { padding: 20px 24px 60px; max-width: 1200px; margin: 0 auto; }
 `;
 
 export function renderDashboardPage(): string {
-  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>NEMAR Observability</title><meta name="robots" content="noindex"><style>${STYLES}</style></head><body><header><h1>NEMAR Observability</h1><span class="sub">dataset &amp; pipeline health</span><span class="spacer"></span><span id="meta"></span><a class="portal" href="https://app.nemar.org/admin" target="_blank" rel="noopener">Admin portal &rarr;</a></header><main><div id="sections"></div><section class="card"><h2>Daily usage</h2><div class="series-controls"><button type="button" data-range="7">7 days</button><button type="button" data-range="30">30 days</button><button type="button" data-range="90">90 days</button><button type="button" data-range="365">365 days</button><label>Start (UTC)<input id="range-start" type="date"></label><label>End (UTC)<input id="range-end" type="date"></label><label>Group<select id="grouping"><option value="day">Day</option><option value="week">Week</option><option value="month">Month</option></select></label></div><div id="series" aria-live="polite"></div></section></main><script>${CLIENT_JS}</script></body></html>`;
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>NEMAR Observability</title><meta name="robots" content="noindex"><style>${STYLES}</style></head><body><header><h1>NEMAR Observability</h1><span class="sub">usage and latest dataset &amp; pipeline health</span><span class="spacer"></span><a class="portal" href="https://app.nemar.org/admin" target="_blank" rel="noopener">Admin portal &rarr;</a></header><main><section class="card"><h2>How is NEMAR being used?</h2><p class="health-intro">Explore daily activity from each reporting source. Counts and bytes stay separate; this view does not add daily unique-visitor counts.</p><div class="series-controls"><button type="button" data-range="7">7 complete days</button><button type="button" data-range="30">30 complete days</button><button type="button" data-range="90">90 complete days</button><button type="button" data-range="365">365 complete days</button><label>Start date (UTC)<input id="range-start" type="date"></label><label>End date (UTC)<input id="range-end" type="date"></label><label>Group by<select id="grouping"><option value="day">Day</option><option value="week">Calendar week</option><option value="month">Calendar month</option></select></label></div><p id="range-note" class="range-note">Presets include complete UTC days through yesterday. Custom ranges use UTC dates and may include today.</p><div id="series" aria-live="polite"></div></section><section class="card"><h2>What is the latest state of datasets and pipelines?</h2><p class="health-intro">These health panels show the latest point-in-time snapshot. They do not change with the usage date range.</p><p id="health-meta" class="health-meta" aria-live="polite">Loading latest-state snapshot…</p><div id="sections"></div></section></main><script>${CLIENT_JS}</script></body></html>`;
 }
