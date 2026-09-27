@@ -3,6 +3,7 @@
 //   GET    /snapshot            public  latest snapshot (headline only)
 //   GET    /snapshot/history    public  trend points for one metric key
 //   GET    /timeseries          public  bounded daily series and metadata
+//   GET    /audience            public  selected-range Umami and Cloudflare aggregates
 //   GET    /drilldown/:key      admin   list of items behind a tile (READ-ONLY)
 //   POST   /sections/:key       token   push a pipeline section (push mode)
 //
@@ -14,7 +15,13 @@
 // write is the token-gated pipeline section push.
 
 import { Hono } from "hono";
+import {
+  type AudienceResponse,
+  type AudienceSourceStatus,
+  summarizeCountries,
+} from "../lib/audience";
 import { resolveAdmin } from "../lib/auth";
+import { fetchZoneCountryRange } from "../lib/cf-analytics";
 import { isKnownDrilldown, runDrilldown } from "../lib/drilldown";
 import { buildSnapshot } from "../lib/metrics";
 import { BUILTIN_SECTION_KEYS, SectionIngestSchema } from "../lib/schema";
@@ -28,6 +35,7 @@ import {
   stageDailySeries,
   stagePushedSection,
 } from "../lib/store";
+import { fetchUmamiAudience } from "../lib/umami";
 import type { Bindings } from "../types";
 
 export const apiRoutes = new Hono<{ Bindings: Bindings }>();
@@ -141,6 +149,129 @@ apiRoutes.get("/timeseries", async (c) => {
   if (days > 3660) return c.json({ error: "Date range cannot exceed 3660 days" }, 400);
   const series = await loadDailySeries(c.env.OBS_DB, start, end);
   return c.json({ start, end, series }, 200, { "Cache-Control": PUBLIC_CACHE });
+});
+
+function unavailableCloudflare(
+  status: AudienceSourceStatus,
+  note: string,
+): AudienceResponse["cloudflare"] {
+  return {
+    status,
+    coverage: null,
+    requests: null,
+    countries: [],
+    suppressed_small_countries: false,
+    note,
+  };
+}
+
+async function loadCloudflareAudience(
+  env: Bindings,
+  start: string,
+  end: string,
+  now: Date,
+): Promise<AudienceResponse["cloudflare"]> {
+  if (!env.CF_ZONE_ANALYTICS_TOKEN?.trim()) {
+    return unavailableCloudflare("unconfigured", "Cloudflare zone analytics is not configured.");
+  }
+
+  let result: Awaited<ReturnType<typeof fetchZoneCountryRange>>;
+  try {
+    result = await fetchZoneCountryRange(env, start, end, now);
+  } catch {
+    console.error("[api] Cloudflare audience request failed");
+    return unavailableCloudflare(
+      "unavailable",
+      "Cloudflare audience data is currently unavailable.",
+    );
+  }
+  if (!result.coverage || result.requests === null) {
+    return unavailableCloudflare("unavailable", "No Cloudflare data overlaps the selected range.");
+  }
+
+  const countrySummary = summarizeCountries(result.countries);
+  const clipped = result.coverage.start > start || result.coverage.end < end;
+  const notes = [
+    "Counts are Cloudflare zone requests, not visitors or completed downloads.",
+    "Country values omit requests without a reported country.",
+  ];
+  if (clipped) notes.unshift("Cloudflare data covers only part of the selected range.");
+  if (countrySummary.suppressedSmallCountries) {
+    notes.push(
+      "Country values below 10 are withheld; smaller rows are combined only when their total reaches 10.",
+    );
+  }
+  if (countrySummary.omittedUnreportedCountries) {
+    notes.push("Some request rows have no reported country and are not assigned a location.");
+  }
+
+  return {
+    status: clipped ? "partial" : "available",
+    coverage: result.coverage,
+    requests: result.requests,
+    countries: countrySummary.countries,
+    suppressed_small_countries: countrySummary.suppressedSmallCountries,
+    note: notes.join(" "),
+  };
+}
+
+// Selected-range audience aggregates. Umami sessions and Cloudflare edge
+// requests remain separate sources with independent coverage and failures.
+apiRoutes.get("/audience", async (c) => {
+  const start = c.req.query("start");
+  const end = c.req.query("end");
+  if (!validDate(start) || !validDate(end) || start > end) {
+    return c.json({ error: "Valid start and end dates are required" }, 400);
+  }
+  const days =
+    (Date.parse(`${end}T00:00:00.000Z`) - Date.parse(`${start}T00:00:00.000Z`)) / 86_400_000 + 1;
+  if (days > 3660) return c.json({ error: "Date range cannot exceed 3660 days" }, 400);
+
+  const now = new Date();
+  const umamiPromise = fetchUmamiAudience(c.env, start, end).catch(() => {
+    console.error("[api] Umami audience request failed");
+    return {
+      status: "unavailable" as const,
+      coverage: null,
+      visitors: null,
+      visits: null,
+      pageviews: null,
+      countries: [],
+      note: "Umami data is currently unavailable.",
+    };
+  });
+  const [umami, cloudflare] = await Promise.all([
+    umamiPromise,
+    loadCloudflareAudience(c.env, start, end, now),
+  ]);
+  const umamiCountries = summarizeCountries(umami.countries);
+  const umamiNotes = [umami.note];
+  if (umamiCountries.suppressedSmallCountries) {
+    umamiNotes.push(
+      "Country values below 10 are withheld; smaller rows are combined only when their total reaches 10.",
+    );
+  }
+  if (umamiCountries.omittedUnreportedCountries) {
+    umamiNotes.push("Some sessions have no reported country and are not assigned a location.");
+  }
+
+  const response: AudienceResponse = {
+    start,
+    end,
+    observed_at: new Date().toISOString(),
+    umami: {
+      status: umami.status,
+      coverage: umami.coverage,
+      visitors: umami.visitors,
+      visits: umami.visits,
+      pageviews: umami.pageviews,
+      countries: umamiCountries.countries,
+      suppressed_small_countries: umamiCountries.suppressedSmallCountries,
+      ...(umamiNotes.filter(Boolean).length ? { note: umamiNotes.filter(Boolean).join(" ") } : {}),
+    },
+    cloudflare,
+  };
+  return c.json(response, 200, { "Cache-Control": PUBLIC_CACHE });
 });
 
 // Admin drill-down: the list behind a tile. Bearer admin only (delegated to

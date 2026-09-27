@@ -24,6 +24,13 @@ export interface Bindings {
    *  does NOT grant zone analytics. Optional: the cf section degrades to a
    *  single "unconfigured" metric when unset. */
   CF_ZONE_ANALYTICS_TOKEN?: string;
+  /** Self-hosted Umami base URL and website id for range-aware audience metrics.
+   *  Both are optional; without either the Umami source reports unconfigured. */
+  UMAMI_BASE_URL?: string;
+  UMAMI_WEBSITE_ID?: string;
+  /** Server-only Umami API key. Install as a Worker secret; never expose it to
+   *  the dashboard page or include it in a public API response. */
+  UMAMI_API_KEY?: string;
   /** JSON object mapping pushed section keys to their dedicated bearer tokens. */
   OBS_INGEST_TOKENS_JSON?: string;
 }

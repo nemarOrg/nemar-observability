@@ -141,6 +141,123 @@ function renderSnapshot(snap) {
 function isoDay(date) { return date.toISOString().slice(0, 10); }
 function shiftDay(day, offset) { const d = new Date(day + "T00:00:00.000Z"); d.setUTCDate(d.getUTCDate() + offset); return isoDay(d); }
 function rangeFor(days) { const end = shiftDay(isoDay(new Date()), -1); return { start: shiftDay(end, 1 - days), end: end }; }
+let audienceRequestId = 0;
+function audienceNumber(value) {
+  return typeof value === "number" && Number.isFinite(value) ? value.toLocaleString() : "Unknown";
+}
+function audienceStatus(status) {
+  const labels = { available: "Measured", partial: "Partial coverage", unconfigured: "Not configured", unavailable: "Unavailable" };
+  return labels[status] || "Unknown status";
+}
+function audienceMeasure(parent, label, value) {
+  const card = el("div", "audience-measure");
+  card.appendChild(el("span", "audience-measure-label", label));
+  card.appendChild(el("strong", "audience-measure-value", audienceNumber(value)));
+  parent.appendChild(card);
+}
+function audienceCountries(parent, rows) {
+  const section = el("div", "audience-countries");
+  section.appendChild(el("h4", null, "Country breakdown"));
+  if (!Array.isArray(rows) || rows.length === 0) {
+    section.appendChild(el("p", "muted", "No country values were returned. This does not mean there was no activity."));
+    parent.appendChild(section);
+    return;
+  }
+  const max = rows.reduce(function (largest, row) {
+    return typeof row.value === "number" && Number.isFinite(row.value) ? Math.max(largest, row.value) : largest;
+  }, 0) || 1;
+  const list = el("div", "audience-country-list");
+  rows.forEach(function (item) {
+    if (!item || typeof item.label !== "string") return;
+    const row = el("div", "audience-country-row");
+    row.appendChild(el("span", "audience-country-label", item.label));
+    const track = el("span", "audience-country-track");
+    const fill = el("span", "audience-country-fill");
+    const value = typeof item.value === "number" && Number.isFinite(item.value) ? item.value : 0;
+    fill.style.width = Math.max(2, (value / max) * 100) + "%";
+    track.appendChild(fill);
+    row.appendChild(track);
+    row.appendChild(el("strong", "audience-country-value", audienceNumber(item.value)));
+    list.appendChild(row);
+  });
+  section.appendChild(list);
+  parent.appendChild(section);
+}
+function audienceSourceCard(title, source, definitions, metrics) {
+  const card = el("article", "audience-source");
+  const heading = el("div", "audience-source-heading");
+  heading.appendChild(el("h3", null, title));
+  const statusClass = ["available", "partial", "unconfigured", "unavailable"].indexOf(source.status) >= 0 ? source.status : "unknown";
+  heading.appendChild(el("span", "audience-status audience-status-" + statusClass, audienceStatus(source.status)));
+  card.appendChild(heading);
+  card.appendChild(el("p", "audience-definition", definitions));
+  const coverage = source.coverage && source.coverage.start && source.coverage.end
+    ? "Measured coverage: " + source.coverage.start + " to " + source.coverage.end + " UTC"
+    : "Measured coverage: unavailable";
+  card.appendChild(el("p", "audience-coverage", coverage));
+  const measures = el("div", "audience-measures");
+  metrics.forEach(function (metric) { audienceMeasure(measures, metric.label, source[metric.key]); });
+  card.appendChild(measures);
+  audienceCountries(card, source.countries);
+  if (source.suppressed_small_countries) card.appendChild(el("p", "audience-note", "Small country values were withheld; values below 10 are combined only when their total reaches 10."));
+  if (source.note) card.appendChild(el("p", "audience-note", source.note));
+  return card;
+}
+function renderAudience(payload) {
+  const root = document.getElementById("audience");
+  root.textContent = "";
+  const grid = el("div", "audience-grid");
+  grid.appendChild(audienceSourceCard(
+    "What website activity is recorded?",
+    payload.umami,
+    "Umami visitors are anonymous unique-session estimates, not identified people. Visits use a separate visit identifier. Country estimates are not an exclusive partition; unreported countries are omitted.",
+    [
+      { key: "visitors", label: "Visitors (unique sessions)" },
+      { key: "visits", label: "Visits" },
+      { key: "pageviews", label: "Page views" }
+    ]
+  ));
+  grid.appendChild(audienceSourceCard(
+    "Where do Cloudflare requests come from?",
+    payload.cloudflare,
+    "Counts are zone-wide Cloudflare HTTP requests by country. They can include bots and repeat clients; they are not unique visitors or completed downloads. Unreported country values are omitted.",
+    [{ key: "requests", label: "Edge requests" }]
+  ));
+  root.appendChild(grid);
+}
+function loadAudience() {
+  const start = document.getElementById("range-start").value;
+  const end = document.getElementById("range-end").value;
+  const root = document.getElementById("audience");
+  const requestId = ++audienceRequestId;
+  root.textContent = "";
+  if (!start || !end || start > end) {
+    root.appendChild(el("p", "muted", "Choose a valid UTC date range."));
+    return;
+  }
+  const days = (Date.parse(end + "T00:00:00Z") - Date.parse(start + "T00:00:00Z")) / 86400000 + 1;
+  if (!Number.isFinite(days) || days > 3660) {
+    root.appendChild(el("p", "muted", "Choose a valid UTC date range of 3,660 days or fewer."));
+    return;
+  }
+  root.appendChild(el("p", "muted", "Loading audience and country metrics…"));
+  fetch(API + "/audience?start=" + encodeURIComponent(start) + "&end=" + encodeURIComponent(end))
+    .then(function (response) {
+      if (!response.ok) throw new Error("Could not load audience metrics.");
+      return response.json();
+    })
+    .then(function (payload) {
+      if (requestId !== audienceRequestId) return;
+      if (document.getElementById("range-start").value !== start || document.getElementById("range-end").value !== end) return;
+      renderAudience(payload);
+    })
+    .catch(function () {
+      if (requestId !== audienceRequestId) return;
+      root.textContent = "";
+      root.appendChild(el("p", "muted", "Could not load audience metrics."));
+    });
+}
+function loadSelectedRange() { loadSeries(); loadAudience(); }
 let seriesRequestId = 0;
 let pendingSeriesRange = null;
 let cachedSeriesRange = null;
@@ -348,11 +465,11 @@ load();
 const initialRange = rangeFor(30);
 document.getElementById("range-start").value = initialRange.start;
 document.getElementById("range-end").value = initialRange.end;
-document.querySelectorAll("[data-range]").forEach(function (button) { button.addEventListener("click", function () { const r = rangeFor(Number(button.dataset.range)); document.getElementById("range-start").value = r.start; document.getElementById("range-end").value = r.end; loadSeries(); }); });
-document.getElementById("range-start").addEventListener("change", loadSeries);
-document.getElementById("range-end").addEventListener("change", loadSeries);
+document.querySelectorAll("[data-range]").forEach(function (button) { button.addEventListener("click", function () { const r = rangeFor(Number(button.dataset.range)); document.getElementById("range-start").value = r.start; document.getElementById("range-end").value = r.end; loadSelectedRange(); }); });
+document.getElementById("range-start").addEventListener("change", loadSelectedRange);
+document.getElementById("range-end").addEventListener("change", loadSelectedRange);
 document.getElementById("grouping").addEventListener("change", regroupSeries);
-loadSeries();
+loadSelectedRange();
 `;
 
 const STYLES = String.raw`
@@ -418,6 +535,28 @@ main { padding: 20px 24px 60px; max-width: 1200px; margin: 0 auto; }
 .series-controls { display: flex; flex-wrap: wrap; align-items: end; gap: 10px; margin-bottom: 16px; }
 .series-controls label { display: grid; color: var(--muted); font-size: 12px; gap: 3px; }
 .series-controls button, .series-controls input, .series-controls select { color: var(--fg); background: var(--panel-2); border: 1px solid var(--border); border-radius: 6px; padding: 6px 9px; }
+.audience-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.audience-source { min-width: 0; background: var(--panel-2); border: 1px solid var(--border); border-radius: 10px; padding: 13px; }
+.audience-source-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; }
+.audience-source h3 { margin: 0; font-size: 14px; }
+.audience-status { flex: none; border-radius: 999px; padding: 2px 8px; font-size: 10px; font-weight: 650; }
+.audience-status-available { background: rgba(46,160,67,.16); color: #65d17a; }
+.audience-status-partial { background: rgba(210,153,34,.16); color: #f0c65a; }
+.audience-status-unconfigured, .audience-status-unavailable, .audience-status-unknown { background: rgba(139,151,166,.16); color: var(--muted); }
+.audience-definition, .audience-coverage, .audience-note { color: var(--muted); font-size: 11.5px; line-height: 1.45; margin: 8px 0; }
+.audience-measures { display: grid; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); gap: 8px; margin: 12px 0; }
+.audience-measure { display: grid; gap: 3px; border: 1px solid var(--border); border-radius: 8px; padding: 8px; min-width: 0; }
+.audience-measure-label { color: var(--muted); font-size: 10.5px; }
+.audience-measure-value { font-size: 18px; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.audience-countries { border-top: 1px solid var(--border); margin-top: 10px; padding-top: 8px; }
+.audience-countries h4 { font-size: 12px; margin: 0 0 8px; }
+.audience-country-list { display: grid; gap: 5px; }
+.audience-country-row { display: grid; grid-template-columns: minmax(90px, 1fr) minmax(50px, 1.4fr) auto; align-items: center; gap: 8px; font-size: 11px; }
+.audience-country-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.audience-country-track { height: 7px; background: #0c1015; border-radius: 5px; overflow: hidden; }
+.audience-country-fill { display: block; height: 100%; background: var(--accent); opacity: .8; }
+.audience-country-value { min-width: 54px; text-align: right; font-variant-numeric: tabular-nums; }
+.audience-note { margin-bottom: 0; }
 .series-card { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; margin: 18px 0 12px; padding: 14px; overflow: hidden; }
 .series-card h3 { margin: 0; font-size: 15px; }
 .series-card h4, .series-measure h4 { margin: 4px 0 0; font-size: 14px; }
@@ -436,8 +575,9 @@ main { padding: 20px 24px 60px; max-width: 1200px; margin: 0 auto; }
 .series-values th, .series-values td { border-bottom: 1px solid var(--border); padding: 5px 8px; text-align: left; }
 .series-values th:last-child, .series-values td:last-child { text-align: right; font-variant-numeric: tabular-nums; }
 @media (max-width: 600px) { header { padding: 12px; flex-wrap: wrap; } main { padding: 14px 12px 40px; } #meta { display: none; } }
+@media (max-width: 720px) { .audience-grid { grid-template-columns: 1fr; } }
 `;
 
 export function renderDashboardPage(): string {
-  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>NEMAR Observability</title><meta name="robots" content="noindex"><style>${STYLES}</style></head><body><header><h1>NEMAR Observability</h1><span class="sub">usage and latest dataset &amp; pipeline health</span><span class="spacer"></span><a class="portal" href="https://app.nemar.org/admin" target="_blank" rel="noopener">Admin portal &rarr;</a></header><main><section class="card"><h2>How is NEMAR being used?</h2><p class="health-intro">Explore daily activity from each reporting source. Counts and bytes stay separate; this view does not add daily unique-visitor counts.</p><div class="series-controls"><button type="button" data-range="7">7 complete days</button><button type="button" data-range="30">30 complete days</button><button type="button" data-range="90">90 complete days</button><button type="button" data-range="365">365 complete days</button><label>Start date (UTC)<input id="range-start" type="date"></label><label>End date (UTC)<input id="range-end" type="date"></label><label>Group by<select id="grouping"><option value="day">Day</option><option value="week">Calendar week</option><option value="month">Calendar month</option></select></label></div><p id="range-note" class="range-note">Presets include complete UTC days through yesterday. Custom ranges use UTC dates and may include today.</p><div id="series" aria-live="polite"></div></section><section class="card"><h2>What is the latest state of datasets and pipelines?</h2><p class="health-intro">These health panels show the latest point-in-time snapshot. They do not change with the usage date range.</p><p id="health-meta" class="health-meta" aria-live="polite">Loading latest-state snapshot…</p><div id="sections"></div></section></main><script>${CLIENT_JS}</script></body></html>`;
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>NEMAR Observability</title><meta name="robots" content="noindex"><style>${STYLES}</style></head><body><header><h1>NEMAR Observability</h1><span class="sub">usage and latest dataset &amp; pipeline health</span><span class="spacer"></span><a class="portal" href="https://app.nemar.org/admin" target="_blank" rel="noopener">Admin portal &rarr;</a></header><main><section class="card"><h2>How is NEMAR being used?</h2><p class="health-intro">Explore daily activity from each reporting source. Counts and bytes stay separate; this view does not add daily unique-visitor counts.</p><div class="series-controls"><button type="button" data-range="7">7 complete days</button><button type="button" data-range="30">30 complete days</button><button type="button" data-range="90">90 complete days</button><button type="button" data-range="365">365 complete days</button><label>Start date (UTC)<input id="range-start" type="date"></label><label>End date (UTC)<input id="range-end" type="date"></label><label>Group by<select id="grouping"><option value="day">Day</option><option value="week">Calendar week</option><option value="month">Calendar month</option></select></label></div><p id="range-note" class="range-note">Presets include complete UTC days through yesterday. Custom ranges use UTC dates and may include today.</p><p class="range-note">Day, week, and month grouping applies only to additive time series. Audience metrics are queried as selected-range totals.</p><div id="series" aria-live="polite"></div></section><section class="card"><h2>Where do visitors and requests come from?</h2><p class="health-intro">Country and summary values use the selected UTC dates. Umami session estimates and Cloudflare request counts are separate measures.</p><div id="audience" aria-live="polite"><p class="muted">Loading audience metrics…</p></div></section><section class="card"><h2>What is the latest state of datasets and pipelines?</h2><p class="health-intro">These health panels show the latest point-in-time snapshot. They do not change with the usage date range.</p><p id="health-meta" class="health-meta" aria-live="polite">Loading latest-state snapshot…</p><div id="sections"></div></section></main><script>${CLIENT_JS}</script></body></html>`;
 }

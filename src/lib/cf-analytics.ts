@@ -18,6 +18,7 @@
 // coverage rather than pretending to a full window it does not have.
 
 import type { Bindings } from "../types";
+import type { AudienceCoverage, CountryRow } from "./audience";
 import { type Section, metric } from "./schema";
 
 const GRAPHQL_URL = "https://api.cloudflare.com/client/v4/graphql";
@@ -60,7 +61,9 @@ async function queryGraphQL<T>(
   env: Bindings,
   query: string,
   variables: Record<string, unknown>,
+  timeoutMs?: number,
 ): Promise<T> {
+  const signal = timeoutMs === undefined ? undefined : AbortSignal.timeout(timeoutMs);
   const res = await fetch(GRAPHQL_URL, {
     method: "POST",
     headers: {
@@ -68,6 +71,7 @@ async function queryGraphQL<T>(
       "Content-Type": "application/json",
     },
     body: JSON.stringify({ query, variables }),
+    signal,
   });
   if (!res.ok) {
     throw new Error(`CF GraphQL ${res.status}: ${(await res.text()).slice(0, 200)}`);
@@ -189,6 +193,117 @@ export async function fetchZoneTotals(env: Bindings, now: Date): Promise<ZoneTot
     byCountry: [...byCountry.entries()]
       .map(([label, value]) => ({ label, value }))
       .sort((a, b) => b.value - a.value),
+  };
+}
+
+// The public audience endpoint asks only for the selected date overlap. This
+// keeps its query bounded by the same 30-day window as the existing zone tile.
+const ZONE_COUNTRY_QUERY = `query($zone:String!,$since:Date!,$until:Date!){
+  viewer{zones(filter:{zoneTag:$zone}){
+    httpRequests1dGroups(limit:${WINDOW_DAYS + 2},filter:{date_geq:$since,date_lt:$until},orderBy:[date_ASC]){
+      dimensions{date}
+      sum{requests countryMap{clientCountryName requests}}
+    }
+  }}
+}`;
+
+export interface ZoneCountryRange {
+  coverage: AudienceCoverage | null;
+  requests: number | null;
+  countries: CountryRow[];
+}
+
+function validIsoDate(value: string): boolean {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const timestamp = Date.parse(`${value}T00:00:00.000Z`);
+  return Number.isFinite(timestamp) && new Date(timestamp).toISOString().slice(0, 10) === value;
+}
+
+function isRequestCount(value: unknown): value is number {
+  return typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
+}
+
+/**
+ * Query selected-window zone request totals and country rollups. Cloudflare's
+ * 30-day range includes the current UTC date; this source reports the exact
+ * overlap and never describes its request counts as unique visitors.
+ */
+export async function fetchZoneCountryRange(
+  env: Bindings,
+  requestedStart: string,
+  requestedEnd: string,
+  now: Date,
+): Promise<ZoneCountryRange> {
+  if (
+    !validIsoDate(requestedStart) ||
+    !validIsoDate(requestedEnd) ||
+    requestedStart > requestedEnd
+  ) {
+    throw new Error("Invalid Cloudflare audience date range");
+  }
+
+  const today = isoDate(now);
+  const earliest = isoDate(
+    new Date(Date.parse(`${today}T00:00:00.000Z`) - (WINDOW_DAYS - 1) * 86_400_000),
+  );
+  const start = requestedStart > earliest ? requestedStart : earliest;
+  const end = requestedEnd < today ? requestedEnd : today;
+  if (start > end) return { coverage: null, requests: null, countries: [] };
+
+  const nextDay = isoDate(new Date(Date.parse(`${end}T00:00:00.000Z`) + 86_400_000));
+  const data = await queryGraphQL<{
+    viewer: {
+      zones: {
+        httpRequests1dGroups: {
+          dimensions: { date: string };
+          sum: {
+            requests: number;
+            countryMap: { clientCountryName: string; requests: number }[];
+          };
+        }[];
+      }[];
+    };
+  }>(env, ZONE_COUNTRY_QUERY, { zone: env.CF_ZONE_ID, since: start, until: nextDay }, 8_000);
+
+  const rows = firstZone(data.viewer.zones).httpRequests1dGroups;
+  if (!Array.isArray(rows)) throw new Error("CF GraphQL audience response was invalid");
+
+  let requests = 0;
+  const byCountry = new Map<string, number>();
+  for (const row of rows) {
+    if (
+      !row ||
+      typeof row !== "object" ||
+      !row.dimensions ||
+      !validIsoDate(row.dimensions.date) ||
+      row.dimensions.date < start ||
+      row.dimensions.date > end ||
+      !row.sum ||
+      !isRequestCount(row.sum.requests) ||
+      !Array.isArray(row.sum.countryMap)
+    ) {
+      throw new Error("CF GraphQL audience response was invalid");
+    }
+    requests += row.sum.requests;
+    for (const country of row.sum.countryMap) {
+      if (
+        !country ||
+        typeof country.clientCountryName !== "string" ||
+        !isRequestCount(country.requests)
+      ) {
+        throw new Error("CF GraphQL audience response was invalid");
+      }
+      byCountry.set(
+        country.clientCountryName,
+        (byCountry.get(country.clientCountryName) ?? 0) + country.requests,
+      );
+    }
+  }
+
+  return {
+    coverage: { start, end },
+    requests,
+    countries: [...byCountry.entries()].map(([label, value]) => ({ label, value })),
   };
 }
 
