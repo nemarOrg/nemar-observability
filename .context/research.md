@@ -114,6 +114,8 @@ were never displayed. A 12-month read-only service token scoped to that exact pa
 read/write bootstrap token was revoked after the write and its local file removed. No temporary
 AWS key file or staging helper remains. The existing `nemar-automation` identity has Admin access
 at organization scope; do not reuse it. The host does not currently run an Umami container.
+The Umami Worker key has not been installed or verified in Infisical. The planned dedicated path
+is `/observability/website`; do not treat the AWS egress path as an Umami secret source.
 
 On 2026-09-26, the read-only Infisical token loaded the stored AWS credential into a CloudWatch
 `GetMetricData` query for `AWS/S3:BytesDownloaded`, bucket `nemar`, filter `EntireBucket`, region
@@ -254,3 +256,43 @@ across sources. Include each source's coverage start, last successful collection
 quality state. Missing or expired source coverage is `unknown`, never a numeric zero. A response
 proxied through a Worker can appear in S3 origin bytes and Cloudflare edge bytes. Keep the source
 measures separate; do not add them into a deduplicated client-delivered total.
+
+### Range visitors and geography source contract (2026-09-27)
+
+Umami's `GET /api/websites/{websiteId}/stats` returns `pageviews`, `visitors`,
+and `visits` for the selected range. Its `GET /metrics?type=country` returns
+ranked values for the country dimension; visitor dimensions count unique
+visitors. Query country values only for one completed UTC day. Use explicit UTC
+millisecond bounds and keep the API key server-side.
+The public labels should say **Umami visitors (unique-session estimate)** and
+**visits**, not identified people. Umami's visitor estimate is derived from a
+session hash whose salt rotates monthly, and a visit hash has a finer hourly
+rotation. Counts across time buckets therefore must not be added into a
+distinct-person total. The country endpoint omits empty country values; a
+country breakdown may not sum to that day's visitor total. Suppress small
+country groups before publishing. Multi-day ranges and the current/future day
+do not return country values, so overlapping queries and changing live counts
+cannot be used to subtract withheld daily cells.
+
+The daily country panel uses Cloudflare's zone rollup
+`httpRequests1dGroups.sum.countryMap` only for one completed UTC day. These are
+HTTP requests by country, including repeat clients and automated traffic; they
+are not unique visitors. Multi-day country queries are omitted because
+overlapping additive request ranges can expose suppressed small cells by
+subtraction. The current UTC day is omitted because its counts can change
+between requests; future dates have no observations yet. Longer selected ranges
+still return source totals, using a requests-only Cloudflare query. The existing integration queries a 30-day
+window; Cloudflare dataset query limits and retention are specific to each
+zone/account, so the dashboard should report the actual covered subrange and
+avoid assuming arbitrary historical coverage. A source outage, unconfigured
+secret, or range outside its data window is unavailable/partial rather than
+zero.
+
+Current primary references checked against official docs on 2026-09-27:
+
+- Umami [website summary stats API](https://docs.umami.is/docs/api-reference/get-website-stats)
+- Umami [ranked metrics API](https://docs.umami.is/docs/api-reference/get-website-metrics)
+- Umami [metric definitions](https://docs.umami.is/docs/metric-definitions)
+- Umami [self-hosted API overview](https://docs.umami.is/docs/api)
+- Cloudflare [GraphQL limits and per-dataset range constraints](https://developers.cloudflare.com/analytics/graphql-api/limits/)
+- Cloudflare [filtering and date bounds](https://developers.cloudflare.com/analytics/graphql-api/features/filtering/)

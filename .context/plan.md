@@ -2,6 +2,31 @@
 
 Epic: nemarOrg/nemar-cli#695. This repo covers Phases 2-7.
 
+## NEMAR observability dashboard epic (#52)
+
+Last reconciled with GitHub on 2026-09-26. The local shell could not reach
+GitHub on 2026-09-27, so these remote statuses need a refresh before the next
+push or merge.
+
+- Phase 2, issue #51: daily range-series substrate merged as PR #60.
+- Phase 4, issue #62: question-led usage layout merged as PR #64 at commit
+  `91a4306`; its production deployment succeeded. Usage charts and the latest
+  dataset/pipeline state remain separate.
+- Phase 5, issue #63: selected-range visitor/request totals and completed-day
+  country metrics. The active
+  worktree is `/private/tmp/nemar-observability-phase5` on
+  `feature/issue-63-range-visitor-country`, based at `91a4306`.
+- Umami deployment issue `nemarOrg/nemar-umami#1` and website instrumentation
+  issue `nemarOrg/website#345` still needed owner-run deployment/configuration
+  and live acceptance at the last check. Website PR #363 had merged to staging;
+  production tracking was not accepted yet.
+- S3 `BytesDownloaded` collection is a separate follow-up in issue #59. It is
+  not a prerequisite for landing the core usage-observability work.
+
+Refresh issue/PR, CI, deployment, and machine access state before external GitHub
+operations. Preserve the source-backed data boundaries in `.context/research.md`
+and Phase 5's API/coverage decisions in `.context/phase5-plan.md`.
+
 ## Phase 2: daily usage series and dashboard (issue #51)
 
 Implementation contract: section-keyed credentials are supplied through
