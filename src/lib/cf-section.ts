@@ -173,7 +173,7 @@ export async function computeCfSection(env: Bindings, now: string): Promise<Sect
           .sort((a, b) => b.value - a.value)
           .slice(0, 10),
         breakdown_unit: "bytes",
-        hint: `Bytes by hostname served through this Cloudflare zone. Direct presigned S3 downloads are not included.${hostNote}`,
+        hint: `Separate per-host Cloudflare report from a different analytics query; values are not reconciled to the zone total and may include Cloudflare product traffic. Direct presigned S3 object responses bypass the zone.${hostNote}`,
       }),
       metric({
         key: "cf.by_country",
