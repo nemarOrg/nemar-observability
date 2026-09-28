@@ -295,16 +295,16 @@ async function pushSection(token: string, points: { date: string; value: number 
   const latest = points[points.length - 1];
   const payload = {
     key: "egress",
-    label: "S3 egress",
+    label: "Storage egress",
     source: "aws-s3-cloudwatch",
     metrics: [
       {
         key: "egress.s3.latest_daily_bytes",
-        label: "Latest reported S3 download day",
+        label: "Latest reported day of data served",
         value: latest.value,
         unit: "bytes",
         severity: "info",
-        hint: `${latest.date} UTC; bucket-wide response bytes, including conversion reads.`,
+        hint: `${latest.date} UTC; all bytes storage returned that day, including internal processing reads.`,
       },
       {
         key: "egress.collector.errors",
@@ -312,7 +312,7 @@ async function pushSection(token: string, points: { date: string; value: number 
         value: 0,
         unit: "errors",
         severity: "ok",
-        hint: "The latest scheduled CloudWatch query and dashboard push completed.",
+        hint: "The latest scheduled collection completed.",
       },
     ],
     daily_series: [

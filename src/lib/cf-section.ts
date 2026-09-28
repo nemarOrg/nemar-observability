@@ -104,8 +104,10 @@ export async function computeCfSection(env: Bindings, now: string): Promise<Sect
       ? `${WINDOW_DAYS}d`
       : `${rollup.days}d so far (backfilling)`;
   const hostSeverity: Severity = stalled ? "warn" : "info";
+  // Public wording. For operators: a stall means the daily per-host job is not
+  // writing cf_daily_host; check CF_ZONE_ANALYTICS_TOKEN and the cron logs.
   const hostNote = stalled
-    ? ` Accumulation has STALLED — no data since ${rollup.latestDate}. Check CF_ZONE_ANALYTICS_TOKEN and the cron logs; these totals are frozen.`
+    ? ` Collection has stalled: no data since ${rollup.latestDate}, so these totals are frozen until it resumes.`
     : rollup.days === 0
       ? " No per-host data accumulated yet."
       : "";
@@ -118,11 +120,11 @@ export async function computeCfSection(env: Bindings, now: string): Promise<Sect
     metrics: [
       metric({
         key: "cf.bytes",
-        label: "Cloudflare edge bytes",
+        label: "Edge bytes",
         value: totals.bytes,
         unit: "bytes",
         severity: "info",
-        hint: `Bytes Cloudflare returned for the nemar.org zone over ${totals.days} days. Direct presigned S3 downloads bypass this metric and need separate S3 accounting.`,
+        hint: `Bytes the network edge returned for nemar.org over ${totals.days} days. Downloads served straight from storage bypass the edge and are counted as data served.`,
       }),
       metric({
         key: "cf.requests",
@@ -130,7 +132,7 @@ export async function computeCfSection(env: Bindings, now: string): Promise<Sect
         value: totals.requests,
         unit: "count",
         severity: "info",
-        hint: "Zone-wide edge requests.",
+        hint: "Requests to every nemar.org address at the network edge.",
       }),
       metric({
         key: "cf.cache_ratio",
@@ -138,7 +140,7 @@ export async function computeCfSection(env: Bindings, now: string): Promise<Sect
         value: Math.round(cacheRatio * 10) / 10,
         unit: "percent",
         severity: "info",
-        hint: "Share of bytes served from the edge cache rather than fetched from origin.",
+        hint: "Share of bytes served from the edge cache rather than fetched from NEMAR's own servers.",
       }),
       // Deliberately the PEAK day, not a sum. Unique visitors cannot be added
       // across days -- the same person on two days is one person. Summing the
@@ -151,7 +153,7 @@ export async function computeCfSection(env: Bindings, now: string): Promise<Sect
         value: totals.peakDailyUniques,
         unit: "count",
         severity: "info",
-        hint: "Highest single-day unique-visitor estimate. Cloudflare approximates this per day, so it cannot be summed into a window total, and it counts clients (bots included), not people.",
+        hint: "Highest single-day estimate of unique clients. It is estimated per day, so it cannot be added into a window total, and it counts clients (bots included), not people.",
       }),
       metric({
         key: "cf.visits_by_surface",
@@ -160,7 +162,7 @@ export async function computeCfSection(env: Bindings, now: string): Promise<Sect
         unit: "count",
         severity: hostSeverity,
         breakdown: byClass(rollup.hosts),
-        hint: `Cloudflare "visits" (session starts) per NEMAR surface. Only meaningful on hosts a person browses: the API and S3 origin register ~0 by nature. Excludes rate-limit.internal.${hostNote}`,
+        hint: `Visits (session starts) at the network edge for each NEMAR site. Meaningful only where a person browses; the API and storage register almost none by nature. Internal rate-limit traffic is excluded.${hostNote}`,
       }),
       metric({
         key: "cf.bytes_by_host",
@@ -173,7 +175,7 @@ export async function computeCfSection(env: Bindings, now: string): Promise<Sect
           .sort((a, b) => b.value - a.value)
           .slice(0, 10),
         breakdown_unit: "bytes",
-        hint: `Separate per-host Cloudflare report from a different analytics query; values are not reconciled to the zone total and may include Cloudflare product traffic. Direct presigned S3 object responses bypass the zone.${hostNote}`,
+        hint: `From a separate per-site edge report, so these values are not reconciled to the total and may include the edge provider's own traffic. Downloads served straight from storage bypass the edge.${hostNote}`,
       }),
       metric({
         key: "cf.by_country",
@@ -182,7 +184,7 @@ export async function computeCfSection(env: Bindings, now: string): Promise<Sect
         unit: "count",
         severity: "info",
         breakdown: totals.byCountry.slice(0, 10),
-        hint: "Zone-wide, so it includes crawler and origin traffic as well as readers.",
+        hint: "Covers every nemar.org address, so it includes crawlers and internal traffic as well as readers.",
       }),
     ],
   };

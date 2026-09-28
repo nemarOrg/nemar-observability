@@ -26,7 +26,8 @@ src/
 │   └── store.ts       # nemar-observability-db reads/writes (snapshot history, pushed sections)
 ├── routes/
 │   ├── api.ts         # /api/snapshot, /api/snapshot/history, /api/drilldown/:key, /api/sections/:key
-│   └── ui.ts          # GET /observability -> server-rendered HTML page (+ client script)
+│   ├── ui.ts          # GET /observability -> renderDashboardPage() assembles the HTML page
+│   └── dashboard/     # page modules: styles (tokens, chrome) + client script parts (usage, reach, overview, snapshot)
 └── cron.ts            # scheduled() handler: recompute snapshot hourly
 ```
 

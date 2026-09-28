@@ -1,6 +1,6 @@
 // The dashboard page: one server-rendered HTML document with embedded CSS and a
-// self-contained client script (DOM-built, no framework). It fetches
-// /observability/api/snapshot and renders tiles. That is all it does.
+// self-contained client script (DOM-built, no framework). It fetches the public
+// read API under /observability/api and renders it. That is all it does.
 //
 // ZERO AUTH, ZERO WRITES (#8). This page holds no credential and performs no
 // mutation. The approve/deny/delete controls and the paste-your-`nm_…`-API-key
@@ -8,14 +8,18 @@
 // app.nemar.org, behind an HttpOnly host-scoped session cookie. A spoof of this
 // origin now has nothing to steal and nothing to trigger.
 //
-// Tiles that have a `drilldown` key link out to the admin portal instead of
+// Metrics that have a `drilldown` key link out to the admin portal instead of
 // opening a list here. GET /api/drilldown/:key still exists for programmatic
 // use (Bearer, admin-only) and is removed in phase 3 (#13) once the website
 // carries equivalent dataset-health lists (phase 2: nemar-cli#1032 + website#195).
 //
-// The client script deliberately avoids template literals and innerHTML for
-// data (uses createElement/textContent) so it is safe inside this TS template
-// and free of injection from dataset ids / labels.
+// The page stores nothing in the browser. With no data-theme attribute the page
+// follows the system color scheme, live; the toggle cycles system, dark, light
+// for the current page view only, and a host that sets data-theme wins.
+//
+// No external requests: fonts are the system stack, icons are inline SVG, and
+// the world map ships as path data from lib/world-map. Styles and the client
+// script live in ./dashboard, one module per concern.
 
 import {
   WORLD_COUNTRY_CODES_BY_NAME,
@@ -23,949 +27,171 @@ import {
   WORLD_COUNTRY_NAMES,
   WORLD_COUNTRY_PATHS,
 } from "../lib/world-map";
+import { NEMAR_LOGO_SVG } from "./dashboard/brand";
+import { CLIENT_JS } from "./dashboard/client";
+import { STYLES } from "./dashboard/styles";
 
 const WORLD_COUNTRY_PATHS_JSON = JSON.stringify(WORLD_COUNTRY_PATHS);
 const WORLD_COUNTRY_MARKERS_JSON = JSON.stringify(WORLD_COUNTRY_MARKERS);
 const WORLD_COUNTRY_NAMES_JSON = JSON.stringify(WORLD_COUNTRY_NAMES);
 const WORLD_COUNTRY_CODES_BY_NAME_JSON = JSON.stringify(WORLD_COUNTRY_CODES_BY_NAME);
 
-const CLIENT_JS = String.raw`
-const API = "/observability/api";
-// Where every admin action lives now (#8). Tiles with a drilldown key link here
-// instead of opening an in-page list.
-const ADMIN_PORTAL = "https://app.nemar.org/admin";
-// Enough rows for the full size histogram (23 log bins). Truncating a histogram
-// misrepresents the distribution rather than merely abbreviating it; the older
-// cap of 8 also clipped the modality list, which had no reason to be clipped.
-const BREAKDOWN_MAX = 24;
-function humanBytes(n) {
-  if (!n || n < 1) return "0 B";
-  const u = ["B","kB","MB","GB","TB","PB"]; let i = 0; let x = n;
-  while (x >= 1000 && i < u.length - 1) { x /= 1000; i++; }
-  return (i === 0 ? x : x.toFixed(1)) + " " + u[i];
-}
-function fmt(metric) {
-  if (metric.unit === "bytes") return humanBytes(metric.value);
-  if (metric.unit === "percent") return Number(metric.value).toLocaleString() + "%";
-  return Number(metric.value).toLocaleString();
-}
-function pct(value, total) {
-  if (!total) return null;
-  return Math.round((value / total) * 1000) / 10;
-}
-function el(tag, cls, text) {
-  const e = document.createElement(tag);
-  if (cls) e.className = cls;
-  if (text != null) e.textContent = String(text);
-  return e;
-}
-function infoDisclosure(label, content) {
-  const details = el("details", "info-disclosure");
-  const summary = el("summary", "info-icon", "i");
-  summary.setAttribute("aria-label", label);
-  details.appendChild(summary);
-  details.appendChild(el("span", "info-content", content));
-  return details;
+// Where every admin action lives (#8); the client script reads the same value.
+export const ADMIN_PORTAL = "https://app.nemar.org/admin";
+
+interface ChromeLink {
+  label: string;
+  href: string;
+  /** Opens in a new tab with an arrow, as the website does for other hosts. */
+  external?: boolean;
+  current?: boolean;
 }
 
-// A breakdown can be denominated differently from its tile: "Most read
-// datasets" is a count of datasets whose bars are bytes each. metric.breakdown_unit
-// carries that; absent, the bars share the tile's unit.
-function renderBreakdown(parent, items, unit, style) {
-  const max = items.reduce(function (m, it) { return Math.max(m, it.value); }, 0) || 1;
-  const fmtVal = unit === "bytes" ? humanBytes : function (v) { return Number(v).toLocaleString(); };
-  const ranked = style === "ranked";
-  const list = el("div", "breakdown");
-  function appendRows(target, rows) {
-    rows.forEach(function (it) {
-      const row = el("div", ranked ? "bd-row bd-ranked" : "bd-row");
-      row.appendChild(el("span", "bd-label", it.label));
-      // A ranked list prints its value; a bar there would restate it, and one
-      // dominant entry would flatten the rest into identical stubs.
-      if (!ranked) {
-        const barWrap = el("span", "bd-bar");
-        const bar = el("span", "bd-fill");
-        bar.style.width = Math.max(2, (it.value / max) * 100) + "%";
-        barWrap.appendChild(bar);
-        row.appendChild(barWrap);
-      }
-      row.appendChild(el("span", "bd-val", fmtVal(it.value)));
-      target.appendChild(row);
-    });
-  }
-  const visibleCount = ranked ? 5 : BREAKDOWN_MAX;
-  appendRows(list, items.slice(0, visibleCount));
-  parent.appendChild(list);
-  if (ranked && items.length > visibleCount) {
-    const details = el("details", "breakdown-more");
-    details.appendChild(el("summary", null, "Show all " + items.length + " datasets"));
-    const remaining = el("div", "breakdown");
-    appendRows(remaining, items.slice(visibleCount, BREAKDOWN_MAX));
-    details.appendChild(remaining);
-    if (items.length > BREAKDOWN_MAX) details.appendChild(el("div", "bd-more", "+" + (items.length - BREAKDOWN_MAX) + " more"));
-    parent.appendChild(details);
-  }
-}
+// The NEMAR-wide links, in the website's order (website Nav.astro), with this
+// dashboard added beside the Citation Dashboard as the cross-link.
+export const NEMAR_LINKS: ChromeLink[] = [
+  { label: "About", href: "https://nemar.org/about" },
+  { label: "Discover", href: "https://nemar.org/discover" },
+  { label: "Citation Dashboard", href: "/citations/" },
+  { label: "Observability", href: "/observability", current: true },
+  { label: "Documentation", href: "https://docs.nemar.org", external: true },
+  { label: "Support", href: "https://nemar.org/support" },
+];
 
-function tile(metric) {
-  const t = el("div", "tile sev-" + (metric.severity || "info"));
-  const heading = el("div", "tile-heading");
-  heading.appendChild(el("div", "tile-label", metric.label));
-  if (metric.hint) heading.appendChild(infoDisclosure("About " + metric.label, metric.hint));
-  if (metric.severity === "warn" || metric.severity === "error") {
-    const status = el("span", "tile-status status-" + metric.severity, metric.severity === "warn" ? "Warning" : "Error");
-    status.setAttribute("role", "status");
-    heading.appendChild(status);
-  }
-  t.appendChild(heading);
-  const valRow = el("div", "tile-value");
-  valRow.appendChild(el("span", "v", fmt(metric)));
-  const p = pct(metric.value, metric.total);
-  if (p != null) valRow.appendChild(el("span", "pct", p + "%"));
-  t.appendChild(valRow);
-  if (metric.total != null && metric.unit !== "bytes") {
-    const barWrap = el("div", "pbar");
-    const fill = el("div", "pfill");
-    fill.style.width = Math.min(100, p || 0) + "%";
-    barWrap.appendChild(fill);
-    t.appendChild(barWrap);
-  }
-  if (metric.breakdown && metric.breakdown.length) renderBreakdown(t, metric.breakdown, metric.breakdown_unit || metric.unit, metric.breakdown_style);
-  // A drilldown key used to open an in-page list gated by a pasted API token.
-  // The list now lives in the admin portal behind a session cookie, so the tile
-  // links there instead of asking anyone for a credential (#8).
-  if (metric.drilldown) {
-    const cta = el("a", "tile-cta", "Manage in admin portal ->");
-    cta.href = ADMIN_PORTAL;
-    cta.target = "_blank"; cta.rel = "noopener";
-    t.appendChild(cta);
-  }
-  return t;
-}
+// Footer columns as on nemar.org (website Footer.astro), plus Observability.
+export const FOOTER_COLUMNS: { heading: string; links: ChromeLink[] }[] = [
+  {
+    heading: "Explore",
+    links: [
+      { label: "Discover", href: "https://nemar.org/discover" },
+      { label: "Citations", href: "/citations/" },
+      { label: "Observability", href: "/observability", current: true },
+      { label: "Documentation", href: "https://docs.nemar.org", external: true },
+    ],
+  },
+  {
+    heading: "Project",
+    links: [
+      { label: "About", href: "https://nemar.org/about" },
+      { label: "Support", href: "https://nemar.org/support" },
+      { label: "Privacy Policy", href: "https://docs.nemar.org/policies/privacy/", external: true },
+      { label: "Terms &amp; Policies", href: "https://docs.nemar.org/policies/", external: true },
+    ],
+  },
+  {
+    heading: "Data",
+    links: [
+      { label: "data.nemar.org", href: "https://data.nemar.org/", external: true },
+      { label: "api.nemar.org", href: "https://api.nemar.org/", external: true },
+      { label: "docs.nemar.org", href: "https://docs.nemar.org/", external: true },
+      { label: "llms.txt", href: "https://nemar.org/llms.txt" },
+    ],
+  },
+  {
+    heading: "GitHub",
+    links: [
+      { label: "nemarOrg", href: "https://github.com/nemarOrg", external: true },
+      { label: "nemarDatasets", href: "https://github.com/nemarDatasets", external: true },
+    ],
+  },
+];
 
-function renderSnapshot(snap) {
-  const root = document.getElementById("sections");
-  root.textContent = "";
-  if (snap.section_errors && snap.section_errors.length) {
-    const bar = el("div", "errbar");
-    bar.appendChild(el("strong", null, "Some sections failed to load: "));
-    bar.appendChild(el("span", null, snap.section_errors.map(function (e) { return e.key; }).join(", ")));
-    bar.appendChild(el("span", " errbar-hint", " (data shown may be incomplete)"));
-    root.appendChild(bar);
-  }
-  snap.sections.forEach(function (section) {
-    const card = el("section", "card");
-    const head = el("div", "card-head");
-    head.appendChild(el("h2", null, section.label));
-    head.appendChild(el("span", "src", section.source));
-    card.appendChild(head);
-    const grid = el("div", "tiles" + (section.layout === "split" ? " split" : ""));
-    section.metrics.forEach(function (m) { grid.appendChild(tile(m)); });
-    card.appendChild(grid);
-    root.appendChild(card);
-  });
-  const ts = el("span", null, "Latest state generated " + new Date(snap.generated_at).toLocaleString());
-  const meta = document.getElementById("health-meta");
-  meta.textContent = "";
-  meta.appendChild(ts);
-}
+const MAKERS: ChromeLink[] = [
+  { label: "SCCN", href: "https://sccn.ucsd.edu", external: true },
+  { label: "SDSC", href: "https://www.sdsc.edu", external: true },
+];
+const PARTNERS: ChromeLink[] = [
+  { label: "NIH", href: "https://www.nih.gov", external: true },
+  { label: "AWS Open Data", href: "https://aws.amazon.com/opendata/", external: true },
+  { label: "UC San Diego Library", href: "https://library.ucsd.edu", external: true },
+  { label: "EZID", href: "https://ezid.cdlib.org", external: true },
+  { label: "OpenNeuro", href: "https://openneuro.org", external: true },
+  { label: "BIDS", href: "https://bids.neuroimaging.io", external: true },
+  { label: "HED", href: "https://www.hedtags.org", external: true },
+];
 
-function isoDay(date) { return date.toISOString().slice(0, 10); }
-function shiftDay(day, offset) { const d = new Date(day + "T00:00:00.000Z"); d.setUTCDate(d.getUTCDate() + offset); return isoDay(d); }
-function rangeFor(days) { const end = shiftDay(isoDay(new Date()), -1); return { start: shiftDay(end, 1 - days), end: end }; }
-let audienceRequestId = 0;
-function audienceNumber(value) {
-  return typeof value === "number" && Number.isFinite(value) ? value.toLocaleString() : "Unknown";
-}
-function audienceStatus(status) {
-  const labels = { available: "Measured", partial: "Partial coverage", unconfigured: "Not configured", unavailable: "Unavailable" };
-  return labels[status] || "Unknown status";
-}
-function audienceMeasure(parent, label, value) {
-  const card = el("div", "audience-measure");
-  card.appendChild(el("span", "audience-measure-label", label));
-  card.appendChild(el("strong", "audience-measure-value", audienceNumber(value)));
-  parent.appendChild(card);
-}
-function audienceSourceCard(title, source, definitions, metrics) {
-  const card = el("article", "audience-source");
-  const heading = el("div", "audience-source-heading");
-  heading.appendChild(el("h3", null, title));
-  const statusClass = ["available", "partial", "unconfigured", "unavailable"].indexOf(source.status) >= 0 ? source.status : "unknown";
-  heading.appendChild(el("span", "audience-status audience-status-" + statusClass, audienceStatus(source.status)));
-  heading.appendChild(infoDisclosure("About " + title, definitions));
-  card.appendChild(heading);
-  const measures = el("div", "audience-measures");
-  metrics.forEach(function (metric) { audienceMeasure(measures, metric.label, source[metric.key]); });
-  card.appendChild(measures);
-  const details = el("details", "audience-source-details");
-  details.appendChild(el("summary", null, "Coverage and source details"));
-  const coverage = source.coverage && source.coverage.start && source.coverage.end
-    ? source.coverage.start + " to " + source.coverage.end + " UTC"
-    : "Unavailable";
-  details.appendChild(el("p", "audience-coverage", "Measured coverage: " + coverage));
-  if (source.note) details.appendChild(el("p", "audience-note", source.note));
-  card.appendChild(details);
-  return card;
-}
-function audienceEvents(parent, report) {
-  const section = el("details", "audience-events");
-  const status = report && typeof report.status === "string" ? report.status : "unavailable";
-  section.appendChild(el("summary", null, "Website interactions · " + audienceStatus(status)));
-  section.appendChild(infoDisclosure("About website interactions", "Events are recorded only after consent. Event-associated visitors are anonymous distinct sessions, not identified people."));
-  const coverage = report && report.coverage && report.coverage.start && report.coverage.end
-    ? "Verified event coverage: " + report.coverage.start + " to " + report.coverage.end + " UTC"
-    : "Verified event coverage: unavailable";
-  section.appendChild(el("p", "audience-coverage", coverage));
+/** Anchor targets for the top bar, in page order. */
+export const DASHBOARD_SECTIONS = [
+  { id: "overview", label: "Overview" },
+  { id: "usage", label: "Usage" },
+  { id: "reach", label: "Reach" },
+  { id: "datasets", label: "Datasets" },
+  { id: "pipelines", label: "Pipelines" },
+] as const;
 
-  const labels = {
-    citation_click: "Citation clicks",
-    viewer_open: "Viewer opens",
-    viewer_interaction: "Viewer interactions",
-    upload_started: "Upload starts",
-    upload_completed: "Upload completions"
-  };
-  const rows = Array.isArray(report && report.metrics) ? report.metrics : [];
-  const table = el("table", "audience-event-table");
-  const headRow = el("tr");
-  ["Interaction", "Events", "Anonymous sessions"].forEach(function (label) {
-    headRow.appendChild(el("th", null, label));
-  });
-  const thead = el("thead"); thead.appendChild(headRow); table.appendChild(thead);
-  const body = el("tbody");
-  rows.forEach(function (metric) {
-    if (!metric || !Object.prototype.hasOwnProperty.call(labels, metric.name)) return;
-    const row = el("tr");
-    row.appendChild(el("th", null, labels[metric.name]));
-    row.appendChild(el("td", null, audienceNumber(metric.events)));
-    row.appendChild(el("td", null, audienceNumber(metric.visitors)));
-    body.appendChild(row);
-  });
-  table.appendChild(body);
-  section.appendChild(table);
-  if (report && report.note) section.appendChild(el("p", "audience-note", report.note));
-  parent.appendChild(section);
-}
-function renderAudience(payload) {
-  const root = document.getElementById("audience");
-  root.textContent = "";
-  const observedAt = typeof payload.observed_at === "string" ? new Date(payload.observed_at) : null;
-  const observationLabel =
-    observedAt && Number.isFinite(observedAt.getTime())
-      ? observedAt.toISOString()
-      : "unavailable";
-  const details = el("details", "audience-observation-details");
-  details.appendChild(el("summary", null, "How these measures work"));
-  details.appendChild(el("p", "audience-note", "Selected-range totals are queried from each source; visitors and sessions are not added across days. Umami country sessions cover one completed UTC day. Cloudflare request locations cover completed days in the selected range, with small daily values withheld before totals are combined."));
-  details.appendChild(el("p", "audience-coverage", "Sources last checked: " + observationLabel + " (UTC)."));
-  root.appendChild(details);
-  const grid = el("div", "audience-grid");
-  const umamiCard = audienceSourceCard(
-    "Website activity",
-    payload.umami,
-    "Umami visitors are anonymous unique-session estimates, not identified people. Visits use a separate visit identifier. Country estimates are not an exclusive partition; unreported countries are omitted.",
-    [
-      { key: "visitors", label: "Visitors (unique sessions)" },
-      { key: "visits", label: "Visits" },
-      { key: "pageviews", label: "Page views" }
-    ]
-  );
-  audienceEvents(umamiCard, payload.umami.event_metrics);
-  grid.appendChild(umamiCard);
-  grid.appendChild(audienceSourceCard(
-    "Requests to NEMAR",
-    payload.cloudflare,
-    "Cloudflare counts one request for each page, file, image, or API call. One page view can create many requests, and bots or repeat clients also count. This is not a count of people, sessions, page views, or completed downloads. Some requests have no reported country.",
-    [{ key: "requests", label: "Requests" }]
-  ));
-  root.appendChild(grid);
-}
-let geographySourceKey = "cloudflare";
-function normalizeCountryLabel(label) {
-  return typeof label === "string"
-    ? label.normalize("NFKD").replace(/\p{M}/gu, "").replace(/[^a-z0-9]/gi, "").toLowerCase()
-    : "";
-}
-function countryCode(label) {
-  if (typeof label !== "string") return null;
-  const code = label.trim().toUpperCase();
-  if (/^[A-Z]{2}$/.test(code) && (WORLD_COUNTRY_PATHS[code] || WORLD_COUNTRY_MARKERS[code])) return code;
-  const mappedCode = WORLD_COUNTRY_CODES_BY_NAME[normalizeCountryLabel(label)];
-  return typeof mappedCode === "string"
-    && (WORLD_COUNTRY_PATHS[mappedCode] || WORLD_COUNTRY_MARKERS[mappedCode])
-    ? mappedCode
-    : null;
-}
-function countryName(label) {
-  const code = countryCode(label);
-  if (!code) return label;
-  return (WORLD_COUNTRY_NAMES[code] && WORLD_COUNTRY_NAMES[code][0]) || label;
-}
-function positionFloatingTooltip(tooltip, frame, clientX, clientY) {
-  const rect = frame.getBoundingClientRect();
-  tooltip.style.maxWidth = Math.max(0, rect.width - 16) + "px";
-  tooltip.style.transform = "translateX(-50%)";
-  const half = tooltip.offsetWidth / 2;
-  const left = Math.min(rect.width - half - 8, Math.max(half + 8, clientX - rect.left));
-  const pointerY = clientY - rect.top;
-  const tooltipHeight = tooltip.offsetHeight;
-  const roomBelow = rect.height - pointerY - 12;
-  const roomAbove = pointerY - 12;
-  const showBelow = roomBelow >= tooltipHeight || roomBelow >= roomAbove;
-  const proposedTop = showBelow ? pointerY + 12 : pointerY - tooltipHeight - 12;
-  const top = Math.min(
-    Math.max(8, rect.height - tooltipHeight - 8),
-    Math.max(8, proposedTop),
-  );
-  tooltip.style.left = left + "px";
-  tooltip.style.top = top + "px";
-}
-function geographySources(payload) {
-  return [
-    { key: "cloudflare", label: "Cloudflare requests", unit: "requests", totalLabel: "Requests to NEMAR", total: payload.cloudflare.country_requests, source: payload.cloudflare },
-    { key: "umami", label: "Website sessions", unit: "anonymous sessions", totalLabel: "Anonymous unique sessions", total: payload.umami.visitors, source: payload.umami }
-  ];
-}
-function hasCountryData(item) {
-  return Boolean(item.source.country_coverage);
-}
-function renderGeography(payload, start, end) {
-  const root = document.getElementById("geography");
-  root.textContent = "";
-  const sources = geographySources(payload);
-  const requested = sources.find(function (item) { return item.key === geographySourceKey; });
-  const active = (requested && hasCountryData(requested) ? requested : null)
-    || sources.find(hasCountryData)
-    || requested
-    || sources[0];
-  geographySourceKey = active.key;
-  const countryCoverage = active.source.country_coverage;
-  const period = countryCoverage && countryCoverage.start && countryCoverage.end
-    ? countryCoverage.start === countryCoverage.end
-      ? countryCoverage.start
-      : countryCoverage.start + " – " + countryCoverage.end
-    : start === end ? start : start + " – " + end;
-  document.querySelector(".geography-period").textContent = "Map period · " + period + " UTC";
-  const sourceTabs = el("div", "geography-sources");
-  sourceTabs.setAttribute("role", "group");
-  sourceTabs.setAttribute("aria-label", "Choose a location data source");
-  sources.forEach(function (item) {
-    const button = el("button", "geography-source", item.label);
-    const hasValues = hasCountryData(item);
-    const available = item.source.status === "available" || item.source.status === "partial";
-    button.type = "button";
-    button.disabled = !available || !hasValues;
-    button.setAttribute("aria-pressed", String(item.key === active.key));
-    const sourceStatus = available && item.key === "umami" && start !== end
-      ? "Single day only"
-      : available && item.key === "umami" && end >= isoDay(new Date())
-        ? "Completed day only"
-        : audienceStatus(item.source.status);
-    button.appendChild(el("span", "geography-source-status", sourceStatus));
-    button.addEventListener("click", function () {
-      geographySourceKey = item.key;
-      renderGeography(payload, start, end);
-    });
-    sourceTabs.appendChild(button);
-  });
-  root.appendChild(sourceTabs);
+const icon = (paths: string[], cls = "icon") =>
+  `<svg class="${cls}" viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false">${paths
+    .map((d) => `<path d="${d}"/>`)
+    .join("")}</svg>`;
 
-  const countries = Array.isArray(active.source.countries) ? active.source.countries : [];
-  const coded = new Map();
-  countries.forEach(function (row) {
-    const code = countryCode(row && row.label);
-    if (code && (WORLD_COUNTRY_PATHS[code] || WORLD_COUNTRY_MARKERS[code])
-      && typeof row.value === "number" && Number.isFinite(row.value) && row.value > 0) {
-      coded.set(code, (coded.get(code) || 0) + row.value);
-    }
-  });
-  const maximum = Math.max(1, ...coded.values());
-  const layout = el("div", "geography-layout");
-  const mapFrame = el("div", "geography-map-frame");
-  const tooltip = el("div", "geography-tooltip");
-  tooltip.setAttribute("role", "tooltip");
-  tooltip.setAttribute("aria-hidden", "true");
-  mapFrame.appendChild(tooltip);
-  function hideMapTooltip() {
-    tooltip.textContent = "";
-    tooltip.classList.remove("visible");
-    tooltip.setAttribute("aria-hidden", "true");
-  }
-  function showMapTooltip(detail, clientX, clientY) {
-    tooltip.textContent = detail;
-    tooltip.classList.add("visible");
-    tooltip.setAttribute("aria-hidden", "false");
-    positionFloatingTooltip(tooltip, mapFrame, clientX, clientY);
-  }
-  function attachMapTooltip(element, detail) {
-    element.setAttribute("aria-describedby", "geography-country-tooltip");
-    tooltip.id = "geography-country-tooltip";
-    element.addEventListener("pointerenter", function (event) {
-      showMapTooltip(detail, event.clientX, event.clientY);
-    });
-    element.addEventListener("pointermove", function (event) {
-      showMapTooltip(detail, event.clientX, event.clientY);
-    });
-    element.addEventListener("pointerleave", hideMapTooltip);
-    element.addEventListener("focus", function () {
-      const rect = element.getBoundingClientRect();
-      showMapTooltip(detail, rect.left + rect.width / 2, rect.top + rect.height / 2);
-    });
-    element.addEventListener("blur", hideMapTooltip);
-  }
-  function styleMapLocation(element, code, value) {
-    if (value === undefined) {
-      element.setAttribute("fill", "#27313d");
-      element.setAttribute("aria-hidden", "true");
-      return;
-    }
-    const strength = Math.log1p(value) / Math.log1p(maximum);
-    element.setAttribute("fill", "rgba(74, 163, 255, " + (0.22 + 0.78 * strength).toFixed(3) + ")");
-    element.setAttribute("tabindex", "0");
-    const detail = period + " UTC · " + countryName(code) + " · " + audienceNumber(value) + " " + active.unit;
-    element.setAttribute("aria-label", detail);
-    const title = document.createElementNS(svg.namespaceURI, "title");
-    title.textContent = detail;
-    element.appendChild(title);
-    attachMapTooltip(element, detail);
-  }
-  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
-  svg.setAttribute("viewBox", "0 0 1000 500");
-  svg.setAttribute("role", "group");
-  svg.setAttribute("aria-label", active.label + " by country from " + period + " UTC");
-  svg.classList.add("geography-map");
-  Object.keys(WORLD_COUNTRY_PATHS).forEach(function (code) {
-    const path = document.createElementNS(svg.namespaceURI, "path");
-    path.setAttribute("d", WORLD_COUNTRY_PATHS[code]);
-    path.setAttribute("class", "map-country");
-    styleMapLocation(path, code, coded.get(code));
-    svg.appendChild(path);
-  });
-  Object.keys(WORLD_COUNTRY_MARKERS).forEach(function (code) {
-    const coordinates = WORLD_COUNTRY_MARKERS[code];
-    const marker = document.createElementNS(svg.namespaceURI, "circle");
-    marker.setAttribute("cx", String(coordinates[0]));
-    marker.setAttribute("cy", String(coordinates[1]));
-    marker.setAttribute("r", "4");
-    marker.setAttribute("class", "map-country-marker");
-    styleMapLocation(marker, code, coded.get(code));
-    svg.appendChild(marker);
-  });
-  mapFrame.appendChild(svg);
-  layout.appendChild(mapFrame);
+// Theme icons use the NEMAR website's 24px strokes; the visible one names the
+// current choice (monitor when following the system).
+const themeIcon = (cls: string, body: string) =>
+  `<svg class="theme-icon ${cls}" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">${body}</svg>`;
+const THEME_ICONS = [
+  themeIcon(
+    "theme-system",
+    '<rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/>',
+  ),
+  themeIcon("theme-dark", '<path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>'),
+  themeIcon(
+    "theme-light",
+    '<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/>',
+  ),
+].join("");
+const ICON_CALENDAR = icon([
+  "M3 3.75h10a.75.75 0 0 1 .75.75v8.75H2.25V4.5A.75.75 0 0 1 3 3.75z",
+  "M2.25 6.75h11.5M5.5 2.25v2.5M10.5 2.25v2.5",
+]);
+const ICON_MENU = icon(["M2.75 4.5h10.5M2.75 8h10.5M2.75 11.5h10.5"]);
+const ICON_EXTERNAL = icon(["M6.5 3.5h6v6", "M12.5 3.5L4 12"]);
+// The website's ExternalLink arrow.
+const EXTERNAL_ARROW =
+  '<svg class="external-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M7 17 17 7M9 7h8v8"/></svg>';
 
-  const summary = el("aside", "geography-summary");
-  summary.appendChild(el("span", "geography-summary-label", active.totalLabel));
-  summary.appendChild(el("strong", "geography-summary-value", audienceNumber(active.total)));
-  summary.appendChild(el("p", "geography-summary-date", "Country activity · " + period + " UTC"));
-  summary.appendChild(infoDisclosure("About location data", active.key === "cloudflare"
-    ? "Cloudflare counts one request for each page, file, image, or API call. One page view can create many requests; repeat clients, bots, and other automated traffic also count. This is not a count of people, sessions, or completed downloads."
-    : "Umami counts anonymous unique-session estimates. A session is not an identified person, and sessions without a reported country are not shown."));
-  const hasWithheldValues = active.source.suppressed_small_countries === true;
-  const hint = el("p", "geography-map-hint", coded.size
-    ? "Showing reported values for " + coded.size + " countries. Small or unreported values may be omitted."
-    : hasWithheldValues
-      ? "Country values are withheld under the privacy threshold; no country location is shown."
-      : countries.length
-        ? "Country values were reported, but none match a location on the map."
-        : active.source.note || "No country values were reported for this source and period.");
-  summary.appendChild(hint);
-  const legend = el("div", "geography-map-legend");
-  legend.appendChild(el("span", null, "Fewer"));
-  legend.appendChild(el("span", "geography-map-legend-scale"));
-  legend.appendChild(el("span", null, "More"));
-  summary.appendChild(legend);
-  layout.appendChild(summary);
-  root.appendChild(layout);
+const chromeLink = (link: ChromeLink) =>
+  link.external
+    ? `<a href="${link.href}" target="_blank" rel="noopener noreferrer">${link.label}<span class="sr-only"> (opens in a new tab)</span>${EXTERNAL_ARROW}</a>`
+    : `<a href="${link.href}"${link.current ? ' aria-current="page"' : ""}>${link.label}</a>`;
+const nemarLinks = NEMAR_LINKS.map(chromeLink).join("");
+const listOf = (links: ChromeLink[]) =>
+  `<ul>${links.map((l) => `<li>${chromeLink(l)}</li>`).join("")}</ul>`;
+const footerColumns = FOOTER_COLUMNS.map(
+  (col) => `<div><h3>${col.heading}</h3>${listOf(col.links)}</div>`,
+).join("");
 
-  if (countries.length) {
-    const details = el("details", "geography-values");
-    details.appendChild(el("summary", null, "View country totals (" + countries.length + ")"));
-    const table = el("table", null);
-    const head = el("thead");
-    const header = el("tr");
-    header.appendChild(el("th", null, "Country"));
-    header.appendChild(el("th", null, active.unit));
-    head.appendChild(header); table.appendChild(head);
-    const body = el("tbody");
-    countries.forEach(function (row) {
-      const tr = el("tr");
-      tr.appendChild(el("th", null, countryName(row.label)));
-      tr.appendChild(el("td", null, audienceNumber(row.value)));
-      body.appendChild(tr);
-    });
-    table.appendChild(body); details.appendChild(table); root.appendChild(details);
-  }
+const navLinks = DASHBOARD_SECTIONS.map(
+  (s) => `<a href="#${s.id}" data-nav-link>${s.label}</a>`,
+).join("");
 
-  const sourceDetails = el("details", "geography-details");
-  sourceDetails.appendChild(el("summary", null, "Coverage and map details"));
-  const coverage = countryCoverage && countryCoverage.start && countryCoverage.end
-    ? countryCoverage.start + " to " + countryCoverage.end + " UTC"
-    : "Unavailable";
-  sourceDetails.appendChild(el("p", null, "Source " + active.label + " · country coverage " + coverage + " · status " + audienceStatus(active.source.status) + "."));
-  sourceDetails.appendChild(el("p", null, active.key === "cloudflare"
-    ? "Cloudflare request totals follow the selected date range, use completed UTC days for the map, and suppress small country values per day before adding reportable daily totals. Requests can include bots and repeat clients. NEMAR S3 bytes are bucket-wide and have no country attribution."
-    : "Umami country values are anonymous unique-session estimates for one completed UTC day. They are not added across days or described as identified people."));
-  if (active.source.note) sourceDetails.appendChild(el("p", null, active.source.note));
-  root.appendChild(sourceDetails);
-}
-function loadAudience() {
-  const start = document.getElementById("range-start").value;
-  const end = document.getElementById("range-end").value;
-  const root = document.getElementById("audience");
-  const geography = document.getElementById("geography");
-  const requestId = ++audienceRequestId;
-  root.textContent = "";
-  geography.textContent = "";
-  if (!start || !end || start > end) {
-    root.appendChild(el("p", "muted", "Choose a valid UTC date range."));
-    geography.appendChild(el("p", "muted", "Choose a valid UTC date range to view country activity."));
-    return;
-  }
-  const days = (Date.parse(end + "T00:00:00Z") - Date.parse(start + "T00:00:00Z")) / 86400000 + 1;
-  if (!Number.isFinite(days) || days > 3660) {
-    root.appendChild(el("p", "muted", "Choose a valid UTC date range of 3,660 days or fewer."));
-    geography.appendChild(el("p", "muted", "Choose a valid UTC date range to view country activity."));
-    return;
-  }
-  root.appendChild(el("p", "muted", "Loading audience and country metrics…"));
-  geography.appendChild(el("p", "muted", "Loading country activity for the selected dates…"));
-  fetch(API + "/audience?start=" + encodeURIComponent(start) + "&end=" + encodeURIComponent(end))
-    .then(function (response) {
-      if (!response.ok) throw new Error("Could not load audience metrics.");
-      return response.json();
-    })
-    .then(function (payload) {
-      if (requestId !== audienceRequestId) return;
-      if (document.getElementById("range-start").value !== start || document.getElementById("range-end").value !== end) return;
-      renderAudience(payload);
-      renderGeography(payload, start, end);
-    })
-    .catch(function () {
-      if (requestId !== audienceRequestId) return;
-      root.textContent = "";
-      root.appendChild(el("p", "muted", "Could not load audience metrics."));
-      const geography = document.getElementById("geography");
-      geography.textContent = "";
-      geography.appendChild(el("p", "muted", "Could not load country activity."));
-    });
-}
-function syncRangePresets() {
-  const start = document.getElementById("range-start").value;
-  const end = document.getElementById("range-end").value;
-  document.querySelectorAll("[data-range]").forEach(function (button) {
-    const range = rangeFor(Number(button.dataset.range));
-    button.setAttribute("aria-pressed", String(start === range.start && end === range.end));
-  });
-}
-function loadSelectedRange() { syncRangePresets(); loadSeries(); loadAudience(); }
-let seriesRequestId = 0;
-let pendingSeriesRange = null;
-let cachedSeriesRange = null;
-function loadSeries() {
-  const start = document.getElementById("range-start").value;
-  const end = document.getElementById("range-end").value;
-  const root = document.getElementById("series"); root.textContent = "";
-  const requestId = ++seriesRequestId;
-  pendingSeriesRange = null;
-  if (!start || !end || start > end) { root.appendChild(el("p", "muted", "Choose a valid UTC date range.")); return; }
-  const days = (Date.parse(end + "T00:00:00Z") - Date.parse(start + "T00:00:00Z")) / 86400000 + 1;
-  if (!Number.isFinite(days) || days > 3660) {
-    root.appendChild(el("p", "muted", "Choose a valid UTC date range of 3,660 days or fewer."));
-    return;
-  }
-  if (cachedSeriesRange && cachedSeriesRange.start === start && cachedSeriesRange.end === end) {
-    renderSeries(cachedSeriesRange.payload, start, end);
-    return;
-  }
-  pendingSeriesRange = { start: start, end: end, requestId: requestId };
-  fetch(API + "/timeseries?start=" + encodeURIComponent(start) + "&end=" + encodeURIComponent(end))
-    .then(function (r) {
-      if (r.ok) return r.json();
-      return r.json().catch(function () { return null; }).then(function (body) {
-        throw new Error(body && body.error ? body.error : "Could not load daily series.");
-      });
-    })
-    .then(function (payload) {
-      if (requestId !== seriesRequestId) return;
-      if (document.getElementById("range-start").value !== start || document.getElementById("range-end").value !== end) return;
-      cachedSeriesRange = { start: start, end: end, payload: payload };
-      renderSeries(payload, start, end);
-    })
-    .catch(function (err) {
-      if (requestId !== seriesRequestId) return;
-      console.error("[ui] daily series render failed:", err);
-      root.appendChild(el("p", "muted", err && err.message ? err.message : "Could not load daily series."));
-    })
-    .finally(function () {
-      if (pendingSeriesRange && pendingSeriesRange.requestId === requestId) pendingSeriesRange = null;
-    });
-}
-function regroupSeries() {
-  const start = document.getElementById("range-start").value;
-  const end = document.getElementById("range-end").value;
-  if (cachedSeriesRange && cachedSeriesRange.start === start && cachedSeriesRange.end === end) {
-    renderSeries(cachedSeriesRange.payload, start, end);
-    return;
-  }
-  if (pendingSeriesRange && pendingSeriesRange.start === start && pendingSeriesRange.end === end) return;
-  loadSeries();
-}
-function renderSeries(payload, start, end) {
-  const root = document.getElementById("series"); root.textContent = "";
-  const today = isoDay(new Date());
-  const rangeNote = document.getElementById("range-note");
-  rangeNote.textContent = end === today
-    ? "UTC · today may be incomplete"
-    : "UTC · complete days through " + end;
-  if (!payload.series.length) { root.appendChild(el("p", "muted", "No reporting series were returned for this range. Coverage is unavailable here; this does not mean usage was zero.")); return; }
-  const groups = new Map();
-  payload.series.forEach(function (series) {
-    const plane = seriesPlane(series);
-    if (!groups.has(plane.key)) groups.set(plane.key, { plane: plane, series: [] });
-    groups.get(plane.key).series.push(series);
-  });
-  groups.forEach(function (group) {
-    const card = el("section", "series-card");
-    const groupHeading = el("div", "series-heading");
-    groupHeading.appendChild(el("h3", null, group.plane.label));
-    groupHeading.appendChild(infoDisclosure("About " + group.plane.label, group.plane.description));
-    card.appendChild(groupHeading);
-    group.series.forEach(function (series, index) {
-      const measure = index === 0 ? card : el("article", "series-measure");
-      measure.appendChild(el("h4", null, seriesDisplayLabel(series)));
-      const lastDay = series.latest_observation_date;
-      const lastPeriodEnd = lastDay ? Date.parse(lastDay + "T00:00:00Z") + 86400000 : NaN;
-      const stale = !Number.isFinite(lastPeriodEnd) || Date.now() - lastPeriodEnd > series.freshness_after_hours * 3600000;
-      const grouping = document.getElementById("grouping").value;
-      const buckets = seriesBuckets(series, start, end, grouping);
-      measure.appendChild(chart(series, buckets, grouping, start, end, group.plane.description));
-      const sourceDetails = el("details", "series-source-details");
-      sourceDetails.appendChild(el("summary", null, "Source and coverage · " + (stale ? "stale" : "current")));
-      sourceDetails.appendChild(el("p", stale ? "series-meta stale" : "series-meta", "Source " + series.source + " · one value per day (UTC) · data covers " + series.coverage_start + " to " + series.coverage_end + " · latest day counted " + (lastDay || "none") + " · updated " + series.updated_at + "."));
-      measure.appendChild(sourceDetails);
-      measure.appendChild(valuesTable(series, buckets));
-      if (index > 0) card.appendChild(measure);
-    });
-    root.appendChild(card);
-  });
-}
-function seriesPlane(series) {
-  const key = String(series.section || "").toLowerCase();
-  if (key === "website") return { key: "website", label: "What activity is recorded on the website?", description: "Anonymous browser analytics record page views and action events. These are events, not unique people." };
-  if (key === "access") return { key: "access", label: "How is data accessed through NEMAR?", description: "Server-side access counts represent requests or redirects. Archive redirects do not confirm completed downloads; response bytes are shown only where the server records them." };
-  if (key === "cf") return { key: "cf", label: "How much traffic does Cloudflare handle?", description: "Cloudflare counts one request for each page, file, image, or API call. One page view can create many requests, and automated traffic is included. Request and byte totals do not represent people, sessions, or completed downloads." };
-  if (key === "egress") return { key: "egress", label: "How much data did NEMAR return?", description: "Bytes returned by the NEMAR S3 bucket across all NEMAR data planes. This includes visitor reads and internal operations such as Zarr conversions, so it is not a count of completed visitor downloads. The metric has no user or country attribution." };
-  const section = series.section || "unknown section";
-  return { key: "other:" + section, label: "Additional source: " + section, description: "Source " + (series.source || "unknown") + " reports its own additive daily measures. Measures remain separate; missing observations are unknown, not zero." };
-}
-function seriesDisplayLabel(series) {
-  return String(series.section || "").toLowerCase() === "egress" ? "NEMAR downloads" : series.label;
-}
-function seriesBuckets(series, start, end, grouping) {
-  const values = new Map(series.points.map(function (p) { return [p.date, p.value]; }));
-  const buckets = []; let cursor = start;
-  while (cursor <= end) {
-    let calendarStart = cursor;
-    let calendarEnd = cursor;
-    if (grouping === "week") {
-      const dow = new Date(cursor + "T00:00:00Z").getUTCDay();
-      calendarStart = shiftDay(cursor, -((dow + 6) % 7));
-      calendarEnd = shiftDay(calendarStart, 6);
-    }
-    if (grouping === "month") {
-      const d = new Date(cursor + "T00:00:00Z");
-      calendarStart = isoDay(new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), 1)));
-      calendarEnd = isoDay(new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 0)));
-    }
-    const bucketStart = cursor > calendarStart ? cursor : calendarStart;
-    const bucketEnd = end < calendarEnd ? end : calendarEnd;
-    const partial = bucketStart !== calendarStart || bucketEnd !== calendarEnd;
-    let sum = 0; let complete = true;
-    for (let d = bucketStart; d <= bucketEnd; d = shiftDay(d, 1)) {
-      if (d < series.coverage_start || d > series.coverage_end || !values.has(d)) complete = false;
-      else sum += values.get(d);
-    }
-    const label = partial
-      ? "Partial " + (grouping === "week" ? "week" : grouping === "month" ? "month" : "period") + " (" + bucketStart + (bucketStart === bucketEnd ? "" : " – " + bucketEnd) + ")"
-      : grouping === "month"
-        ? new Date(bucketStart + "T00:00:00Z").toLocaleString("en-US", { month: "long", year: "numeric", timeZone: "UTC" })
-        : grouping === "week" ? "Week " + bucketStart + " – " + bucketEnd
-          : bucketStart;
-    buckets.push({ start: bucketStart, end: bucketEnd, label: label, value: complete ? sum : null, partial: partial });
-    cursor = shiftDay(bucketEnd, 1);
-  }
-  return buckets;
-}
-function seriesValue(value, unit) {
-  if (value === null) return "Unknown";
-  if (unit === "bytes") return humanBytes(value);
-  return Number(value).toLocaleString();
-}
-function exactSeriesValue(value, unit) {
-  if (value === null) return "Unknown";
-  if (unit === "bytes") return Number(value).toLocaleString() + " B";
-  return Number(value).toLocaleString();
-}
-function valuesTable(series, buckets) {
-  const details = el("details", "series-values");
-  details.appendChild(el("summary", null, "Show exact values (" + buckets.length + " periods)"));
-  const table = el("table", null);
-  const head = el("thead", null); const heading = el("tr", null);
-  heading.appendChild(el("th", null, "UTC period"));
-  heading.appendChild(el("th", null, "Value (" + series.unit + ")"));
-  head.appendChild(heading); table.appendChild(head);
-  const body = el("tbody", null);
-  buckets.forEach(function (bucket) {
-    const row = el("tr", null);
-    row.appendChild(el("td", null, bucket.label));
-    row.appendChild(el("td", null, exactSeriesValue(bucket.value, series.unit)));
-    body.appendChild(row);
-  });
-  table.appendChild(body); details.appendChild(table);
-  return details;
-}
-function chart(series, buckets, grouping, start, end, description) {
-  const wrapper = el("div", "series-chart-wrap");
-  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
-  svg.setAttribute("viewBox", "0 0 900 250"); svg.setAttribute("role", "group");
-  svg.setAttribute("aria-label", seriesDisplayLabel(series) + " by " + grouping + " in " + series.unit);
-  svg.setAttribute("aria-description", description);
-  svg.classList.add("series-chart");
-  const tooltip = el("div", "series-tooltip");
-  tooltip.setAttribute("role", "tooltip");
-  tooltip.setAttribute("aria-hidden", "true");
-  function hideTooltip() {
-    tooltip.textContent = "";
-    tooltip.classList.remove("visible");
-    tooltip.setAttribute("aria-hidden", "true");
-  }
-  function showTooltip(detail, clientX, clientY) {
-    tooltip.textContent = detail;
-    tooltip.classList.add("visible");
-    tooltip.setAttribute("aria-hidden", "false");
-    positionFloatingTooltip(tooltip, wrapper, clientX, clientY);
-  }
-  const partialPeriods = buckets.filter(function (bucket) { return bucket.partial; }).map(function (bucket) { return bucket.label; });
-  if (partialPeriods.length) {
-    const description = document.createElementNS(svg.namespaceURI, "desc");
-    description.textContent = "Partial calendar buckets: " + partialPeriods.join("; ");
-    svg.appendChild(description);
-  }
-  const observed = buckets.filter(function (b) { return b.value !== null; });
-  const max = Math.max(1, ...observed.map(function (b) { return b.value; }));
-  const points = buckets.map(function (b, i) { return { bucket: b, x: 58 + (i * 800 / Math.max(1, buckets.length - 1)), y: 205 - ((b.value === null ? 0 : b.value) / max) * 175, value: b.value }; });
-  let path = ""; let active = false;
-  points.forEach(function (p) { if (p.value === null) { active = false; return; } path += (active ? " L" : " M") + p.x + " " + p.y; active = true; });
-  for (let i = 0; i <= 4; i++) {
-    const y = 205 - (i * 175 / 4);
-    const grid = document.createElementNS(svg.namespaceURI, "path"); grid.setAttribute("d", "M58 " + y + " H858"); grid.setAttribute("stroke", "#52606f"); grid.setAttribute("stroke-opacity", i === 0 ? "0.8" : "0.35"); grid.setAttribute("fill", "none"); svg.appendChild(grid);
-    const tick = document.createElementNS(svg.namespaceURI, "text"); tick.setAttribute("x", "52"); tick.setAttribute("y", y + 4); tick.setAttribute("text-anchor", "end"); tick.textContent = series.unit === "bytes" ? humanBytes(max * i / 4) : Math.round(max * i / 4).toLocaleString(); svg.appendChild(tick);
-  }
-  if (path) { const line = document.createElementNS(svg.namespaceURI, "path"); line.setAttribute("d", path); line.setAttribute("stroke", "#4aa3ff"); line.setAttribute("stroke-width", "3"); line.setAttribute("fill", "none"); svg.appendChild(line); }
-  points.forEach(function (p, i) {
-    if (p.value !== null) {
-      const dot = document.createElementNS(svg.namespaceURI, "circle");
-      const detail = p.bucket.label + " UTC · " + seriesDisplayLabel(series) + " · " + seriesValue(p.value, series.unit)
-        + (series.unit === "bytes" ? " (" + exactSeriesValue(p.value, series.unit) + ")" : "");
-      dot.setAttribute("cx", p.x); dot.setAttribute("cy", p.y); dot.setAttribute("r", "5.5"); dot.setAttribute("class", "series-point"); dot.setAttribute("tabindex", "0"); dot.setAttribute("aria-label", detail);
-      const title = document.createElementNS(svg.namespaceURI, "title"); title.textContent = detail; dot.appendChild(title);
-      dot.addEventListener("pointerenter", function (event) { showTooltip(detail, event.clientX, event.clientY); });
-      dot.addEventListener("pointermove", function (event) { showTooltip(detail, event.clientX, event.clientY); });
-      dot.addEventListener("pointerleave", hideTooltip);
-      dot.addEventListener("focus", function () {
-        const rect = dot.getBoundingClientRect();
-        showTooltip(detail, rect.left + rect.width / 2, rect.top + rect.height / 2);
-      });
-      dot.addEventListener("blur", hideTooltip);
-      svg.appendChild(dot);
-    }
-    if (buckets.length < 20 || i % Math.ceil(buckets.length / 12) === 0) { const label = document.createElementNS(svg.namespaceURI, "text"); label.setAttribute("x", p.x); label.setAttribute("y", "230"); label.setAttribute("text-anchor", "middle"); label.textContent = start.slice(0, 4) === end.slice(0, 4) ? p.bucket.start.slice(5) : p.bucket.start; svg.appendChild(label); }
-  });
-  const gap = buckets.some(function (b) { return b.value === null; });
-  const observedPoints = series.points.filter(function (point) { return point.date >= start && point.date <= end; });
-  const observedTotal = observedPoints.reduce(function (sum, point) { return sum + point.value; }, 0);
-  const totalLabel = observedPoints.length === 0
-    ? "Range total · Unknown (no observations)"
-    : (gap ? "Observed total · " : "Range total · ") + seriesValue(observedTotal, series.unit) + (gap ? " · incomplete buckets plot as gaps" : "");
-  const note = document.createElementNS(svg.namespaceURI, "text"); note.setAttribute("x", "58"); note.setAttribute("y", "18"); note.textContent = totalLabel; svg.appendChild(note);
-  wrapper.appendChild(svg);
-  wrapper.appendChild(tooltip);
-  return wrapper;
-}
+const skeletonCard = (extra = "") =>
+  `<div class="card skeleton-card"><div class="skeleton skeleton-title"></div>${extra}<div class="skeleton skeleton-line"></div><div class="skeleton skeleton-line short"></div></div>`;
+const KPI_SKELETONS = Array.from(
+  { length: 4 },
+  () =>
+    '<div class="card kpi" aria-hidden="true"><div class="skeleton skeleton-line short"></div><div class="skeleton skeleton-value"></div><div class="skeleton skeleton-line"></div></div>',
+).join("");
+const ALL_TIME_SKELETONS = Array.from(
+  { length: 5 },
+  () =>
+    '<div class="alltime-item" aria-hidden="true"><div class="skeleton skeleton-line short"></div><div class="skeleton skeleton-line"></div></div>',
+).join("");
+// Marks a block that shows the latest snapshot rather than the chosen dates.
+const CURRENT_STATE = '<span class="scope-chip scope-current">Current state</span>';
+// Marks a block that follows the range control; the client fills in the dates.
+const RANGE_CHIP = '<span class="scope-chip scope-range" data-range-chip>Last 30 days</span>';
+const GRID_SKELETON = `<div class="skeleton-grid">${skeletonCard()}${skeletonCard()}${skeletonCard()}</div>`;
+const CHART_SKELETON =
+  '<div class="card skeleton-card"><div class="skeleton skeleton-title"></div><div class="skeleton skeleton-chart"></div></div>';
+const MAP_SKELETON =
+  '<div class="geo-layout"><div class="card skeleton-card"><div class="skeleton skeleton-map"></div></div><div class="card skeleton-card"><div class="skeleton skeleton-title"></div><div class="skeleton skeleton-value"></div><div class="skeleton skeleton-line"></div><div class="skeleton skeleton-line"></div><div class="skeleton skeleton-line short"></div></div></div>';
 
-function load() {
-  fetch(API + "/snapshot")
-    .then(function (r) { return r.json(); })
-    .then(renderSnapshot)
-    .catch(function () {
-      document.getElementById("health-meta").textContent = "Could not load latest-state snapshot.";
-      document.getElementById("sections").appendChild(el("p", "muted", "Could not load metrics."));
-    });
-}
-
-load();
-const initialRange = rangeFor(30);
-document.getElementById("range-start").value = initialRange.start;
-document.getElementById("range-end").value = initialRange.end;
-document.querySelectorAll("[data-range]").forEach(function (button) { button.addEventListener("click", function () { const r = rangeFor(Number(button.dataset.range)); document.getElementById("range-start").value = r.start; document.getElementById("range-end").value = r.end; loadSelectedRange(); }); });
-document.getElementById("range-start").addEventListener("change", loadSelectedRange);
-document.getElementById("range-end").addEventListener("change", loadSelectedRange);
-document.getElementById("grouping").addEventListener("change", regroupSeries);
-loadSelectedRange();
-`;
-
-const STYLES = String.raw`
-:root {
-  --bg: #0f1216; --panel: #161b22; --panel-2: #1c2230; --border: #2a3340;
-  --fg: #e7edf3; --muted: #8b97a6; --accent: #4aa3ff;
-  --ok: #2ea043; --warn: #d29922; --error: #f85149; --info: #6e7b8a;
-}
-* { box-sizing: border-box; }
-body { margin: 0; background: var(--bg); color: var(--fg);
-  font: 15px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
-a { color: var(--accent); }
-header { display: flex; align-items: center; gap: 16px; padding: 18px 24px;
-  border-bottom: 1px solid var(--border); position: sticky; top: 0; background: rgba(15,18,22,.9);
-  backdrop-filter: blur(6px); z-index: 5; }
-header h1 { font-size: 18px; margin: 0; font-weight: 650; }
-header .sub { color: var(--muted); font-size: 13px; }
-header .spacer { flex: 1; }
-#meta { color: var(--muted); font-size: 12px; margin-right: 4px; }
-header .portal { color: var(--muted); font-size: 13px; text-decoration: none;
-  border: 1px solid var(--border); border-radius: 8px; padding: 6px 12px; }
-header .portal:hover { color: var(--fg); border-color: var(--accent); }
-main { padding: 20px 24px 60px; max-width: 1440px; margin: 0 auto; }
-.card { background: var(--panel); border: 1px solid var(--border); border-radius: 14px;
-  padding: 15px 16px 16px; margin-bottom: 14px; }
-.card-head { display: flex; align-items: baseline; gap: 10px; margin-bottom: 14px; }
-.card-head h2 { font-size: 15px; margin: 0; font-weight: 600; letter-spacing: .01em; }
-.card-head .src { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: .06em; }
-.tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 12px; align-items: start; }
-/* Distribution + companion list: ~2/3 and ~1/3, stacking on narrow screens. */
-.tiles.split { grid-template-columns: 2fr 1fr; }
-@media (max-width: 720px) { .tiles.split { grid-template-columns: 1fr; } }
-.tile { background: var(--panel-2); border: 1px solid var(--border); border-left-width: 3px;
-  border-radius: 10px; padding: 12px 13px; }
-.tile.sev-ok { border-left-color: var(--ok); }
-.tile.sev-warn { border-left-color: var(--warn); }
-.tile.sev-error { border-left-color: var(--error); }
-.tile.sev-info { border-left-color: var(--info); }
-.tile-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; }
-.tile-label { color: var(--muted); font-size: 12.5px; margin-bottom: 6px; }
-.info-disclosure { position: relative; display: inline-flex; flex: none; }
-.info-icon { display: inline-grid; place-items: center; width: 19px; height: 19px; border: 1px solid var(--border); border-radius: 50%; color: var(--muted); cursor: pointer; font-size: 12px; font-weight: 700; line-height: 1; list-style: none; }
-.info-icon::-webkit-details-marker { display: none; }
-.info-icon:hover, .info-icon:focus-visible { border-color: var(--accent); color: var(--fg); }
-.info-content { position: absolute; z-index: 10; top: 25px; left: 0; width: min(320px, 78vw); padding: 10px 12px; border: 1px solid var(--border); border-radius: 8px; background: #111820; box-shadow: 0 8px 24px rgba(0,0,0,.35); color: var(--fg); font-size: 12px; font-weight: 400; line-height: 1.45; }
-.tile .info-content { right: 0; left: auto; }
-.tile-status { border-radius: 4px; flex: none; font-size: 9px; font-weight: 700; letter-spacing: .04em; padding: 2px 5px; text-transform: uppercase; }
-.tile-status.status-warn { background: rgba(210,153,34,.16); color: #f0c65a; }
-.tile-status.status-error { background: rgba(248,81,73,.16); color: #ff8178; }
-.tile-value { display: flex; align-items: baseline; gap: 8px; }
-.tile-value .v { font-size: 26px; font-weight: 680; letter-spacing: -.01em; }
-.tile-value .pct { color: var(--muted); font-size: 13px; }
-.pbar { height: 4px; background: #0c1015; border-radius: 3px; margin-top: 8px; overflow: hidden; }
-.pfill { height: 100%; background: var(--accent); }
-.tile-cta { color: var(--accent); font-size: 12px; margin-top: 8px; }
-.breakdown { margin-top: 10px; display: flex; flex-direction: column; gap: 4px; }
-.bd-row { display: grid; grid-template-columns: 92px 1fr 62px; align-items: center; gap: 6px; font-size: 11.5px; }
-.bd-ranked { grid-template-columns: 1fr auto; gap: 12px; }
-.bd-label { color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.bd-bar { background: #0c1015; height: 7px; border-radius: 4px; overflow: hidden; }
-.bd-fill { display: block; height: 100%; background: var(--accent); opacity: .8; }
-.bd-val { text-align: right; color: var(--fg); white-space: nowrap; }
-.bd-more { color: var(--muted); font-size: 11px; margin-top: 2px; }
-.breakdown-more { color: var(--muted); font-size: 11px; margin-top: 5px; }
-.breakdown-more summary, .range-help summary, .audience-source-details summary, .audience-events summary, .audience-observation-details summary, .series-source-details summary, .series-values summary, .geography-values summary, .geography-details summary { cursor: pointer; }
-.muted { color: var(--muted); }
-.errbar { background: rgba(248,81,73,.12); border: 1px solid var(--error); color: #ffd7d4;
-  border-radius: 10px; padding: 10px 14px; margin-bottom: 16px; font-size: 13px; }
-.errbar-hint { color: var(--muted); }
-.series-controls { display: flex; flex-wrap: wrap; align-items: end; gap: 10px; margin-bottom: 16px; }
-.series-controls label { display: grid; color: var(--muted); font-size: 12px; gap: 3px; }
-.series-controls button, .series-controls input, .series-controls select { color: var(--fg); background: var(--panel-2); border: 1px solid var(--border); border-radius: 6px; padding: 6px 9px; }
-.series-controls button { cursor: pointer; }
-.series-controls button:hover, .series-controls button:focus-visible { border-color: var(--accent); }
-.series-controls button[aria-pressed="true"] { border-color: var(--accent); background: rgba(74,163,255,.14); color: var(--fg); }
-.range-help { color: var(--muted); font-size: 11px; margin: -7px 0 10px; }
-.range-help p { max-width: 760px; margin: 6px 0 0; }
-.audience-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; align-items: start; max-width: 1180px; }
-.audience-source { min-width: 0; background: var(--panel-2); border: 1px solid var(--border); border-radius: 10px; padding: 13px; }
-.audience-source-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
-.audience-source h3 { margin: 0; font-size: 14px; }
-.audience-status { flex: none; border-radius: 999px; padding: 2px 8px; font-size: 10px; font-weight: 650; }
-.audience-status-available { background: rgba(46,160,67,.16); color: #65d17a; }
-.audience-status-partial { background: rgba(210,153,34,.16); color: #f0c65a; }
-.audience-status-unconfigured, .audience-status-unavailable, .audience-status-unknown { background: rgba(139,151,166,.16); color: var(--muted); }
-.audience-coverage, .audience-note { color: var(--muted); font-size: 11.5px; line-height: 1.45; margin: 8px 0; }
-.audience-observation-details { color: var(--muted); font-size: 11px; margin: 0 0 10px; }
-.audience-source-details { color: var(--muted); font-size: 11px; margin-top: 8px; }
-.audience-measures { display: grid; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); gap: 8px; margin: 12px 0; }
-.audience-measure { display: grid; gap: 3px; border: 1px solid var(--border); border-radius: 8px; padding: 8px; min-width: 0; }
-.audience-measure-label { color: var(--muted); font-size: 10.5px; }
-.audience-measure-value { font-size: 18px; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
-.audience-note { margin-bottom: 0; }
-.audience-events { border-top: 1px solid var(--border); margin-top: 10px; padding-top: 8px; color: var(--muted); font-size: 11px; }
-.audience-events summary { display: flex; justify-content: space-between; gap: 8px; }
-.audience-event-table { border-collapse: collapse; font-size: 11px; margin-top: 8px; width: 100%; }
-.audience-event-table th, .audience-event-table td { border-bottom: 1px solid var(--border); padding: 5px; text-align: left; }
-.audience-event-table th:not(:first-child), .audience-event-table td { font-variant-numeric: tabular-nums; }
-.series-card { max-width: 1180px; background: var(--panel); border: 1px solid var(--border); border-radius: 12px; margin: 14px 0 10px; padding: 14px; }
-.series-heading { display: flex; align-items: center; gap: 8px; }
-.series-card h3 { margin: 0; font-size: 15px; }
-.series-card h4, .series-measure h4 { margin: 4px 0 0; font-size: 14px; }
-.series-measure { border-top: 1px solid var(--border); margin-top: 14px; padding-top: 10px; }
-.health-intro { margin: 0 0 14px; color: var(--muted); font-size: 13px; }
-.health-meta { color: var(--muted); font-size: 12px; margin: -4px 0 12px; }
-.range-note { color: var(--muted); font-size: 12px; margin: -8px 0 12px; }
-.series-meta { color: var(--muted); font-size: 11px; margin: 4px 0; }
-.series-meta.stale { color: var(--warn); }
-.series-source-details { color: var(--muted); font-size: 11px; margin-top: 4px; }
-.series-chart-wrap { position: relative; width: 100%; }
-.series-chart { display: block; width: 100%; min-height: 150px; }
-.series-chart text { fill: var(--muted); font-size: 11px; }
-.series-point { fill: var(--accent); stroke: var(--panel); stroke-width: 2; cursor: crosshair; }
-.series-point:hover, .series-point:focus { fill: #fff; stroke: var(--accent); stroke-width: 3; outline: none; }
-.series-tooltip, .geography-tooltip { position: absolute; z-index: 3; display: none; max-width: min(320px, calc(100vw - 32px)); padding: 7px 10px; border: 1px solid var(--border); border-radius: 7px; background: #0c1118; box-shadow: 0 5px 18px rgba(0,0,0,.4); color: var(--fg); font-size: 12px; line-height: 1.35; pointer-events: none; transform: translate(-50%, -100%); white-space: normal; }
-.geography-tooltip { width: max-content; }
-.series-tooltip.visible, .geography-tooltip.visible { display: block; }
-.series-values { color: var(--muted); font-size: 12px; margin-top: 8px; }
-.series-values summary { cursor: pointer; }
-.series-values table { border-collapse: collapse; margin-top: 8px; width: 100%; }
-.series-values th, .series-values td { border-bottom: 1px solid var(--border); padding: 5px 8px; text-align: left; }
-.series-values th:last-child, .series-values td:last-child { text-align: right; font-variant-numeric: tabular-nums; }
-.geography-heading { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; }
-.geography-heading h2 { margin: 0; font-size: 15px; }
-.geography-heading .health-intro { margin: 4px 0 0; }
-.geography-period { color: var(--muted); font-size: 12px; margin-left: auto; font-variant-numeric: tabular-nums; }
-.geography-sources { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
-.geography-source { display: flex; align-items: center; gap: 8px; color: var(--fg); background: var(--panel-2); border: 1px solid var(--border); border-radius: 8px; padding: 7px 10px; cursor: pointer; font: inherit; font-size: 12px; }
-.geography-source[aria-pressed="true"] { border-color: var(--accent); background: rgba(74,163,255,.12); }
-.geography-source:disabled { opacity: .55; cursor: not-allowed; }
-.geography-source-status { color: var(--muted); font-size: 10px; }
-.geography-layout { display: grid; grid-template-columns: minmax(0, 1fr) minmax(220px, 270px); gap: 14px; align-items: center; max-width: 1260px; }
-.geography-map-frame { position: relative; min-width: 0; overflow: hidden; border: 1px solid var(--border); border-radius: 10px; background: #111820; }
-.geography-map { display: block; width: 100%; height: auto; }
-.map-country { stroke: #111820; stroke-width: 1; stroke-linejoin: round; }
-.map-country-marker { stroke: #111820; stroke-width: 1; }
-.map-country[tabindex="0"], .map-country-marker[tabindex="0"] { cursor: pointer; }
-.map-country[tabindex="0"]:hover, .map-country[tabindex="0"]:focus, .map-country-marker[tabindex="0"]:hover, .map-country-marker[tabindex="0"]:focus { stroke: var(--fg); stroke-width: 2; outline: none; }
-.geography-summary { display: grid; align-content: start; gap: 8px; min-width: 0; padding: 14px; border: 1px solid var(--border); border-radius: 10px; background: var(--panel-2); }
-.geography-summary-label, .geography-summary-date { color: var(--muted); font-size: 11px; }
-.geography-summary-value { font-size: 24px; font-variant-numeric: tabular-nums; }
-.geography-summary-date, .geography-map-hint, .geography-map-legend { margin: 0; }
-.geography-map-hint { color: var(--muted); font-size: 11px; }
-.geography-map-legend { display: grid; grid-template-columns: auto minmax(50px, 1fr) auto; align-items: center; gap: 6px; color: var(--muted); font-size: 10px; }
-.geography-map-legend-scale { height: 7px; border-radius: 999px; background: linear-gradient(90deg, rgba(74,163,255,.22), rgba(74,163,255,1)); }
-.geography-values, .geography-details { color: var(--muted); font-size: 11px; margin-top: 10px; }
-.geography-values table { border-collapse: collapse; margin-top: 8px; width: 100%; }
-.geography-values th, .geography-values td { border-bottom: 1px solid var(--border); padding: 5px 8px; text-align: left; }
-.geography-values td:last-child, .geography-values th:last-child { text-align: right; font-variant-numeric: tabular-nums; }
-.geography-details p { margin: 6px 0; }
-@media (max-width: 600px) { header { padding: 12px; flex-wrap: wrap; } main { padding: 14px 12px 40px; } #meta { display: none; } }
-@media (max-width: 720px) { .audience-grid { grid-template-columns: 1fr; } .geography-layout { grid-template-columns: 1fr; } .geography-heading { align-items: flex-start; flex-wrap: wrap; } .geography-period { margin-left: 0; } }
-`;
+const info = (label: string, text: string) =>
+  `<details class="popover info"><summary class="info-trigger" aria-label="${label}">${icon([
+    "M8 1.75a6.25 6.25 0 1 0 0 12.5a6.25 6.25 0 1 0 0-12.5z",
+    "M8 7.3v3.7",
+    "M8 5v.05",
+  ])}</summary><div class="popover-panel info-panel"><p>${text}</p></div></details>`;
 
 export function renderDashboardPage(): string {
   return `<!doctype html>
@@ -973,64 +199,158 @@ export function renderDashboardPage(): string {
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
   <title>NEMAR Observability</title>
+  <meta name="description" content="What the NEMAR open data archive holds, how it is used, and the current state of its data pipelines.">
   <meta name="robots" content="noindex">
   <style>${STYLES}</style>
 </head>
 <body>
-  <header>
-    <h1>NEMAR Observability</h1>
-    <span class="sub">usage and latest dataset &amp; pipeline health</span>
-    <span class="spacer"></span>
-    <a class="portal" href="https://app.nemar.org/admin" target="_blank" rel="noopener">Admin portal &rarr;</a>
-  </header>
-  <main>
-    <section class="card usage-card">
-      <h2>How is NEMAR being used?</h2>
-      <p class="health-intro">Daily totals from each reporting source.</p>
-      <div class="series-controls">
-        <button type="button" data-range="7">Last 7 days</button>
-        <button type="button" data-range="30">Last 30 days</button>
-        <button type="button" data-range="90">Last 90 days</button>
-        <button type="button" data-range="365">Last 365 days</button>
-        <label>Start date (UTC)<input id="range-start" type="date"></label>
-        <label>End date (UTC)<input id="range-end" type="date"></label>
-        <label>View by<select id="grouping"><option value="day">Day</option><option value="week">Calendar week</option><option value="month">Calendar month</option></select></label>
-      </div>
-      <p id="range-note" class="range-note">UTC · complete days through yesterday</p>
-      <details class="range-help">
-        <summary>How to read these charts</summary>
-        <p>Counts and bytes can be grouped by week or month. Visitor and session totals are queried for the selected range and are not added across days.</p>
-      </details>
-      <div id="series" aria-live="polite"></div>
-    </section>
-    <section class="card">
-      <h2>What activity happens on the website?</h2>
-      <p class="health-intro">Website activity and Cloudflare requests for the selected dates.</p>
-      <div id="audience" aria-live="polite"><p class="muted">Loading audience metrics…</p></div>
-    </section>
-    <section class="card geography-card">
-      <div class="geography-heading">
-        <div>
-          <h2>Where are requests coming from?</h2>
-          <p class="health-intro">Cloudflare request counts by country for the selected dates. Website sessions are shown separately when available.</p>
-        </div>
-        <span class="geography-period">Selected period · UTC</span>
-        <details class="info-disclosure">
-          <summary class="info-icon" aria-label="About the location map">i</summary>
-          <span class="info-content">Cloudflare counts requests for individual pages, files, images, and API calls; one page view can create many requests, and automated traffic is included. Website sessions are a separate measure. S3 bucket downloads include internal reads and have no location data.</span>
+  <a class="skip-link" href="#main">Skip to content</a>
+  <div class="site-utility">
+    <div class="container site-utility__inner">
+      <nav class="site-utility__nav" aria-label="NEMAR">${nemarLinks}</nav>
+    </div>
+  </div>
+  <header class="site-header">
+    <div class="container site-header__inner">
+      <a class="site-brand" href="/observability" aria-label="NEMAR Observability home">${NEMAR_LOGO_SVG}<span class="site-brand__product">Observability</span></a>
+      <nav class="section-nav" aria-label="Page sections">${navLinks}</nav>
+      <div class="site-header__actions">
+        <button id="theme-toggle" class="icon-button theme-toggle" type="button" data-mode="system" aria-label="Theme: system. Switch to dark.">${THEME_ICONS}</button>
+        <a class="pill-link portal-link" href="${ADMIN_PORTAL}" target="_blank" rel="noopener">Admin portal ${ICON_EXTERNAL}</a>
+        <details class="popover nav-menu">
+          <summary class="icon-button" aria-label="Open the menu">${ICON_MENU}</summary>
+          <nav class="popover-panel nav-menu-panel" aria-label="Menu"><span class="menu-label">On this page</span>${navLinks}<hr><span class="menu-label">NEMAR</span>${nemarLinks}<hr><a href="${ADMIN_PORTAL}" target="_blank" rel="noopener">Admin portal</a></nav>
         </details>
       </div>
-      <div id="geography" aria-live="polite"><p class="muted">Loading country activity…</p></div>
+    </div>
+    <div class="container filterbar">
+      <div class="segmented range-presets" role="group" aria-label="Date range presets">
+        <button type="button" data-range="7">7 days</button>
+        <button type="button" data-range="30">30 days</button>
+        <button type="button" data-range="90">90 days</button>
+        <button type="button" data-range="365">1 year</button>
+      </div>
+      <details class="popover range-custom" id="range-custom">
+        <summary aria-label="Choose custom dates">${ICON_CALENDAR}<span class="custom-label">Custom</span></summary>
+        <div class="popover-panel range-custom-panel">
+          <label class="field">Start date (UTC)<input id="range-start" type="date"></label>
+          <label class="field">End date (UTC)<input id="range-end" type="date"></label>
+          <p class="fine">Dates are whole UTC days. Ranges can span up to 3,660 days.</p>
+        </div>
+      </details>
+      <p id="range-summary" class="range-summary" aria-live="polite">Last 30 days</p>
+      <p id="range-announcer" class="sr-only" aria-live="polite"></p>
+      <p class="filterbar-note">The dates drive the overview cards, usage, and reach. Blocks marked Current state show the latest hourly snapshot.</p>
+    </div>
+  </header>
+  <main id="main">
+    <section id="overview" class="hero" aria-labelledby="overview-title">
+      <h1 id="overview-title" class="hero-title">NEMAR shares open neurophysiology data with researchers worldwide.</h1>
+      <p class="hero-lede">The Neuroelectromagnetic Data Archive and Tools Resource (NEMAR) hosts open electroencephalography (EEG), magnetoencephalography (MEG), and related recordings. This page shows what the archive holds, how it is used, and the current state of its data pipelines.</p>
+      <p class="kpi-scope">For the selected dates ${RANGE_CHIP}</p>
+      <div id="kpis" class="kpi-grid" aria-busy="true">${KPI_SKELETONS}</div>
+      <section class="alltime" aria-labelledby="alltime-title">
+        <div class="alltime-head">
+          <h2 id="alltime-title">All time</h2>
+          <p>The catalog as it is now, and usage added up over every day a source has reported. These do not follow the date range.</p>
+        </div>
+        <dl id="all-time" class="alltime-grid" aria-busy="true">${ALL_TIME_SKELETONS}</dl>
+      </section>
     </section>
-    <section class="card">
-      <h2>What is the latest state of datasets and pipelines?</h2>
-      <p class="health-intro">Latest snapshot.</p>
-      <p id="health-meta" class="health-meta" aria-live="polite">Loading latest-state snapshot…</p>
-      <div id="sections"></div>
+
+    <section id="usage" aria-labelledby="usage-title">
+      <div class="section-head">
+        <div>
+          <h2 id="usage-title">How is NEMAR being used?</h2>
+          <p class="section-lede">Daily totals from each reporting source for the selected dates.</p>
+        </div>
+        <div class="section-tools">
+          ${RANGE_CHIP}
+          <label class="select-field">View by<select id="grouping"><option value="day">Day</option><option value="week">Calendar week</option><option value="month">Calendar month</option></select></label>
+          ${info("How to read these charts", "Counts and bytes can be grouped by calendar week or month; the first and last groups may be partial and are drawn dashed. Days without data are shaded and left as gaps, because unknown is not zero. Visitor and session totals are queried for the selected range and are not added across days.")}
+        </div>
+      </div>
+      <p id="range-note" class="range-note">All dates are UTC, with complete days through yesterday.</p>
+      <div id="series" class="series-grid">${CHART_SKELETON}</div>
+      <div class="subsection-head">
+        <h3>Totals for the selected dates</h3>
+        <p>Website activity and requests, each from its own source.</p>
+      </div>
+      <div id="audience">${GRID_SKELETON}</div>
+      <div class="subsection-head">
+        <h3>Rolling 30 days</h3>
+        ${CURRENT_STATE}
+        <p id="rolling-window">The 30 days up to the latest hourly snapshot. These do not follow the date range.</p>
+      </div>
+      <div id="usage-snapshot" class="stack">${GRID_SKELETON}</div>
+    </section>
+
+    <section id="reach" aria-labelledby="reach-title">
+      <div class="section-head">
+        <div>
+          <h2 id="reach-title">Where are requests coming from?</h2>
+          <p class="section-lede">Request counts by country at the network edge for the selected dates. Website sessions are shown separately when available.</p>
+        </div>
+        <div class="section-tools">
+          <span class="scope-chip scope-range geography-period">Selected period (UTC)</span>
+          ${info("About the location map", "The network edge counts requests for individual pages, files, images, and API calls; one page view can create many requests, and automated traffic is included. Website sessions are a separate measure. Data served from storage includes internal processing and has no location data.")}
+        </div>
+      </div>
+      <div id="geography">${MAP_SKELETON}</div>
+    </section>
+
+    <section id="datasets" aria-labelledby="datasets-title">
+      <div class="section-head">
+        <div>
+          <h2 id="datasets-title">What does NEMAR hold?</h2>
+          <p class="section-lede">The public catalog by recording type, license, and size, from the latest hourly snapshot.</p>
+        </div>
+        <div class="section-tools">${CURRENT_STATE}</div>
+      </div>
+      <div id="catalog">${GRID_SKELETON}</div>
+    </section>
+
+    <section id="pipelines" aria-labelledby="pipelines-title">
+      <div class="section-head">
+        <div>
+          <h2 id="pipelines-title">What is the latest state of datasets and pipelines?</h2>
+          <p class="section-lede">Counts for archive building, Zarr conversion for in-browser viewing, OpenNeuro imports, publication review, and accounts. Admins manage these in the admin portal.</p>
+        </div>
+        <div class="section-tools">${CURRENT_STATE}</div>
+      </div>
+      <p id="health-meta" class="health-meta">Loading the latest snapshot.</p>
+      <div id="sections" class="health-grid">${GRID_SKELETON}</div>
     </section>
   </main>
-  <script>const WORLD_COUNTRY_PATHS = ${WORLD_COUNTRY_PATHS_JSON};const WORLD_COUNTRY_MARKERS = ${WORLD_COUNTRY_MARKERS_JSON};const WORLD_COUNTRY_NAMES = ${WORLD_COUNTRY_NAMES_JSON};const WORLD_COUNTRY_CODES_BY_NAME = ${WORLD_COUNTRY_CODES_BY_NAME_JSON};${CLIENT_JS}</script>
+  <footer class="site-footer">
+    <div class="container">
+      <div class="site-footer__top">
+        <div class="site-footer__about">
+          <h2 class="site-footer__heading">NEMAR</h2>
+          <p>The Neuroelectromagnetic Data Archive and Tools Resource. Funded by the National Institutes of Health under award number NIMH R24MH120037.</p>
+          <p class="site-footer__caveat">Opinions, findings, and conclusions are those of the authors and do not necessarily reflect the views of the National Institutes of Health or any other sponsor.</p>
+        </div>
+        <nav class="site-footer__nav" aria-label="Footer">${footerColumns}</nav>
+      </div>
+      <div class="site-footer__sources">
+        <p class="site-footer__label">About Observability</p>
+        <p>This dashboard is read-only and stores nothing in your browser. Catalog and pipeline figures come from the NEMAR database in an hourly snapshot; usage comes from Cloudflare zone analytics, AWS S3 CloudWatch metrics for the NEMAR bucket, and anonymous Umami website analytics where configured. Requests and sessions are not people, and storage bytes include internal reads.</p>
+      </div>
+      <div class="site-footer__credits">
+        <p class="site-footer__label">A project of</p>
+        ${listOf(MAKERS)}
+        <p class="site-footer__label">Sponsors and partners</p>
+        ${listOf(PARTNERS)}
+      </div>
+      <div class="site-footer__bottom">
+        <span>&copy; ${new Date().getUTCFullYear()} The Regents of the University of California</span>
+        <a href="/">All NEMAR dashboards</a>
+      </div>
+    </div>
+  </footer>
+  <script>const ADMIN_PORTAL = ${JSON.stringify(ADMIN_PORTAL)};const WORLD_COUNTRY_PATHS = ${WORLD_COUNTRY_PATHS_JSON};const WORLD_COUNTRY_MARKERS = ${WORLD_COUNTRY_MARKERS_JSON};const WORLD_COUNTRY_NAMES = ${WORLD_COUNTRY_NAMES_JSON};const WORLD_COUNTRY_CODES_BY_NAME = ${WORLD_COUNTRY_CODES_BY_NAME_JSON};${CLIENT_JS}</script>
 </body>
 </html>`;
 }

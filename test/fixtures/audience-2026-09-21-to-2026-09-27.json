@@ -1,0 +1,741 @@
+{
+ "source": "GET https://dashboard.nemar.org/observability/api/audience?start=2026-09-21&end=2026-09-27, captured 2026-09-28",
+ "response": {
+  "start": "2026-09-21",
+  "end": "2026-09-27",
+  "observed_at": "2026-09-28T21:06:49.315Z",
+  "country_breakdown_scope": "multi_day",
+  "umami": {
+   "status": "unconfigured",
+   "coverage": null,
+   "country_coverage": null,
+   "visitors": null,
+   "visits": null,
+   "pageviews": null,
+   "event_metrics": {
+    "status": "unconfigured",
+    "coverage": null,
+    "metrics": [
+     {
+      "name": "citation_click",
+      "events": null,
+      "visitors": null
+     },
+     {
+      "name": "viewer_open",
+      "events": null,
+      "visitors": null
+     },
+     {
+      "name": "viewer_interaction",
+      "events": null,
+      "visitors": null
+     },
+     {
+      "name": "upload_started",
+      "events": null,
+      "visitors": null
+     },
+     {
+      "name": "upload_completed",
+      "events": null,
+      "visitors": null
+     }
+    ],
+    "note": "Umami event reporting is not configured."
+   },
+   "countries": [],
+   "suppressed_small_countries": false,
+   "note": "Umami audience reporting is not configured. Umami country sessions are available only for one completed UTC day."
+  },
+  "cloudflare": {
+   "status": "available",
+   "coverage": {
+    "start": "2026-09-21",
+    "end": "2026-09-27"
+   },
+   "country_coverage": {
+    "start": "2026-09-21",
+    "end": "2026-09-27"
+   },
+   "country_requests": 5785751,
+   "requests": 5785751,
+   "countries": [
+    {
+     "label": "US",
+     "value": 2052135
+    },
+    {
+     "label": "TR",
+     "value": 1132704
+    },
+    {
+     "label": "SG",
+     "value": 527782
+    },
+    {
+     "label": "CN",
+     "value": 442233
+    },
+    {
+     "label": "FR",
+     "value": 214371
+    },
+    {
+     "label": "BR",
+     "value": 183762
+    },
+    {
+     "label": "IN",
+     "value": 141451
+    },
+    {
+     "label": "JP",
+     "value": 132750
+    },
+    {
+     "label": "TW",
+     "value": 64449
+    },
+    {
+     "label": "CH",
+     "value": 61024
+    },
+    {
+     "label": "AU",
+     "value": 42516
+    },
+    {
+     "label": "DE",
+     "value": 42338
+    },
+    {
+     "label": "AR",
+     "value": 40338
+    },
+    {
+     "label": "NL",
+     "value": 31767
+    },
+    {
+     "label": "MX",
+     "value": 30558
+    },
+    {
+     "label": "KR",
+     "value": 29560
+    },
+    {
+     "label": "IT",
+     "value": 26902
+    },
+    {
+     "label": "PK",
+     "value": 26837
+    },
+    {
+     "label": "SE",
+     "value": 26226
+    },
+    {
+     "label": "BD",
+     "value": 25788
+    },
+    {
+     "label": "HK",
+     "value": 25731
+    },
+    {
+     "label": "VN",
+     "value": 25115
+    },
+    {
+     "label": "GB",
+     "value": 23311
+    },
+    {
+     "label": "CO",
+     "value": 21873
+    },
+    {
+     "label": "ZA",
+     "value": 19685
+    },
+    {
+     "label": "CA",
+     "value": 19228
+    },
+    {
+     "label": "VE",
+     "value": 17178
+    },
+    {
+     "label": "CL",
+     "value": 16600
+    },
+    {
+     "label": "RU",
+     "value": 14282
+    },
+    {
+     "label": "BE",
+     "value": 14040
+    },
+    {
+     "label": "UA",
+     "value": 13309
+    },
+    {
+     "label": "EC",
+     "value": 12728
+    },
+    {
+     "label": "TN",
+     "value": 11994
+    },
+    {
+     "label": "MA",
+     "value": 11868
+    },
+    {
+     "label": "PL",
+     "value": 11589
+    },
+    {
+     "label": "BO",
+     "value": 11001
+    },
+    {
+     "label": "ES",
+     "value": 9382
+    },
+    {
+     "label": "SA",
+     "value": 8333
+    },
+    {
+     "label": "ID",
+     "value": 8188
+    },
+    {
+     "label": "AE",
+     "value": 8134
+    },
+    {
+     "label": "EG",
+     "value": 8010
+    },
+    {
+     "label": "PE",
+     "value": 7910
+    },
+    {
+     "label": "NG",
+     "value": 7898
+    },
+    {
+     "label": "KE",
+     "value": 7488
+    },
+    {
+     "label": "UZ",
+     "value": 7196
+    },
+    {
+     "label": "PH",
+     "value": 7167
+    },
+    {
+     "label": "JO",
+     "value": 6492
+    },
+    {
+     "label": "PY",
+     "value": 6199
+    },
+    {
+     "label": "DZ",
+     "value": 6104
+    },
+    {
+     "label": "AZ",
+     "value": 5901
+    },
+    {
+     "label": "PT",
+     "value": 5515
+    },
+    {
+     "label": "IL",
+     "value": 5294
+    },
+    {
+     "label": "KZ",
+     "value": 4568
+    },
+    {
+     "label": "NP",
+     "value": 4514
+    },
+    {
+     "label": "UY",
+     "value": 4402
+    },
+    {
+     "label": "AT",
+     "value": 4383
+    },
+    {
+     "label": "DO",
+     "value": 4158
+    },
+    {
+     "label": "FI",
+     "value": 4137
+    },
+    {
+     "label": "TH",
+     "value": 4078
+    },
+    {
+     "label": "OM",
+     "value": 3754
+    },
+    {
+     "label": "IQ",
+     "value": 3602
+    },
+    {
+     "label": "IE",
+     "value": 3449
+    },
+    {
+     "label": "CZ",
+     "value": 3165
+    },
+    {
+     "label": "IR",
+     "value": 3127
+    },
+    {
+     "label": "RO",
+     "value": 3027
+    },
+    {
+     "label": "MY",
+     "value": 2958
+    },
+    {
+     "label": "ET",
+     "value": 2788
+    },
+    {
+     "label": "SN",
+     "value": 2516
+    },
+    {
+     "label": "JM",
+     "value": 2367
+    },
+    {
+     "label": "AL",
+     "value": 2313
+    },
+    {
+     "label": "CR",
+     "value": 2288
+    },
+    {
+     "label": "CI",
+     "value": 2241
+    },
+    {
+     "label": "LB",
+     "value": 2156
+    },
+    {
+     "label": "PA",
+     "value": 2132
+    },
+    {
+     "label": "BY",
+     "value": 2121
+    },
+    {
+     "label": "QA",
+     "value": 1939
+    },
+    {
+     "label": "GR",
+     "value": 1886
+    },
+    {
+     "label": "NO",
+     "value": 1727
+    },
+    {
+     "label": "HN",
+     "value": 1648
+    },
+    {
+     "label": "RS",
+     "value": 1641
+    },
+    {
+     "label": "BG",
+     "value": 1626
+    },
+    {
+     "label": "HU",
+     "value": 1541
+    },
+    {
+     "label": "Other / withheld",
+     "value": 1412
+    },
+    {
+     "label": "KG",
+     "value": 1332
+    },
+    {
+     "label": "KW",
+     "value": 1309
+    },
+    {
+     "label": "CG",
+     "value": 1256
+    },
+    {
+     "label": "BH",
+     "value": 1237
+    },
+    {
+     "label": "AO",
+     "value": 1235
+    },
+    {
+     "label": "BA",
+     "value": 1232
+    },
+    {
+     "label": "LT",
+     "value": 1189
+    },
+    {
+     "label": "KH",
+     "value": 1184
+    },
+    {
+     "label": "GT",
+     "value": 1175
+    },
+    {
+     "label": "HR",
+     "value": 1118
+    },
+    {
+     "label": "MD",
+     "value": 1105
+    },
+    {
+     "label": "GE",
+     "value": 1091
+    },
+    {
+     "label": "TG",
+     "value": 1076
+    },
+    {
+     "label": "SK",
+     "value": 1072
+    },
+    {
+     "label": "NZ",
+     "value": 1045
+    },
+    {
+     "label": "NI",
+     "value": 996
+    },
+    {
+     "label": "XK",
+     "value": 966
+    },
+    {
+     "label": "AM",
+     "value": 949
+    },
+    {
+     "label": "SI",
+     "value": 942
+    },
+    {
+     "label": "DK",
+     "value": 891
+    },
+    {
+     "label": "SV",
+     "value": 874
+    },
+    {
+     "label": "SY",
+     "value": 846
+    },
+    {
+     "label": "PS",
+     "value": 804
+    },
+    {
+     "label": "PR",
+     "value": 784
+    },
+    {
+     "label": "LV",
+     "value": 766
+    },
+    {
+     "label": "TT",
+     "value": 724
+    },
+    {
+     "label": "MN",
+     "value": 723
+    },
+    {
+     "label": "GA",
+     "value": 715
+    },
+    {
+     "label": "ML",
+     "value": 632
+    },
+    {
+     "label": "MK",
+     "value": 615
+    },
+    {
+     "label": "LK",
+     "value": 572
+    },
+    {
+     "label": "GY",
+     "value": 502
+    },
+    {
+     "label": "EE",
+     "value": 479
+    },
+    {
+     "label": "LY",
+     "value": 457
+    },
+    {
+     "label": "MU",
+     "value": 454
+    },
+    {
+     "label": "MM",
+     "value": 401
+    },
+    {
+     "label": "BF",
+     "value": 400
+    },
+    {
+     "label": "BW",
+     "value": 324
+    },
+    {
+     "label": "GH",
+     "value": 303
+    },
+    {
+     "label": "CY",
+     "value": 301
+    },
+    {
+     "label": "BB",
+     "value": 285
+    },
+    {
+     "label": "MT",
+     "value": 245
+    },
+    {
+     "label": "BN",
+     "value": 242
+    },
+    {
+     "label": "UG",
+     "value": 215
+    },
+    {
+     "label": "ZM",
+     "value": 200
+    },
+    {
+     "label": "BS",
+     "value": 196
+    },
+    {
+     "label": "TZ",
+     "value": 196
+    },
+    {
+     "label": "LU",
+     "value": 191
+    },
+    {
+     "label": "MO",
+     "value": 157
+    },
+    {
+     "label": "ZW",
+     "value": 153
+    },
+    {
+     "label": "TJ",
+     "value": 129
+    },
+    {
+     "label": "CM",
+     "value": 118
+    },
+    {
+     "label": "MQ",
+     "value": 109
+    },
+    {
+     "label": "RE",
+     "value": 95
+    },
+    {
+     "label": "BZ",
+     "value": 94
+    },
+    {
+     "label": "SR",
+     "value": 86
+    },
+    {
+     "label": "LC",
+     "value": 79
+    },
+    {
+     "label": "CD",
+     "value": 74
+    },
+    {
+     "label": "BJ",
+     "value": 73
+    },
+    {
+     "label": "MZ",
+     "value": 67
+    },
+    {
+     "label": "GP",
+     "value": 60
+    },
+    {
+     "label": "T1",
+     "value": 58
+    },
+    {
+     "label": "RW",
+     "value": 57
+    },
+    {
+     "label": "MG",
+     "value": 56
+    },
+    {
+     "label": "GD",
+     "value": 51
+    },
+    {
+     "label": "NA",
+     "value": 47
+    },
+    {
+     "label": "LA",
+     "value": 46
+    },
+    {
+     "label": "ME",
+     "value": 45
+    },
+    {
+     "label": "CW",
+     "value": 40
+    },
+    {
+     "label": "LS",
+     "value": 34
+    },
+    {
+     "label": "AG",
+     "value": 25
+    },
+    {
+     "label": "BI",
+     "value": 24
+    },
+    {
+     "label": "MV",
+     "value": 24
+    },
+    {
+     "label": "HT",
+     "value": 23
+    },
+    {
+     "label": "IS",
+     "value": 22
+    },
+    {
+     "label": "FJ",
+     "value": 20
+    },
+    {
+     "label": "MR",
+     "value": 19
+    },
+    {
+     "label": "SO",
+     "value": 19
+    },
+    {
+     "label": "GN",
+     "value": 18
+    },
+    {
+     "label": "SL",
+     "value": 17
+    },
+    {
+     "label": "YE",
+     "value": 17
+    },
+    {
+     "label": "AF",
+     "value": 16
+    },
+    {
+     "label": "CU",
+     "value": 13
+    },
+    {
+     "label": "BT",
+     "value": 11
+    },
+    {
+     "label": "NE",
+     "value": 11
+    }
+   ],
+   "suppressed_small_countries": true,
+   "note": "Counts are Cloudflare zone requests, not visitors or completed downloads. Country totals cover completed UTC days only; each day's small cells are suppressed before daily values are added. Country values omit requests without a reported country. Country values below 10 are withheld per day; daily withheld rows are combined only when their daily total reaches 10."
+  }
+ }
+}
