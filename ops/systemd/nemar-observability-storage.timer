@@ -1,0 +1,12 @@
+[Unit]
+Description=Run the NEMAR S3 storage collector daily
+
+[Timer]
+OnCalendar=*-*-* 08:47:00 UTC
+Persistent=true
+RandomizedDelaySec=15m
+AccuracySec=1m
+Unit=nemar-observability-storage.service
+
+[Install]
+WantedBy=timers.target
