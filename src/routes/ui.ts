@@ -27,6 +27,7 @@ import {
   WORLD_COUNTRY_NAMES,
   WORLD_COUNTRY_PATHS,
 } from "../lib/world-map";
+import { NEMAR_LOGO_SVG } from "./dashboard/brand";
 import { CLIENT_JS } from "./dashboard/client";
 import { STYLES } from "./dashboard/styles";
 
@@ -36,6 +37,77 @@ const WORLD_COUNTRY_NAMES_JSON = JSON.stringify(WORLD_COUNTRY_NAMES);
 const WORLD_COUNTRY_CODES_BY_NAME_JSON = JSON.stringify(WORLD_COUNTRY_CODES_BY_NAME);
 
 const ADMIN_PORTAL = "https://app.nemar.org/admin";
+
+interface ChromeLink {
+  label: string;
+  href: string;
+  /** Opens in a new tab with an arrow, as the website does for other hosts. */
+  external?: boolean;
+  current?: boolean;
+}
+
+// The NEMAR-wide links, in the website's order (website Nav.astro), with this
+// dashboard added beside the Citation Dashboard as the cross-link.
+export const NEMAR_LINKS: ChromeLink[] = [
+  { label: "About", href: "https://nemar.org/about" },
+  { label: "Discover", href: "https://nemar.org/discover" },
+  { label: "Citation Dashboard", href: "/citations/" },
+  { label: "Observability", href: "/observability", current: true },
+  { label: "Documentation", href: "https://docs.nemar.org", external: true },
+  { label: "Support", href: "https://nemar.org/support" },
+];
+
+// Footer columns as on nemar.org (website Footer.astro), plus Observability.
+export const FOOTER_COLUMNS: { heading: string; links: ChromeLink[] }[] = [
+  {
+    heading: "Explore",
+    links: [
+      { label: "Discover", href: "https://nemar.org/discover" },
+      { label: "Citations", href: "/citations/" },
+      { label: "Observability", href: "/observability", current: true },
+      { label: "Documentation", href: "https://docs.nemar.org", external: true },
+    ],
+  },
+  {
+    heading: "Project",
+    links: [
+      { label: "About", href: "https://nemar.org/about" },
+      { label: "Support", href: "https://nemar.org/support" },
+      { label: "Privacy Policy", href: "https://docs.nemar.org/policies/privacy/", external: true },
+      { label: "Terms &amp; Policies", href: "https://docs.nemar.org/policies/", external: true },
+    ],
+  },
+  {
+    heading: "Data",
+    links: [
+      { label: "data.nemar.org", href: "https://data.nemar.org/", external: true },
+      { label: "api.nemar.org", href: "https://api.nemar.org/", external: true },
+      { label: "docs.nemar.org", href: "https://docs.nemar.org/", external: true },
+      { label: "llms.txt", href: "https://nemar.org/llms.txt" },
+    ],
+  },
+  {
+    heading: "GitHub",
+    links: [
+      { label: "nemarOrg", href: "https://github.com/nemarOrg", external: true },
+      { label: "nemarDatasets", href: "https://github.com/nemarDatasets", external: true },
+    ],
+  },
+];
+
+const MAKERS: ChromeLink[] = [
+  { label: "SCCN", href: "https://sccn.ucsd.edu", external: true },
+  { label: "SDSC", href: "https://www.sdsc.edu", external: true },
+];
+const PARTNERS: ChromeLink[] = [
+  { label: "NIH", href: "https://www.nih.gov", external: true },
+  { label: "AWS Open Data", href: "https://aws.amazon.com/opendata/", external: true },
+  { label: "UC San Diego Library", href: "https://library.ucsd.edu", external: true },
+  { label: "EZID", href: "https://ezid.cdlib.org", external: true },
+  { label: "OpenNeuro", href: "https://openneuro.org", external: true },
+  { label: "BIDS", href: "https://bids.neuroimaging.io", external: true },
+  { label: "HED", href: "https://www.hedtags.org", external: true },
+];
 
 /** Anchor targets for the top bar, in page order. */
 export const DASHBOARD_SECTIONS = [
@@ -72,9 +144,20 @@ const ICON_CALENDAR = icon([
 ]);
 const ICON_MENU = icon(["M2.75 4.5h10.5M2.75 8h10.5M2.75 11.5h10.5"]);
 const ICON_EXTERNAL = icon(["M6.5 3.5h6v6", "M12.5 3.5L4 12"]);
-// An EEG-like trace: the archive's subject matter, drawn as the brand mark.
-const BRAND_MARK =
-  '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M3 13h3.2l1.6-4.5 2.6 9 2.7-11 2.2 8.2 1.3-1.7H21"/></svg>';
+// The website's ExternalLink arrow.
+const EXTERNAL_ARROW =
+  '<svg class="external-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M7 17 17 7M9 7h8v8"/></svg>';
+
+const chromeLink = (link: ChromeLink) =>
+  link.external
+    ? `<a href="${link.href}" target="_blank" rel="noopener noreferrer">${link.label}<span class="sr-only"> (opens in a new tab)</span>${EXTERNAL_ARROW}</a>`
+    : `<a href="${link.href}"${link.current ? ' aria-current="page"' : ""}>${link.label}</a>`;
+const nemarLinks = NEMAR_LINKS.map(chromeLink).join("");
+const listOf = (links: ChromeLink[]) =>
+  `<ul>${links.map((l) => `<li>${chromeLink(l)}</li>`).join("")}</ul>`;
+const footerColumns = FOOTER_COLUMNS.map(
+  (col) => `<div><h3>${col.heading}</h3>${listOf(col.links)}</div>`,
+).join("");
 
 const navLinks = DASHBOARD_SECTIONS.map(
   (s) => `<a href="#${s.id}" data-nav-link>${s.label}</a>`,
@@ -114,24 +197,25 @@ export function renderDashboardPage(): string {
 </head>
 <body>
   <a class="skip-link" href="#main">Skip to content</a>
-  <header class="topbar">
-    <div class="topbar-row">
-      <a class="brand" href="#overview" aria-label="NEMAR Observability, back to the overview">
-        <span class="brand-mark">${BRAND_MARK}</span>
-        <span class="brand-name">NEMAR</span>
-        <span class="brand-product">Observability</span>
-      </a>
-      <nav class="topnav" aria-label="Page sections">${navLinks}</nav>
-      <div class="topbar-actions">
+  <div class="site-utility">
+    <div class="container site-utility__inner">
+      <nav class="site-utility__nav" aria-label="NEMAR">${nemarLinks}</nav>
+    </div>
+  </div>
+  <header class="site-header">
+    <div class="container site-header__inner">
+      <a class="site-brand" href="/observability" aria-label="NEMAR Observability home">${NEMAR_LOGO_SVG}<span class="site-brand__product">Observability</span></a>
+      <nav class="section-nav" aria-label="Page sections">${navLinks}</nav>
+      <div class="site-header__actions">
         <button id="theme-toggle" class="icon-button theme-toggle" type="button" data-mode="system" aria-label="Theme: system. Switch to dark.">${THEME_ICONS}</button>
-        <a class="button portal-link" href="${ADMIN_PORTAL}" target="_blank" rel="noopener">Admin portal ${ICON_EXTERNAL}</a>
+        <a class="pill-link portal-link" href="${ADMIN_PORTAL}" target="_blank" rel="noopener">Admin portal ${ICON_EXTERNAL}</a>
         <details class="popover nav-menu">
-          <summary class="icon-button" aria-label="Open the section menu">${ICON_MENU}</summary>
-          <nav class="popover-panel nav-menu-panel" aria-label="Page sections">${navLinks}<hr><a href="${ADMIN_PORTAL}" target="_blank" rel="noopener">Admin portal</a></nav>
+          <summary class="icon-button" aria-label="Open the menu">${ICON_MENU}</summary>
+          <nav class="popover-panel nav-menu-panel" aria-label="Menu"><span class="menu-label">On this page</span>${navLinks}<hr><span class="menu-label">NEMAR</span>${nemarLinks}<hr><a href="${ADMIN_PORTAL}" target="_blank" rel="noopener">Admin portal</a></nav>
         </details>
       </div>
     </div>
-    <div class="filterbar">
+    <div class="container filterbar">
       <div class="segmented range-presets" role="group" aria-label="Date range presets">
         <button type="button" data-range="7" aria-label="Last 7 days">7d</button>
         <button type="button" data-range="30" aria-label="Last 30 days">30d</button>
@@ -217,9 +301,31 @@ export function renderDashboardPage(): string {
       <div id="sections" class="health-grid">${GRID_SKELETON}</div>
     </section>
   </main>
-  <footer class="page-footer">
-    <p>NEMAR Observability is read-only. It stores nothing in your browser and makes no changes to NEMAR.</p>
-    <nav aria-label="Related links"><a href="/">All dashboards</a><a href="https://nemar.org">nemar.org</a><a href="https://docs.nemar.org">Documentation</a><a href="${ADMIN_PORTAL}" target="_blank" rel="noopener">Admin portal</a></nav>
+  <footer class="site-footer">
+    <div class="container">
+      <div class="site-footer__top">
+        <div class="site-footer__about">
+          <h2 class="site-footer__heading">NEMAR</h2>
+          <p>The Neuroelectromagnetic Data Archive and Tools Resource. Funded by the National Institutes of Health under award number NIMH R24MH120037.</p>
+          <p class="site-footer__caveat">Opinions, findings, and conclusions are those of the authors and do not necessarily reflect the views of the National Institutes of Health or any other sponsor.</p>
+        </div>
+        <nav class="site-footer__nav" aria-label="Footer">${footerColumns}</nav>
+      </div>
+      <div class="site-footer__sources">
+        <p class="site-footer__label">About Observability</p>
+        <p>This dashboard is read-only and stores nothing in your browser. Catalog and pipeline figures come from the NEMAR database in an hourly snapshot; usage comes from Cloudflare zone analytics, AWS S3 CloudWatch metrics for the NEMAR bucket, and anonymous Umami website analytics where configured. Requests and sessions are not people, and storage bytes include internal reads.</p>
+      </div>
+      <div class="site-footer__credits">
+        <p class="site-footer__label">A project of</p>
+        ${listOf(MAKERS)}
+        <p class="site-footer__label">Sponsors and partners</p>
+        ${listOf(PARTNERS)}
+      </div>
+      <div class="site-footer__bottom">
+        <span>&copy; ${new Date().getUTCFullYear()} The Regents of the University of California</span>
+        <a href="/">All NEMAR dashboards</a>
+      </div>
+    </div>
   </footer>
   <script>const WORLD_COUNTRY_PATHS = ${WORLD_COUNTRY_PATHS_JSON};const WORLD_COUNTRY_MARKERS = ${WORLD_COUNTRY_MARKERS_JSON};const WORLD_COUNTRY_NAMES = ${WORLD_COUNTRY_NAMES_JSON};const WORLD_COUNTRY_CODES_BY_NAME = ${WORLD_COUNTRY_CODES_BY_NAME_JSON};${CLIENT_JS}</script>
 </body>

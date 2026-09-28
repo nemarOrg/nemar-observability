@@ -1,6 +1,11 @@
 import { describe, expect, test } from "bun:test";
 import { CLIENT_JS } from "../src/routes/dashboard/client";
-import { DASHBOARD_SECTIONS, renderDashboardPage } from "../src/routes/ui";
+import {
+  DASHBOARD_SECTIONS,
+  FOOTER_COLUMNS,
+  NEMAR_LINKS,
+  renderDashboardPage,
+} from "../src/routes/ui";
 
 describe("public dashboard page", () => {
   test("renders question-led sections and UTC range controls", () => {
@@ -108,20 +113,64 @@ describe("dashboard shell", () => {
 
   test("the page makes no external requests", () => {
     expect(html).not.toMatch(/<script[^>]+src=/i);
-    expect(html).not.toMatch(/<link[^>]+rel="stylesheet"/i);
+    expect(html).not.toMatch(/<link\b/i);
     expect(html).not.toMatch(/<img\b/i);
+    expect(html).not.toMatch(/<(iframe|video|audio|source|object|embed)\b/i);
     expect(html).not.toContain("@import");
     expect(html).not.toMatch(/url\(\s*["']?https?:/i);
-    // Every absolute URL is a plain link or the SVG namespace, never a fetched resource.
-    const allowed = [
-      "https://app.nemar.org/admin",
-      "https://nemar.org",
-      "https://docs.nemar.org",
+    // In the markup an absolute URL is only ever a link target or the SVG
+    // namespace; in the script only the admin portal link and the namespace.
+    const script = html.slice(html.indexOf("<script>"), html.indexOf("</script>"));
+    const markup = html.replace(script, "");
+    const inMarkup = [...markup.matchAll(/(\S{0,7})(https?:\/\/[^"'\s)<]+)/g)];
+    expect(inMarkup.length).toBeGreaterThan(0);
+    for (const [, before, url] of inMarkup) {
+      expect(['href="', 'xmlns="'].some((ctx) => before.endsWith(ctx))).toBe(true);
+      expect(url).toMatch(/^https:\/\/|^http:\/\/www\.w3\.org\/2000\/svg$/);
+    }
+    const inScript = new Set(script.match(/https?:\/\/[^"'\s)<]+/g) ?? []);
+    expect([...inScript].sort()).toEqual([
       "http://www.w3.org/2000/svg",
-    ];
-    const urls = html.match(/https?:\/\/[^"'\s)<]+/g) ?? [];
-    expect(urls.length).toBeGreaterThan(0);
-    for (const url of urls) expect(allowed).toContain(url);
+      "https://app.nemar.org/admin",
+    ]);
+  });
+
+  test("the header and footer carry the NEMAR website links and cross-link Citations", () => {
+    const utility = html.slice(html.indexOf('class="site-utility__nav"'), html.indexOf("</nav>"));
+    const labels = [...utility.matchAll(/<a href="([^"]+)"[^>]*>([^<]+)/g)].map((m) => [
+      m[2],
+      m[1],
+    ]);
+    expect(labels).toEqual(NEMAR_LINKS.map((l) => [l.label, l.href]));
+    expect(NEMAR_LINKS.map((l) => l.label)).toEqual([
+      "About",
+      "Discover",
+      "Citation Dashboard",
+      "Observability",
+      "Documentation",
+      "Support",
+    ]);
+    expect(utility).toContain('<a href="/observability" aria-current="page">Observability</a>');
+    expect(utility).toContain('<a href="/citations/">Citation Dashboard</a>');
+    // The website's logo is inlined, and the brand links to this dashboard.
+    expect(html).toMatch(
+      /<a class="site-brand" href="\/observability"[^>]*><svg class="brand-logo"/,
+    );
+    const footer = html.slice(
+      html.indexOf('<footer class="site-footer">'),
+      html.indexOf("</footer>"),
+    );
+    expect(FOOTER_COLUMNS.map((c) => c.heading)).toEqual(["Explore", "Project", "Data", "GitHub"]);
+    for (const column of FOOTER_COLUMNS) {
+      expect(footer).toContain(`<h3>${column.heading}</h3>`);
+      for (const link of column.links) expect(footer).toContain(`href="${link.href}"`);
+    }
+    expect(footer).toContain("NIMH R24MH120037");
+    expect(footer).toContain("About Observability");
+    // Links to other hosts open in a new tab and say so.
+    expect(html).toContain(
+      'href="https://docs.nemar.org" target="_blank" rel="noopener noreferrer">Documentation<span class="sr-only"> (opens in a new tab)</span>',
+    );
   });
 
   test("the client script is safe to inline and only reads", () => {
