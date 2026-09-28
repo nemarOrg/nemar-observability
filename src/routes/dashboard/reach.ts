@@ -1,5 +1,5 @@
-// Reach section: the country map, its log-scaled five-step legend, the source
-// switch, and the ranked country list.
+// Reach section: the country map with its continuous color scale and legend
+// (see scale.ts), the source switch, and the ranked country list.
 //
 // Part of the inlined client script (see client.ts): a String.raw template, so
 // no backticks and no dollar-brace sequences.
@@ -36,7 +36,6 @@ function geographySources(payload) {
 function hasCountryData(item) {
   return Boolean(item.source.country_coverage);
 }
-const MAP_CLASSES = 5;
 const legendFormatter = new Intl.NumberFormat("en-US", { notation: "compact", maximumSignificantDigits: 2 });
 function renderGeography(payload, start, end) {
   const root = document.getElementById("geography");
@@ -99,15 +98,7 @@ function renderGeography(payload, start, end) {
       coded.set(code, (coded.get(code) || 0) + row.value);
     }
   });
-  const values = Array.from(coded.values());
-  const maximum = Math.max(1, ...values);
-  const minimum = values.length ? Math.min.apply(null, values) : 1;
-  const logMin = Math.log(minimum);
-  const logSpan = Math.log(maximum) - logMin;
-  function mapClass(value) {
-    if (!(logSpan > 0)) return MAP_CLASSES - 1;
-    return Math.max(0, Math.min(MAP_CLASSES - 1, Math.floor(((Math.log(value) - logMin) / logSpan) * MAP_CLASSES)));
-  }
+  const scale = mapScale(Array.from(coded.values()));
   const layout = el("div", "geo-layout");
   const mapCard = el("div", "card geo-map-card");
   const mapFrame = el("div", "geography-map-frame");
@@ -149,7 +140,10 @@ function renderGeography(payload, start, end) {
       element.setAttribute("aria-hidden", "true");
       return;
     }
-    element.classList.add("map-c" + mapClass(value));
+    // A smooth mix along the ramp, not a step: see scale.ts.
+    const mix = mapMix(scale.position(value));
+    element.classList.add("map-" + mix.half);
+    element.style.setProperty("--m", mix.percent + "%");
     element.setAttribute("tabindex", "0");
     const detail = countryName(code) + ": " + audienceNumber(value) + " " + active.unit + ", " + period + " UTC";
     element.setAttribute("aria-label", detail);
@@ -172,16 +166,21 @@ function renderGeography(payload, start, end) {
   mapFrame.appendChild(svg);
   mapCard.appendChild(mapFrame);
   const legend = el("div", "map-legend");
-  legend.setAttribute("aria-label", "Color scale, log scaled from fewer to more " + active.unit);
-  const scale = el("div", "map-legend-scale");
-  for (let i = 0; i < MAP_CLASSES; i++) {
-    const step = el("div", "map-legend-step");
-    step.appendChild(el("span", "map-swatch map-c" + i));
-    const low = i === 0 ? minimum : Math.exp(logMin + (i / MAP_CLASSES) * logSpan);
-    step.appendChild(el("span", "map-legend-label", values.length ? legendFormatter.format(low) + "+" : ""));
-    scale.appendChild(step);
+  if (scale.count) {
+    const bar = el("div", "map-scale");
+    bar.setAttribute("role", "img");
+    bar.setAttribute("aria-label", "Continuous color scale from " + audienceNumber(scale.min) + " to " + audienceNumber(scale.max) + " " + active.unit + ", stronger color for more");
+    bar.appendChild(el("div", "map-gradient"));
+    const tickRow = el("div", "map-ticks");
+    const ticks = scale.ticks();
+    ticks.forEach(function (tick, i) {
+      const label = el("span", "map-tick" + (i === 0 ? " is-first" : "") + (i === ticks.length - 1 ? " is-last" : ""), legendFormatter.format(tick.value));
+      label.style.left = (tick.position * 100).toFixed(2) + "%";
+      tickRow.appendChild(label);
+    });
+    bar.appendChild(tickRow);
+    legend.appendChild(bar);
   }
-  legend.appendChild(scale);
   const empty = el("div", "map-legend-empty");
   empty.appendChild(el("span", "map-swatch map-none"));
   empty.appendChild(el("span", "map-legend-label", "No reported value"));
@@ -246,7 +245,7 @@ function renderGeography(payload, start, end) {
   sourceDetails.appendChild(el("p", "fine", active.key === "cloudflare"
     ? "Cloudflare request totals follow the selected date range, use completed UTC days for the map, and suppress small country values per day before adding reportable daily totals. Requests can include bots and repeat clients. NEMAR S3 bytes are bucket-wide and have no country attribution."
     : "Umami country values are anonymous unique-session estimates for one completed UTC day. They are not added across days or described as identified people."));
-  sourceDetails.appendChild(el("p", "fine", "Colors use five log-scaled steps between the smallest and largest reported value, so each step covers a similar ratio rather than a similar count."));
+  sourceDetails.appendChild(el("p", "fine", "Color is continuous. Each shade blends a country's rank among reporting countries with the square root of its share of the largest value, so a country with four times another's value is clearly stronger while small values still differ from no data. Legend ticks sit where the same scale puts them. Hover or focus a country for its exact value; the list ranks the top countries to scale."));
   if (active.source.note) sourceDetails.appendChild(el("p", "fine", active.source.note));
   disclosures.appendChild(sourceDetails);
   root.appendChild(disclosures);

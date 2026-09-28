@@ -14,6 +14,7 @@ import { CORE_JS } from "./core";
 import { OVERVIEW_JS } from "./overview";
 import { RANGE_JS } from "./range";
 import { REACH_JS } from "./reach";
+import { SCALE_JS } from "./scale";
 import { SNAPSHOT_JS } from "./snapshot";
 import { USAGE_JS } from "./usage";
 
@@ -33,6 +34,7 @@ loadSelectedRange();
 
 export const CLIENT_JS = [
   RANGE_JS,
+  SCALE_JS,
   CORE_JS,
   CHARTS_JS,
   USAGE_JS,

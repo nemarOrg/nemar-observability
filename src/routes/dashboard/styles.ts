@@ -4,8 +4,10 @@
 // light and dark are two token sets over one stylesheet. The neutrals, brand
 // teal, link and focus colors, and type stacks are the NEMAR website's
 // (website/src/styles/tokens.css), so this page and nemar.org read as one site.
-// The chart and map ramps follow the dataviz reference palette (one blue hue),
-// each step contrast-checked against these surfaces.
+// The chart and map ramps follow the dataviz reference palette (one blue hue,
+// safe for color vision deficiency), checked against these surfaces. The map
+// ramp runs from a light tint to a deep blue (the reverse on dark), and its
+// light end still stands apart from the gray of countries with no data.
 //
 // Light tokens live on bare :root, so the page is complete with no attribute
 // at all. Dark tokens are declared twice on purpose: the media query follows
@@ -47,11 +49,9 @@ const DARK_TOKENS = `
   --error-text: #fca5a5;
   --error-soft: rgba(229, 83, 75, 0.15);
   --neutral-soft: rgba(148, 163, 184, 0.14);
-  --seq-0: #184f95;
-  --seq-1: #2a78d6;
-  --seq-2: #5598e7;
-  --seq-3: #86b6ef;
-  --seq-4: #cde2fb;
+  --map-lo: #1c5cab;
+  --map-mid: #5598e7;
+  --map-hi: #cde2fb;
   --map-land: #1e293b;
   --map-sea: #0a1224;
   --map-stroke: #111d36;
@@ -111,11 +111,9 @@ export const STYLES = String.raw`
   --error-text: #b91c1c;
   --error-soft: rgba(208, 59, 59, 0.09);
   --neutral-soft: rgba(100, 116, 139, 0.1);
-  --seq-0: #86b6ef;
-  --seq-1: #3987e5;
-  --seq-2: #256abf;
-  --seq-3: #184f95;
-  --seq-4: #0d366b;
+  --map-lo: #9ec5f4;
+  --map-mid: #3987e5;
+  --map-hi: #0d366b;
   --map-land: #e2e8f0;
   --map-sea: #f7f8fb;
   --map-stroke: #ffffff;
@@ -415,14 +413,28 @@ main > section { scroll-margin-top: calc(var(--topbar-h) + 16px); padding-top: v
 .geography-map { display: block; width: 100%; height: auto; }
 .map-country { fill: var(--map-land); stroke: var(--map-stroke); stroke-width: 0.6; stroke-linejoin: round; }
 .map-country-marker { fill: var(--map-land); stroke: var(--map-stroke); stroke-width: 1; }
-.map-c0 { fill: var(--seq-0); } .map-c1 { fill: var(--seq-1); } .map-c2 { fill: var(--seq-2); } .map-c3 { fill: var(--seq-3); } .map-c4 { fill: var(--seq-4); }
+/* Continuous fill: --m is the mix within one half of the ramp (scale.ts). */
+.map-country.map-a, .map-country-marker.map-a, .map-country.map-b, .map-country-marker.map-b { fill: var(--map-mid); }
+@supports (color: color-mix(in oklab, red, blue)) {
+  .map-country.map-a, .map-country-marker.map-a { fill: color-mix(in oklab, var(--map-lo), var(--map-mid) var(--m, 50%)); }
+  .map-country.map-b, .map-country-marker.map-b { fill: color-mix(in oklab, var(--map-mid), var(--map-hi) var(--m, 50%)); }
+}
 .map-country[tabindex="0"], .map-country-marker[tabindex="0"] { cursor: pointer; }
 .map-country[tabindex="0"]:hover, .map-country[tabindex="0"]:focus, .map-country-marker[tabindex="0"]:hover, .map-country-marker[tabindex="0"]:focus { stroke: var(--text); stroke-width: 1.5; outline: none; }
-.map-legend { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: var(--space-3) var(--space-5); padding: var(--space-3) var(--space-2) var(--space-1); }
-.map-legend-scale { display: grid; grid-template-columns: repeat(5, minmax(44px, 72px)); gap: 2px; }
-.map-legend-step { display: grid; gap: 4px; }
+.map-legend { display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: space-between; gap: var(--space-3) var(--space-5); padding: var(--space-3) var(--space-2) var(--space-1); }
+.map-scale { flex: 1 1 280px; max-width: 460px; min-width: 0; }
+.map-gradient { height: 10px; border-radius: 2px; background: linear-gradient(to right, var(--map-lo), var(--map-mid), var(--map-hi)); }
+@supports (background-image: linear-gradient(to right in oklab, red, blue)) {
+  .map-gradient { background: linear-gradient(to right in oklab, var(--map-lo), var(--map-mid), var(--map-hi)); }
+}
+.map-ticks { position: relative; height: 20px; }
+.map-tick { position: absolute; top: 0; padding-top: 6px; transform: translateX(-50%); color: var(--text-3); font-size: 11px; line-height: 1.2; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.map-tick::before { content: ""; position: absolute; top: 0; left: 50%; width: 1px; height: 4px; background: var(--text-3); }
+.map-tick.is-first { transform: none; }
+.map-tick.is-first::before { left: 0; }
+.map-tick.is-last { transform: translateX(-100%); }
+.map-tick.is-last::before { left: auto; right: 0; }
 .map-swatch { display: block; height: 10px; border-radius: 2px; }
-.map-swatch.map-c0 { background: var(--seq-0); } .map-swatch.map-c1 { background: var(--seq-1); } .map-swatch.map-c2 { background: var(--seq-2); } .map-swatch.map-c3 { background: var(--seq-3); } .map-swatch.map-c4 { background: var(--seq-4); }
 .map-swatch.map-none { width: 20px; background: var(--map-land); border: 1px solid var(--border-strong); }
 .map-legend-label { color: var(--text-3); font-size: 11px; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .map-legend-empty { display: flex; align-items: center; gap: 6px; }
@@ -545,7 +557,7 @@ main > section { scroll-margin-top: calc(var(--topbar-h) + 16px); padding-top: v
   .hbar-value { grid-area: value; }
   .hbar-track { grid-area: track; }
   .geo-side .hbar { grid-template-columns: minmax(0, 1fr) auto; }
-  .map-legend-scale { grid-template-columns: repeat(5, minmax(0, 1fr)); width: 100%; }
+  .map-scale { flex-basis: 100%; max-width: none; }
 }
 @media (max-width: 420px) {
   .range-summary { display: none; }
@@ -556,7 +568,7 @@ main > section { scroll-margin-top: calc(var(--topbar-h) + 16px); padding-top: v
   .skeleton { animation: none; }
 }
 @media (forced-colors: active) {
-  .chart-line, .chart-bar, .hbar-fill, .meter-fill, .ring-fill { forced-color-adjust: none; }
+  .chart-line, .chart-bar, .hbar-fill, .meter-fill, .ring-fill, .geography-map, .map-gradient { forced-color-adjust: none; }
   .badge { border: 1px solid CanvasText; }
 }
 `;
