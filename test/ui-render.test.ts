@@ -261,6 +261,12 @@ describe("dashboard shell", () => {
     // Data reaches the DOM through textContent, never parsed as markup.
     expect(CLIENT_JS).not.toContain("innerHTML");
     expect(CLIENT_JS).not.toContain("insertAdjacentHTML");
+    expect(CLIENT_JS).not.toContain("outerHTML");
+    expect(CLIENT_JS).not.toContain("document.write");
+    // No string ever runs as code.
+    expect(CLIENT_JS).not.toMatch(/\beval\s*\(/);
+    expect(CLIENT_JS).not.toMatch(/\bnew Function\b/);
+    expect(CLIENT_JS).not.toMatch(/set(Timeout|Interval)\(\s*["']/);
     // Every fetch is a default GET: no method, body, or credentials option.
     expect(CLIENT_JS).not.toMatch(/method\s*:/);
     expect(CLIENT_JS).not.toMatch(/body\s*:/);

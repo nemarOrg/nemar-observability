@@ -1,9 +1,43 @@
 import { describe, expect, test } from "bun:test";
-import { SCALE_JS } from "../src/routes/dashboard/scale";
 import fixture from "./fixtures/audience-countries-2026-09-27.json";
+import { clientLogic } from "./helpers/client-logic";
 
 // The page's own scale code, run as the browser runs it.
-const { mapScale, mapMix } = new Function(`${SCALE_JS}\nreturn { mapScale, mapMix };`)();
+const { mapScale, mapMix } = clientLogic(["mapScale", "mapMix"]);
+
+describe("map scale, checked by hand", () => {
+  test("two values: the ends of the ramp, and a point between on both axes", () => {
+    const scale = mapScale([1, 100]);
+    // Smallest: rank 0, and half of the square root of 1/100.
+    expect(scale.position(1)).toBeCloseTo(0.05, 10);
+    expect(scale.position(100)).toBe(1);
+    // 10 is halfway on the log axis between 1 and 100, so its rank is 0.5,
+    // and the square root of 10/100 is 0.3162: 0.25 + 0.1581.
+    expect(scale.position(10)).toBeCloseTo(0.25 + 0.5 * Math.sqrt(0.1), 10);
+    expect(mapMix(scale.position(10))).toEqual({ half: "a", percent: 81.6 });
+  });
+
+  test("ties share a position", () => {
+    const scale = mapScale([10, 10, 100]);
+    expect(scale.count).toBe(2);
+    expect(scale.position(10)).toBeCloseTo(0.5 * Math.sqrt(0.1), 10);
+  });
+
+  test("invalid values are ignored and never shaded", () => {
+    const scale = mapScale([Number.NaN, -5, 0, 20, Number.POSITIVE_INFINITY, "7", null]);
+    expect(scale.count).toBe(1);
+    expect(scale.min).toBe(20);
+    expect(scale.max).toBe(20);
+    expect(scale.position(0)).toBe(0);
+    expect(scale.position(-5)).toBe(0);
+  });
+
+  test("all-equal values all take the strongest color", () => {
+    const scale = mapScale([5, 5, 5]);
+    expect(scale.position(5)).toBe(1);
+    expect(scale.ticks()).toEqual([{ value: 5, position: 1 }]);
+  });
+});
 
 // Real Cloudflare request counts by country for 30 days (see the fixture's
 // source line): heavy-tailed, with the United States about 3.3 times China.
