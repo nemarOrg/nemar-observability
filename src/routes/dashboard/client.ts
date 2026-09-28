@@ -12,6 +12,7 @@
 import { CHARTS_JS } from "./charts";
 import { CORE_JS } from "./core";
 import { LEGACY_JS } from "./legacy";
+import { REACH_JS } from "./reach";
 import { USAGE_JS } from "./usage";
 
 const BOOT_JS = String.raw`
@@ -26,4 +27,4 @@ document.getElementById("grouping").addEventListener("change", regroupSeries);
 loadSelectedRange();
 `;
 
-export const CLIENT_JS = [CORE_JS, CHARTS_JS, USAGE_JS, LEGACY_JS, BOOT_JS].join("\n");
+export const CLIENT_JS = [CORE_JS, CHARTS_JS, USAGE_JS, REACH_JS, LEGACY_JS, BOOT_JS].join("\n");
