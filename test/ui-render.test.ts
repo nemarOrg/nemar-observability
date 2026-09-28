@@ -214,10 +214,10 @@ describe("dashboard shell", () => {
     const presets = [...html.matchAll(/<button type="button" data-range="(\d+)"([^>]*)>([^<]+)</g)];
     expect(presets.map((m) => m[3])).toEqual(["7 days", "30 days", "90 days", "1 year"]);
     for (const m of presets) expect(m[2]).not.toContain("aria-label");
-    // Only the range summary, one announcer, and the snapshot line are live;
+    // Only the range summary and one announcer are live;
     // the headline and the big containers are not.
     const live = [...html.matchAll(/<(\w+)[^>]*id="([^"]+)"[^>]*aria-live=/g)].map((m) => m[2]);
-    expect(live.sort()).toEqual(["health-meta", "range-announcer", "range-summary"]);
+    expect(live.sort()).toEqual(["range-announcer", "range-summary"]);
     expect(html).toContain('<h1 id="overview-title" class="hero-title">');
     // Anchors and focused elements stop below the sticky header.
     const css = html.slice(html.indexOf("<style>"), html.indexOf("</style>"));

@@ -320,7 +320,7 @@ export function renderDashboardPage(): string {
         </div>
         <div class="section-tools">${CURRENT_STATE}</div>
       </div>
-      <p id="health-meta" class="health-meta" aria-live="polite">Loading the latest snapshot.</p>
+      <p id="health-meta" class="health-meta">Loading the latest snapshot.</p>
       <div id="sections" class="health-grid">${GRID_SKELETON}</div>
     </section>
   </main>
