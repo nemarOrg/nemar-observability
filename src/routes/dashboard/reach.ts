@@ -29,7 +29,7 @@ function countryName(label) {
 }
 function geographySources(payload) {
   return [
-    { key: "cloudflare", label: "Cloudflare requests", unit: "requests", totalLabel: "Requests to NEMAR", total: payload.cloudflare.country_requests, source: payload.cloudflare },
+    { key: "cloudflare", label: "Requests", unit: "requests", totalLabel: "Requests to NEMAR", total: payload.cloudflare.country_requests, source: payload.cloudflare },
     { key: "umami", label: "Website sessions", unit: "anonymous sessions", totalLabel: "Anonymous unique sessions", total: payload.umami.visitors, source: payload.umami }
   ];
 }
@@ -50,9 +50,9 @@ function renderGeography(payload, start, end) {
   const countryCoverage = active.source.country_coverage;
   const period = countryCoverage && countryCoverage.start && countryCoverage.end
     ? countryCoverage.start === countryCoverage.end
-      ? countryCoverage.start
-      : countryCoverage.start + " to " + countryCoverage.end
-    : start === end ? start : start + " to " + end;
+      ? longDay(countryCoverage.start)
+      : rangeText(countryCoverage.start, countryCoverage.end)
+    : rangeText(start, end);
   const periodText = countryCoverage && countryCoverage.start && countryCoverage.end
     ? rangeText(countryCoverage.start, countryCoverage.end)
     : rangeText(start, end);
@@ -82,7 +82,7 @@ function renderGeography(payload, start, end) {
     sourceTabs.appendChild(button);
   });
   toolbar.appendChild(sourceTabs);
-  // Umami reports countries for one completed UTC day at a time; say so once,
+  // Website analytics report countries for one completed UTC day at a time; say so once,
   // plainly, whenever the chosen dates are anything else.
   if (payload.country_breakdown_scope && payload.country_breakdown_scope !== "single_completed_day") {
     toolbar.appendChild(el("span", "scope-chip scope-note", "Website sessions map one completed UTC day only"));
@@ -186,6 +186,9 @@ function renderGeography(payload, start, end) {
   empty.appendChild(el("span", "map-legend-label", "No reported value"));
   legend.appendChild(empty);
   mapCard.appendChild(legend);
+  // Said where the colors are read: shading ranks countries, it does not scale
+  // with the counts. The exact counts are in the list and the table.
+  mapCard.appendChild(el("p", "map-caption", "Shading is relative, not proportional: a darker country has more, not a set multiple more. Exact counts are in the list and the table."));
   layout.appendChild(mapCard);
 
   const summary = el("aside", "card geo-side");
@@ -193,8 +196,8 @@ function renderGeography(payload, start, end) {
   const totalHead = el("div", "title-row");
   totalHead.appendChild(el("span", "geo-total-label", active.totalLabel));
   totalHead.appendChild(infoDisclosure("About location data", active.key === "cloudflare"
-    ? "Cloudflare counts one request for each page, file, image, or API call. One page view can create many requests; repeat clients, bots, and other automated traffic also count. This is not a count of people, sessions, or completed downloads."
-    : "Umami counts anonymous unique-session estimates. A session is not an identified person, and sessions without a reported country are not shown."));
+    ? "The network edge counts one request for each page, file, image, or API call. One page view can create many requests; repeat clients, bots, and other automated traffic also count. This is not a count of people, sessions, or completed downloads."
+    : "Website analytics estimate anonymous unique sessions. A session is not an identified person, and sessions without a reported country are not shown."));
   summary.appendChild(totalHead);
   summary.appendChild(el("strong", "geo-total", audienceNumber(active.total)));
   summary.appendChild(el("p", "geo-date", periodText + " (UTC)"));
@@ -239,13 +242,13 @@ function renderGeography(payload, start, end) {
   }
   const sourceDetails = disclosure("Coverage and map details");
   const coverage = countryCoverage && countryCoverage.start && countryCoverage.end
-    ? countryCoverage.start + " to " + countryCoverage.end + " UTC"
+    ? rangeText(countryCoverage.start, countryCoverage.end) + " (UTC)"
     : "Unavailable";
   sourceDetails.appendChild(el("p", "fine", "Source " + active.label + ", country coverage " + coverage + ", status " + audienceStatus(active.source.status).toLowerCase() + "."));
   sourceDetails.appendChild(el("p", "fine", active.key === "cloudflare"
-    ? "Cloudflare request totals follow the selected date range, use completed UTC days for the map, and suppress small country values per day before adding reportable daily totals. Requests can include bots and repeat clients. NEMAR S3 bytes are bucket-wide and have no country attribution."
-    : "Umami country values are anonymous unique-session estimates for one completed UTC day. They are not added across days or described as identified people."));
-  sourceDetails.appendChild(el("p", "fine", "Color is continuous. Each shade blends a country's rank among reporting countries with the square root of its share of the largest value, so a country with four times another's value is clearly stronger while small values still differ from no data. Legend ticks sit where the same scale puts them. Hover or focus a country for its exact value; the list ranks the top countries to scale."));
+    ? "Request totals follow the selected date range, use completed UTC days for the map, and suppress small country values per day before adding reportable daily totals. Requests can include bots and repeat clients. Data served from storage has no country attribution."
+    : "Website sessions by country are anonymous unique-session estimates for one completed UTC day. They are not added across days or described as identified people."));
+  sourceDetails.appendChild(el("p", "fine", "How the shading works: color is continuous, and each shade blends a country's rank among reporting countries with the square root of its share of the largest value. A country with four times another's value is clearly stronger, and small values still differ from no data, but shade is not proportional to the count. Legend ticks sit where the same scale puts them. The list beside the map ranks the top countries to scale."));
   if (active.source.note) sourceDetails.appendChild(el("p", "fine", active.source.note));
   disclosures.appendChild(sourceDetails);
   root.appendChild(disclosures);

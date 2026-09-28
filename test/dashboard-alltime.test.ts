@@ -41,20 +41,20 @@ describe("all-time strip", () => {
     );
     const pub = live.sections.flatMap((s) => s.metrics).find((m) => m.key === "datasets.public");
     expect(specs["Public datasets"].value).toBe(pub?.value.toLocaleString("en-US"));
-    expect(specs["Data downloaded"].note).toStartWith(
+    expect(specs["Data served"].note).toStartWith(
       "Since Aug 1, 2026, 57 days reported, through Sep 26, 2026",
     );
-    expect(specs["Data downloaded"].note).not.toContain("window limited");
-    expect(specs["Usage measured since"].value).toBe("Aug 1, 2026");
+    expect(specs["Data served"].note).not.toContain("window limited");
+    expect(specs["Usage records begin"].value).toBe("Aug 1, 2026");
   });
 
-  test("with no request series, requests to date are not recorded, never zero", () => {
+  test("with no request series, requests are not recorded, never zero", () => {
     const specs = byLabel(allTimeSpecs({ snapshot: live, archive, archiveWindow }));
-    expect(specs["Requests to date"]).toMatchObject({ value: "Not recorded", muted: true });
+    expect(specs.Requests).toMatchObject({ value: "Not recorded", muted: true });
     const noSeries = byLabel(
       allTimeSpecs({ snapshot: live, archive: { ...archive, series: [] }, archiveWindow }),
     );
-    for (const label of ["Data downloaded", "Requests to date", "Usage measured since"]) {
+    for (const label of ["Data served", "Requests", "Usage records begin"]) {
       expect(noSeries[label].value).toBe("Not recorded");
     }
     for (const spec of Object.values(noSeries)) expect(spec.value).not.toMatch(/^0( |$)/);
@@ -68,8 +68,8 @@ describe("all-time strip", () => {
         archiveWindow: { start: "2026-09-01", end: "2026-09-28" },
       }),
     );
-    expect(specs["Data downloaded"].note).toContain("Since Sep 1, 2026");
-    expect(specs["Data downloaded"].note).toContain("window limited to the last 3,660 days");
+    expect(specs["Data served"].note).toContain("Since Sep 1, 2026");
+    expect(specs["Data served"].note).toContain("window limited to the last 3,660 days");
   });
 
   test("a partial snapshot from the real builder shows Unavailable and does not throw", async () => {
@@ -92,7 +92,7 @@ describe("all-time strip", () => {
     expect(loading.every((s: Spec) => s.loading)).toBe(true);
     const failed = byLabel(allTimeSpecs({ snapshotFailed: true, archiveFailed: true }));
     expect(failed["Public datasets"].note).toBe("The latest snapshot did not load.");
-    expect(failed["Data downloaded"]).toMatchObject({
+    expect(failed["Data served"]).toMatchObject({
       value: "Unavailable",
       note: "Daily usage did not load.",
     });
@@ -116,5 +116,23 @@ describe("response checks", () => {
     expect(validTimeseries({ series: [{ section: "egress", unit: "bytes" }] })).toBe(false);
     expect(validHistory({ points: null })).toBe(false);
     expect(validSnapshot(null)).toBe(false);
+  });
+});
+
+describe("all-time strip wording", () => {
+  test("labels stay fixed; each note says which period its figure covers", () => {
+    const specs: Spec[] = allTimeSpecs({ snapshot: live, archive, archiveWindow });
+    expect(specs.map((s) => s.label)).toEqual([
+      "Public datasets",
+      "Data volume",
+      "Data served",
+      "Requests",
+      "Usage records begin",
+    ]);
+    for (const spec of specs) expect(spec.label).not.toMatch(/\d/);
+    const notes = byLabel(specs);
+    expect(notes["Public datasets"].note).toStartWith("Now");
+    expect(notes["Data volume"].note).toStartWith("Now");
+    expect(notes["Data served"].note).toStartWith("Since Aug 1, 2026");
   });
 });

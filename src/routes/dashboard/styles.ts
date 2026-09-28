@@ -297,6 +297,8 @@ main > section { scroll-margin-top: calc(var(--topbar-h) + 16px); padding-top: v
 .kpi-delta .icon { width: 13px; height: 13px; }
 .kpi-delta.delta-none { color: var(--text-3); font-weight: 400; }
 .kpi-context { color: var(--text-3); font-size: var(--fs-xs); line-height: 1.45; }
+.kpi-caveat { color: var(--text-2); font-size: var(--fs-xs); line-height: 1.45; }
+.map-caption { padding: var(--space-1) var(--space-2) 0; color: var(--text-3); font-size: var(--fs-xs); line-height: 1.45; }
 .kpi-foot { margin-top: auto; padding-top: var(--space-2); }
 .alltime { margin-top: var(--space-4); padding: 14px 20px 16px; border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--surface-2); }
 .alltime-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px var(--space-3); margin-bottom: var(--space-3); }

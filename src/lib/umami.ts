@@ -48,8 +48,8 @@ function emptyAudience(
     event_metrics: emptyUmamiEventReport(
       status,
       status === "unconfigured"
-        ? "Umami event reporting is not configured."
-        : "Umami event data is unavailable because the Umami source is unavailable.",
+        ? "Website event reporting is not configured."
+        : "Website event data is unavailable because website analytics are unavailable.",
       coverage,
     ),
     countries: [],
@@ -168,7 +168,7 @@ async function fetchEventReport(
   const eventCoverageStartAt = parseEventCoverageStart(configuredStart);
   if (eventCoverageStartAt === null) {
     console.error("[audience] Umami event coverage start configuration is invalid");
-    return emptyUmamiEventReport("unavailable", "Umami event coverage is currently unavailable.");
+    return emptyUmamiEventReport("unavailable", "Website event coverage is currently unavailable.");
   }
 
   const startAt = Math.max(requestedStartAt, available.startAt, eventCoverageStartAt);
@@ -210,7 +210,7 @@ async function fetchEventReport(
         ? "partial"
         : "available";
   const notes: string[] = [
-    "Event-associated visitors are distinct anonymous Umami sessions, not identified people.",
+    "Event-associated visitors are distinct anonymous website sessions, not identified people.",
   ];
   if (clipped) notes.push("Event values cover only the verified portion of the selected range.");
   if (successful < UMAMI_EVENT_NAMES.length) notes.push("Some event metrics are unavailable.");
@@ -265,13 +265,13 @@ export async function fetchUmamiAudience(
   const websiteId = env.UMAMI_WEBSITE_ID?.trim();
   const apiKey = env.UMAMI_API_KEY?.trim();
   if (!baseUrl || !websiteId || !apiKey) {
-    return emptyAudience("unconfigured", "Umami audience reporting is not configured.");
+    return emptyAudience("unconfigured", "Website analytics are not configured.");
   }
 
   const base = isSafeBaseUrl(baseUrl);
   if (!base) {
     console.error("[audience] Umami base URL configuration is invalid");
-    return emptyAudience("unavailable", "Umami data is currently unavailable.");
+    return emptyAudience("unavailable", "Website analytics data is currently unavailable.");
   }
 
   const websitePath = `/api/websites/${encodeURIComponent(websiteId)}`;
@@ -281,11 +281,11 @@ export async function fetchUmamiAudience(
     available = parseDateRange(range);
   } catch {
     console.error("[audience] Umami date-range request failed");
-    return emptyAudience("unavailable", "Umami data is currently unavailable.");
+    return emptyAudience("unavailable", "Website analytics data is currently unavailable.");
   }
   if (!available) {
     console.error("[audience] Umami date-range response was invalid");
-    return emptyAudience("unavailable", "Umami data is currently unavailable.");
+    return emptyAudience("unavailable", "Website analytics data is currently unavailable.");
   }
 
   const requestedStartAt = dateAtUtcMidnight(requestedStart);
@@ -293,7 +293,7 @@ export async function fetchUmamiAudience(
   const startAt = Math.max(requestedStartAt, available.startAt);
   const endAt = Math.min(requestedEndAt, available.endAt);
   if (startAt > endAt) {
-    return emptyAudience("unavailable", "No Umami data overlaps the selected range.");
+    return emptyAudience("unavailable", "No website analytics data overlaps the selected range.");
   }
 
   const eventMetricsPromise = fetchEventReport(
@@ -339,7 +339,7 @@ export async function fetchUmamiAudience(
 
   if (!statsAvailable && (!includeCountryBreakdown || !countriesAvailable)) {
     return {
-      ...emptyAudience("unavailable", "Umami data is currently unavailable.", coverage),
+      ...emptyAudience("unavailable", "Website analytics data is currently unavailable.", coverage),
       event_metrics: eventMetrics,
     };
   }
@@ -347,13 +347,13 @@ export async function fetchUmamiAudience(
   const status: AudienceSourceStatus =
     clipped || !statsAvailable || !countriesAvailable ? "partial" : "available";
   const notes: string[] = [];
-  if (clipped) notes.push("Umami data covers only part of the selected range.");
-  if (!statsAvailable) notes.push("Umami summary values are unavailable.");
+  if (clipped) notes.push("Website analytics data covers only part of the selected range.");
+  if (!statsAvailable) notes.push("Website summary values are unavailable.");
   if (includeCountryBreakdown && !countriesAvailable) {
     notes.push(
       canQueryCountryBreakdown
-        ? "Umami country values are unavailable."
-        : "Umami country values are unavailable because source coverage does not include the full selected UTC day.",
+        ? "Website country values are unavailable."
+        : "Website country values are unavailable because source coverage does not include the full selected UTC day.",
     );
   }
   if (includeCountryBreakdown && countriesAvailable) {

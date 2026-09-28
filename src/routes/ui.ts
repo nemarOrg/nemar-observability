@@ -289,11 +289,11 @@ export function renderDashboardPage(): string {
       <div class="section-head">
         <div>
           <h2 id="reach-title">Where are requests coming from?</h2>
-          <p class="section-lede">Cloudflare request counts by country for the selected dates. Website sessions are shown separately when available.</p>
+          <p class="section-lede">Request counts by country at the network edge for the selected dates. Website sessions are shown separately when available.</p>
         </div>
         <div class="section-tools">
           <span class="scope-chip scope-range geography-period">Selected period (UTC)</span>
-          ${info("About the location map", "Cloudflare counts requests for individual pages, files, images, and API calls; one page view can create many requests, and automated traffic is included. Website sessions are a separate measure. S3 bucket downloads include internal reads and have no location data.")}
+          ${info("About the location map", "The network edge counts requests for individual pages, files, images, and API calls; one page view can create many requests, and automated traffic is included. Website sessions are a separate measure. Data served from storage includes internal processing and has no location data.")}
         </div>
       </div>
       <div id="geography" aria-live="polite">${MAP_SKELETON}</div>

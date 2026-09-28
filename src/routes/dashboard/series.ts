@@ -54,11 +54,11 @@ function seriesBuckets(series, start, end, grouping) {
       else sum += values.get(d);
     }
     const label = partial
-      ? "Partial " + (grouping === "week" ? "week" : grouping === "month" ? "month" : "period") + " (" + bucketStart + (bucketStart === bucketEnd ? "" : " to " + bucketEnd) + ")"
+      ? "Partial " + (grouping === "week" ? "week" : grouping === "month" ? "month" : "period") + ", " + rangeText(bucketStart, bucketEnd)
       : grouping === "month"
         ? new Date(bucketStart + "T00:00:00Z").toLocaleString("en-US", { month: "long", year: "numeric", timeZone: "UTC" })
-        : grouping === "week" ? "Week " + bucketStart + " to " + bucketEnd
-          : bucketStart;
+        : grouping === "week" ? "Week, " + rangeText(bucketStart, bucketEnd)
+          : longDay(bucketStart);
     buckets.push({ start: bucketStart, end: bucketEnd, label: label, value: complete ? sum : null, partial: partial });
     cursor = shiftDay(bucketEnd, 1);
   }

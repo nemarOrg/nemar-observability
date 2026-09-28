@@ -53,4 +53,26 @@ function relativeTime(iso, now) {
   return days + " days ago";
 }
 function plural(count, one, many) { return num(count) + " " + (count === 1 ? one : many); }
+
+// ---------- plain names ----------
+// The public page names sources and sections in plain words; the ids stay in
+// the API for machines. An id not listed here is shown as readable words.
+const SOURCE_LABELS = {
+  "nemar-cli": "the NEMAR database",
+  access: "NEMAR access logs",
+  cloudflare: "network edge analytics",
+  "aws-s3-cloudwatch": "storage metrics",
+  umami: "website analytics"
+};
+const SECTION_LABELS = {
+  datasets: "Datasets", sizes: "Dataset sizes", archive: "Archives", zarr: "Zarr conversion",
+  imports: "OpenNeuro import", publication: "Publication", access: "Access", cf: "Edge traffic",
+  users: "Users", egress: "Storage egress", pushed: "Pipeline sections"
+};
+function readableId(id) {
+  const words = String(id == null ? "" : id).replace(/[_-]+/g, " ").trim();
+  return words ? words.charAt(0).toUpperCase() + words.slice(1) : "Unnamed";
+}
+function sourceLabel(id) { return Object.prototype.hasOwnProperty.call(SOURCE_LABELS, id) ? SOURCE_LABELS[id] : readableId(id).toLowerCase(); }
+function sectionLabel(key) { return Object.prototype.hasOwnProperty.call(SECTION_LABELS, key) ? SECTION_LABELS[key] : readableId(key); }
 `;

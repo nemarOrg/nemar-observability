@@ -177,7 +177,7 @@ async function loadCloudflareAudience(
   includeCountryBreakdown: boolean,
 ): Promise<AudienceResponse["cloudflare"]> {
   if (!env.CF_ZONE_ANALYTICS_TOKEN?.trim()) {
-    return unavailableCloudflare("unconfigured", "Cloudflare zone analytics is not configured.");
+    return unavailableCloudflare("unconfigured", "Network edge analytics are not configured.");
   }
 
   let result: Awaited<ReturnType<typeof fetchZoneCountryRange>>;
@@ -185,13 +185,13 @@ async function loadCloudflareAudience(
     result = await fetchZoneCountryRange(env, start, end, now, includeCountryBreakdown);
   } catch {
     console.error("[api] Cloudflare audience request failed");
-    return unavailableCloudflare(
-      "unavailable",
-      "Cloudflare audience data is currently unavailable.",
-    );
+    return unavailableCloudflare("unavailable", "Network edge data is currently unavailable.");
   }
   if (!result.coverage || result.requests === null) {
-    return unavailableCloudflare("unavailable", "No Cloudflare data overlaps the selected range.");
+    return unavailableCloudflare(
+      "unavailable",
+      "No network edge data overlaps the selected range.",
+    );
   }
 
   const countrySummary = result.country_coverage
@@ -201,17 +201,17 @@ async function loadCloudflareAudience(
   const currentUtcDay = now.toISOString().slice(0, 10);
   const includesCurrentUtcDay =
     result.coverage.start <= currentUtcDay && result.coverage.end >= currentUtcDay;
-  const notes = ["Counts are Cloudflare zone requests, not visitors or completed downloads."];
+  const notes = ["Counts are requests at the network edge, not visitors or completed downloads."];
   if (result.country_coverage) {
     notes.push(
       "Country totals cover completed UTC days only; each day's small cells are suppressed before daily values are added.",
     );
     notes.push("Country values omit requests without a reported country.");
   }
-  if (clipped) notes.unshift("Cloudflare data covers only part of the selected range.");
+  if (clipped) notes.unshift("Network edge data covers only part of the selected range.");
   if (includesCurrentUtcDay) {
     notes.push(
-      "The current UTC day is still in progress, so its Cloudflare totals may be incomplete.",
+      "The current UTC day is still in progress, so its request totals may be incomplete.",
     );
   }
   if (countrySummary.suppressedSmallCountries) {
@@ -263,10 +263,10 @@ apiRoutes.get("/audience", async (c) => {
     countryBreakdownScope === "single_completed_day"
       ? undefined
       : countryBreakdownScope === "in_progress_day"
-        ? "Umami country sessions require one completed UTC day; select a date before today."
+        ? "Website sessions by country require one completed UTC day; select a date before today."
         : countryBreakdownScope === "future_day"
-          ? "Umami country sessions are unavailable for future UTC days; select a completed UTC day."
-          : "Umami country sessions are available only for one completed UTC day.";
+          ? "Website sessions by country are unavailable for future UTC days; select a completed UTC day."
+          : "Website sessions by country are available only for one completed UTC day.";
   const umamiPromise = fetchUmamiAudience(c.env, start, end, includeUmamiCountryBreakdown).catch(
     () => {
       console.error("[api] Umami audience request failed");
@@ -279,10 +279,10 @@ apiRoutes.get("/audience", async (c) => {
         pageviews: null,
         event_metrics: emptyUmamiEventReport(
           "unavailable",
-          "Umami event data is currently unavailable.",
+          "Website event data is currently unavailable.",
         ),
         countries: [],
-        note: "Umami data is currently unavailable.",
+        note: "Website analytics data is currently unavailable.",
       };
     },
   );

@@ -207,6 +207,21 @@ describe("dashboard shell", () => {
     );
   });
 
+  test("the page names sources in plain words, not vendor names", () => {
+    // Visible text says "network edge", "website analytics", and "storage";
+    // the footer's data-sources note and partner links are where vendors are
+    // named on purpose.
+    const literals = CLIENT_JS.match(/"(?:[^"\\]|\\.)*"/g) ?? [];
+    expect(literals.filter((s) => /Cloudflare|Umami|\bS3\b/.test(s))).toEqual([]);
+    const markup = html
+      .slice(0, html.indexOf("<script>"))
+      .replace(/<style>[\s\S]*?<\/style>/, "")
+      .replace(/<footer[\s\S]*<\/footer>/, "");
+    expect(markup).not.toMatch(/Cloudflare|Umami|\bS3\b/);
+    expect(CLIENT_JS).toContain('"Manage in admin portal (administrators)"');
+    expect(CLIENT_JS).toContain('"Review in admin portal (administrators)"');
+  });
+
   test("the client script is safe to inline and only reads", () => {
     // It lives in a String.raw template: a backtick or a dollar-brace would end
     // or interpolate the template instead of reaching the browser.

@@ -47,7 +47,8 @@ describe("calendar buckets on the real egress series", () => {
     let week = 0;
     for (let d = 7; d <= 13; d++) week += valueOn(`2026-09-${String(d).padStart(2, "0")}`) ?? 0;
     expect(buckets[1].value).toBe(week);
-    expect(buckets[1].label).toBe("Week 2026-09-07 to 2026-09-13");
+    expect(buckets[1].label).toBe("Week, Sep 7 to Sep 13, 2026");
+    expect(buckets[0].label).toBe("Partial week, Sep 2 to Sep 6, 2026");
   });
 
   test("a bucket with any unreported day is unknown, never a partial sum or zero", () => {

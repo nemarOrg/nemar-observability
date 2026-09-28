@@ -112,6 +112,8 @@ function kpiCard(spec) {
     card.appendChild(delta);
   }
   if (spec.context) card.appendChild(el("p", "kpi-context", spec.context));
+  // The caveat that keeps a number from being misread stays on the card.
+  if (spec.caveat) card.appendChild(el("p", "kpi-caveat", spec.caveat));
   const foot = el("div", "kpi-foot");
   if (spec.spark) foot.appendChild(spec.spark);
   if (foot.childNodes.length) card.appendChild(foot);
@@ -157,7 +159,7 @@ function seriesKpi(label, info, build) {
 function renderKpis() {
   const root = document.getElementById("kpis");
   root.textContent = "";
-  const requestInfo = "Cloudflare counts one request for each page, file, image, or API call. One page view can create many requests, and bots and repeat clients count too. This is not a count of people or completed downloads.";
+  const requestInfo = "The network edge counts one request for each page, file, image, or API call. One page view can create many requests, and bots and repeat clients count too. This is not a count of people or completed downloads.";
   root.appendChild(audienceKpi("Requests", requestInfo, function (payload, start, end) {
     const cf = payload.cloudflare;
     if (typeof cf.requests !== "number") return { value: "Not measured", muted: true, context: audienceStatus(cf.status) + ". Unknown is not zero." };
@@ -174,19 +176,20 @@ function renderKpis() {
         return fullyMeasured(prior.cloudflare, period.start, period.end, "coverage") ? percentDelta(cf.requests, prior.cloudflare.requests, comparisonLabel(period.days)) : null;
       }) : PARTIAL_PERIOD,
       context: !full && coverage ? "Measured " + coverage + " only" : rangeSentence(start, end),
-      spark: daily ? dailySpark(daily, start, end, "Cloudflare requests", function (v) { return num(v) + " requests"; }) : null
+      caveat: "Includes automated traffic; not a count of people.",
+      spark: daily ? dailySpark(daily, start, end, "Requests", function (v) { return num(v) + " requests"; }) : null
     };
   }));
-  const downloadInfo = "Bytes the NEMAR S3 bucket returned, one total per UTC day. This includes internal reads such as Zarr conversions, so it is not a count of completed visitor downloads, and it has no location data.";
-  root.appendChild(seriesKpi("Data downloaded", downloadInfo, function (payload, start, end) {
+  const servedInfo = "Bytes NEMAR's storage sent out (storage egress), one total per UTC day. This includes internal processing such as Zarr conversions, so it is not a count of completed downloads, and it has no location data.";
+  root.appendChild(seriesKpi("Data served", servedInfo, function (payload, start, end) {
     const series = egressSeries(payload);
-    if (!series) return { value: "Not measured", muted: true, context: "No download series is reporting." };
+    if (!series) return { value: "Not measured", muted: true, context: "No storage egress series is reporting." };
     const observed = observedTotal(series, start, end);
     if (!observed.measured) return { value: "Not measured", muted: true, context: "No days reported in these dates. Unknown is not zero.", delta: NO_COMPARISON };
     const change = matchedChange(series, start, end);
     const delta = change.matched ? percentDelta(change.current, change.previous, comparisonLabel(change.days)) : null;
     const notes = [observed.measured === observed.days
-      ? "S3 bytes, " + rangePhrase(start, end) + "."
+      ? "Storage egress, " + rangePhrase(start, end) + "."
       : num(observed.measured) + " of " + plural(observed.days, "day", "days") + " reported, through " + shortDay(observed.last) + "."];
     if (delta && change.matched < change.days) notes.push("Change over the " + plural(change.matched, "day", "days") + " reported in both.");
     return {
@@ -194,11 +197,12 @@ function renderKpis() {
       exact: num(observed.total) + " bytes",
       delta: delta || NO_COMPARISON,
       context: notes.join(" "),
-      spark: dailySpark(series, start, end, "NEMAR S3 downloads", humanBytes)
+      caveat: "Includes internal processing; not completed downloads.",
+      spark: dailySpark(series, start, end, "Data served", humanBytes)
     };
   }));
-  const countryInfo = "Countries and territories with reported Cloudflare requests in the selected dates. Small daily counts are withheld for privacy, and requests include automated traffic, so this is reach of the service, not a count of researchers.";
-  root.appendChild(audienceKpi("Countries reached", countryInfo, function (payload, start, end) {
+  const countryInfo = "Countries and territories with requests at the network edge in the selected dates. Small daily counts are withheld for privacy, and requests include automated traffic, so this is reach of the service, not a count of researchers.";
+  root.appendChild(audienceKpi("Countries with requests", countryInfo, function (payload, start, end) {
     const reach = countriesIn(payload);
     if (!reach) return { value: "Not measured", muted: true, context: payload.cloudflare.note ? "No country breakdown for these dates." : audienceStatus(payload.cloudflare.status) };
     const full = fullyMeasured(payload.cloudflare, start, end, "country_coverage");
@@ -213,11 +217,12 @@ function renderKpis() {
         const before = countriesIn(prior);
         return before ? countDelta(reach.count, before.count, comparisonLabel(period.days)) : null;
       }) : PARTIAL_PERIOD,
-      context: notes.join(" ")
+      context: notes.join(" "),
+      caveat: "Includes automated traffic."
     };
   }));
-  const visitorInfo = "Umami estimates anonymous unique sessions after consent. A session is not an identified person, and sessions are not added across days.";
-  root.appendChild(audienceKpi("Website visitors", visitorInfo, function (payload, start, end) {
+  const visitorInfo = "Website analytics estimate anonymous unique sessions after consent. A session is not an identified person, and sessions are not added across days.";
+  root.appendChild(audienceKpi("Website sessions (anonymous)", visitorInfo, function (payload, start, end) {
     const umami = payload.umami;
     if (typeof umami.visitors !== "number") {
       return {

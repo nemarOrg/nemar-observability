@@ -40,7 +40,7 @@ function tile(metric) {
   // A drilldown key used to open an in-page list gated by a pasted API token.
   // The list now lives in the admin portal behind a session cookie, so the tile
   // links there instead of asking anyone for a credential (#8).
-  if (metric.drilldown) t.appendChild(portalLink("Manage in admin portal"));
+  if (metric.drilldown) t.appendChild(portalLink("Manage in admin portal (administrators)"));
   return t;
 }
 function portalLink(text) {
@@ -71,7 +71,7 @@ function sectionCard(section, headingTag) {
   return card;
 }
 function sourceLine(section) {
-  return "From " + section.source + (section.updated_at ? ", updated " + relativeTime(section.updated_at) : "");
+  return "From " + sourceLabel(section.source) + (section.updated_at ? ", updated " + relativeTime(section.updated_at) : "");
 }
 
 // ---------- snapshot ----------
@@ -94,7 +94,7 @@ function renderSnapshot(snap) {
     windowNote.textContent = "The " + ROLLING_WINDOW_DAYS + " days up to the latest snapshot, " + rangeText(shiftDay(endDay, 1 - ROLLING_WINDOW_DAYS), endDay) + " (UTC). These do not follow the date range.";
   }
   const meta = document.getElementById("health-meta");
-  const missing = (snap.section_errors || []).map(function (e) { return e.key; });
+  const missing = (snap.section_errors || []).map(function (e) { return sectionLabel(e && e.key); });
   meta.textContent = "Latest snapshot generated " + formatDateTime(snap.generated_at) + " (" + relativeTime(snap.generated_at) + "). It refreshes every hour."
     + (missing.length ? " Not in this snapshot: " + missing.join(", ") + "." : "");
 }
@@ -197,7 +197,7 @@ function healthCard(section) {
   card.appendChild(list);
   if (metrics.some(function (m) { return m.drilldown; })) {
     const foot = el("div", "card-foot");
-    foot.appendChild(portalLink("Review in admin portal"));
+    foot.appendChild(portalLink("Review in admin portal (administrators)"));
     card.appendChild(foot);
   }
   return card;

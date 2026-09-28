@@ -158,16 +158,16 @@ function allTimeSpecs(input) {
     if (priv) notes.push(num(priv.value) + " private");
     const recent = change("datasets.public", num);
     if (recent) notes.push(recent);
-    return { value: num(m.value), exact: num(m.value) + " public datasets", note: notes.join(", "), info: "Datasets published and publicly visible now. A digital object identifier (DOI) makes a dataset citable." };
+    return { value: num(m.value), exact: num(m.value) + " public datasets", note: (notes.length ? "Now: " + notes.join(", ") : "Now"), info: "Datasets published and publicly visible now. A digital object identifier (DOI) makes a dataset citable." };
   });
   snapshotItem("Data volume", "datasets.bytes", function (m) {
     const pub = index["datasets.public"];
     const recent = change("datasets.bytes", humanBytes);
-    return { value: humanBytes(m.value), exact: num(m.value) + " bytes", note: (pub ? "Across " + num(pub.value) + " public datasets" : "Public datasets") + (recent ? ", " + recent : "") };
+    return { value: humanBytes(m.value), exact: num(m.value) + " bytes", note: "Now: " + (pub ? "across " + num(pub.value) + " public datasets" : "public datasets") + (recent ? ", " + recent : "") };
   });
   const archive = input.archive;
   const archiveLoading = !archive && !input.archiveFailed;
-  const labels = { downloads: "Data downloaded", requests: "Requests to date", since: "Usage measured since" };
+  const labels = { downloads: "Data served", requests: "Requests", since: "Usage records begin" };
   if (archiveLoading || !archive) {
     [labels.downloads, labels.requests, labels.since].forEach(function (label) {
       specs.push(archiveLoading ? { label: label, loading: true } : { label: label, value: "Unavailable", muted: true, note: "Daily usage did not load." });
@@ -192,7 +192,7 @@ function allTimeSpecs(input) {
   }
   const egress = egressSeries(archive);
   specs.push((egress && lifetime(egress, labels.downloads, humanBytes, "bytes")) || {
-    label: labels.downloads, value: "Not recorded", muted: true, note: "No download series is reporting."
+    label: labels.downloads, value: "Not recorded", muted: true, note: "No storage egress series is reporting."
   });
   const requests = requestSeries(archive);
   specs.push((requests && lifetime(requests, labels.requests, compact, "requests")) || {

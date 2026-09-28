@@ -40,7 +40,7 @@ function audienceSourceCard(title, source, definitions, metrics) {
   card.appendChild(measures);
   const details = disclosure("Coverage and source details");
   const coverage = source.coverage && source.coverage.start && source.coverage.end
-    ? source.coverage.start + " to " + source.coverage.end + " UTC"
+    ? rangeText(source.coverage.start, source.coverage.end) + " (UTC)"
     : "Unavailable";
   details.appendChild(el("p", "fine", "Measured coverage: " + coverage));
   if (source.note) details.appendChild(el("p", "fine", source.note));
@@ -52,7 +52,7 @@ function audienceEvents(parent, report) {
   const section = disclosure("Website interactions: " + audienceStatus(status).toLowerCase(), "audience-events");
   section.appendChild(el("p", "fine", "Events are recorded only after consent. Event-associated visitors are anonymous distinct sessions, not identified people."));
   const coverage = report && report.coverage && report.coverage.start && report.coverage.end
-    ? "Verified event coverage: " + report.coverage.start + " to " + report.coverage.end + " UTC"
+    ? "Verified event coverage: " + rangeText(report.coverage.start, report.coverage.end) + " (UTC)"
     : "Verified event coverage: unavailable";
   section.appendChild(el("p", "fine", coverage));
   const labels = {
@@ -89,15 +89,15 @@ function renderAudience(payload) {
   const observedAt = typeof payload.observed_at === "string" ? new Date(payload.observed_at) : null;
   const observationLabel =
     observedAt && Number.isFinite(observedAt.getTime())
-      ? observedAt.toISOString()
+      ? formatDateTime(observedAt.toISOString())
       : "unavailable";
   const grid = el("div", "audience-grid");
   const umamiCard = audienceSourceCard(
     "Website activity",
     payload.umami,
-    "Umami visitors are anonymous unique-session estimates, not identified people. Visits use a separate visit identifier. Country estimates are not an exclusive partition; unreported countries are omitted.",
+    "Website analytics estimate anonymous unique sessions, not identified people. Visits use a separate visit identifier. Country estimates are not an exclusive partition; unreported countries are omitted.",
     [
-      { key: "visitors", label: "Visitors (unique sessions)" },
+      { key: "visitors", label: "Sessions (anonymous, unique)" },
       { key: "visits", label: "Visits" },
       { key: "pageviews", label: "Page views" }
     ]
@@ -107,13 +107,13 @@ function renderAudience(payload) {
   grid.appendChild(audienceSourceCard(
     "Requests to NEMAR",
     payload.cloudflare,
-    "Cloudflare counts one request for each page, file, image, or API call. One page view can create many requests, and bots or repeat clients also count. This is not a count of people, sessions, page views, or completed downloads. Some requests have no reported country.",
+    "The network edge counts one request for each page, file, image, or API call. One page view can create many requests, and bots or repeat clients also count. This is not a count of people, sessions, page views, or completed downloads. Some requests have no reported country.",
     [{ key: "requests", label: "Requests" }]
   ));
   root.appendChild(grid);
   const details = disclosure("How these totals work", "howto-inline");
-  details.appendChild(el("p", "fine", "Selected-range totals are queried from each source; visitors and sessions are not added across days. Umami country sessions cover one completed UTC day. Cloudflare request locations cover completed days in the selected range, with small daily values withheld before totals are combined."));
-  details.appendChild(el("p", "fine", "Sources last checked: " + observationLabel + " (UTC)."));
+  details.appendChild(el("p", "fine", "Selected-range totals are queried from each source; sessions are not added across days. Website sessions by country cover one completed UTC day. Request locations cover completed days in the selected range, with small daily values withheld before totals are combined."));
+  details.appendChild(el("p", "fine", "Sources last checked " + observationLabel + "."));
   root.appendChild(details);
 }
 
@@ -369,7 +369,7 @@ function renderSeries(payload, start, end) {
       if (legend.childNodes.length) measure.appendChild(legend);
       const footer = el("div", "measure-foot");
       const sourceDetails = disclosure("Source and coverage: " + (freshness === "unknown" ? "freshness unknown" : freshness));
-      sourceDetails.appendChild(el("p", freshness === "current" ? "fine" : "fine stale","Source " + series.source + ", one value per day (UTC). Data covers " + series.coverage_start + " to " + series.coverage_end + "; latest day counted " + (lastDay || "none") + "; updated " + series.updated_at + "."));
+      sourceDetails.appendChild(el("p", freshness === "current" ? "fine" : "fine stale","From " + sourceLabel(series.source) + ", one value per UTC day. Covers " + (isValidDay(series.coverage_start) && isValidDay(series.coverage_end) ? rangeText(series.coverage_start, series.coverage_end) : "an unknown span") + "; latest day counted " + (isValidDay(lastDay) ? longDay(lastDay) : "none") + "; updated " + formatDateTime(series.updated_at) + "."));
       if (freshness === "unknown") sourceDetails.appendChild(el("p", "fine stale", "This series does not say how often it should update, so whether it is current is unknown."));
       footer.appendChild(sourceDetails);
       footer.appendChild(valuesTable(series, buckets));
@@ -384,13 +384,13 @@ function seriesPlane(series) {
   const key = String(series.section || "").toLowerCase();
   if (key === "website") return { key: "website", label: "What activity is recorded on the website?", description: "Anonymous browser analytics record page views and action events. These are events, not unique people." };
   if (key === "access") return { key: "access", label: "How is data accessed through NEMAR?", description: "Server-side access counts represent requests or redirects. Archive redirects do not confirm completed downloads; response bytes are shown only where the server records them." };
-  if (key === "cf") return { key: "cf", label: "How much traffic does Cloudflare handle?", description: "Cloudflare counts one request for each page, file, image, or API call. One page view can create many requests, and automated traffic is included. Request and byte totals do not represent people, sessions, or completed downloads." };
-  if (key === "egress") return { key: "egress", label: "How much data did NEMAR return?", description: "Bytes returned by the NEMAR S3 bucket across all NEMAR data planes. This includes visitor reads and internal operations such as Zarr conversions, so it is not a count of completed visitor downloads. The metric has no user or country attribution." };
+  if (key === "cf") return { key: "cf", label: "How much traffic reaches the network edge?", description: "The network edge counts one request for each page, file, image, or API call. One page view can create many requests, and automated traffic is included. Request and byte totals do not represent people, sessions, or completed downloads." };
+  if (key === "egress") return { key: "egress", label: "How much data did NEMAR serve?", description: "Bytes NEMAR's storage sent out (storage egress) across all NEMAR services. This includes visitor reads and internal processing such as Zarr conversions, so it is not a count of completed downloads. It has no user or country attribution." };
   const section = series.section || "unknown section";
-  return { key: "other:" + section, label: "Additional source: " + section, description: "Source " + (series.source || "unknown") + " reports its own additive daily measures. Measures remain separate; missing observations are unknown, not zero." };
+  return { key: "other:" + section, label: "Additional source: " + sectionLabel(section), description: "This source (" + sourceLabel(series.source) + ") reports its own additive daily measures. Measures remain separate; missing observations are unknown, not zero." };
 }
 function seriesDisplayLabel(series) {
-  return String(series.section || "").toLowerCase() === "egress" ? "NEMAR downloads" : series.label;
+  return String(series.section || "").toLowerCase() === "egress" ? "Data served (storage egress)" : series.label;
 }
 function valuesTable(series, buckets) {
   const details = disclosure("Show exact values (" + buckets.length + " periods)", "values");
