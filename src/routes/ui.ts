@@ -273,14 +273,13 @@ function renderAudience(payload) {
   audienceEvents(umamiCard, payload.umami.event_metrics);
   grid.appendChild(umamiCard);
   grid.appendChild(audienceSourceCard(
-    "Cloudflare edge requests",
+    "Requests to NEMAR",
     payload.cloudflare,
-    "Counts are zone-wide Cloudflare HTTP requests by country. They can include bots and repeat clients; they are not unique visitors or completed downloads. Unreported country values are omitted.",
+    "Cloudflare counts one request for each page, file, image, or API call. One page view can create many requests, and bots or repeat clients also count. This is not a count of people, sessions, page views, or completed downloads. Some requests have no reported country.",
     [{ key: "requests", label: "Requests" }]
   ));
   root.appendChild(grid);
 }
-let geographyRequestId = 0;
 let geographySourceKey = "cloudflare";
 function normalizeCountryLabel(label) {
   return typeof label === "string"
@@ -304,15 +303,14 @@ function countryName(label) {
 }
 function geographySources(payload) {
   return [
-    { key: "cloudflare", label: "Cloudflare requests", unit: "requests", source: payload.cloudflare },
-    { key: "umami", label: "Website sessions", unit: "anonymous sessions", source: payload.umami }
+    { key: "cloudflare", label: "Cloudflare requests", unit: "requests", totalLabel: "Requests to NEMAR", total: payload.cloudflare.country_requests, source: payload.cloudflare },
+    { key: "umami", label: "Website sessions", unit: "anonymous sessions", totalLabel: "Anonymous unique sessions", total: payload.umami.visitors, source: payload.umami }
   ];
 }
 function hasCountryData(item) {
-  return (Array.isArray(item.source.countries) && item.source.countries.length > 0)
-    || item.source.suppressed_small_countries === true;
+  return Boolean(item.source.country_coverage);
 }
-function renderGeography(payload, date) {
+function renderGeography(payload, start, end) {
   const root = document.getElementById("geography");
   root.textContent = "";
   const sources = geographySources(payload);
@@ -322,6 +320,13 @@ function renderGeography(payload, date) {
     || requested
     || sources[0];
   geographySourceKey = active.key;
+  const countryCoverage = active.source.country_coverage;
+  const period = countryCoverage && countryCoverage.start && countryCoverage.end
+    ? countryCoverage.start === countryCoverage.end
+      ? countryCoverage.start
+      : countryCoverage.start + " – " + countryCoverage.end
+    : start === end ? start : start + " – " + end;
+  document.querySelector(".geography-period").textContent = "Map period · " + period + " UTC";
   const sourceTabs = el("div", "geography-sources");
   sourceTabs.setAttribute("role", "group");
   sourceTabs.setAttribute("aria-label", "Choose a location data source");
@@ -332,10 +337,15 @@ function renderGeography(payload, date) {
     button.type = "button";
     button.disabled = !available || !hasValues;
     button.setAttribute("aria-pressed", String(item.key === active.key));
-    button.appendChild(el("span", "geography-source-status", audienceStatus(item.source.status)));
+    const sourceStatus = available && item.key === "umami" && start !== end
+      ? "Single day only"
+      : available && item.key === "umami" && end >= isoDay(new Date())
+        ? "Completed day only"
+        : audienceStatus(item.source.status);
+    button.appendChild(el("span", "geography-source-status", sourceStatus));
     button.addEventListener("click", function () {
       geographySourceKey = item.key;
-      renderGeography(payload, date);
+      renderGeography(payload, start, end);
     });
     sourceTabs.appendChild(button);
   });
@@ -351,6 +361,57 @@ function renderGeography(payload, date) {
     }
   });
   const maximum = Math.max(1, ...coded.values());
+  const layout = el("div", "geography-layout");
+  const mapFrame = el("div", "geography-map-frame");
+  const tooltip = el("div", "geography-tooltip");
+  tooltip.setAttribute("role", "tooltip");
+  tooltip.setAttribute("aria-hidden", "true");
+  mapFrame.appendChild(tooltip);
+  function hideMapTooltip() {
+    tooltip.textContent = "";
+    tooltip.classList.remove("visible");
+    tooltip.setAttribute("aria-hidden", "true");
+  }
+  function showMapTooltip(detail, clientX, clientY) {
+    const rect = mapFrame.getBoundingClientRect();
+    tooltip.textContent = detail;
+    tooltip.classList.add("visible");
+    tooltip.setAttribute("aria-hidden", "false");
+    tooltip.style.maxWidth = Math.max(0, rect.width - 16) + "px";
+    tooltip.style.transform = "translateX(-50%)";
+    const half = tooltip.offsetWidth / 2;
+    const left = Math.min(rect.width - half - 8, Math.max(half + 8, clientX - rect.left));
+    const pointerY = clientY - rect.top;
+    const tooltipHeight = tooltip.offsetHeight;
+    const roomBelow = rect.height - pointerY - 12;
+    const roomAbove = pointerY - 12;
+    const showBelow = roomBelow >= tooltipHeight || roomBelow >= roomAbove;
+    const proposedTop = showBelow
+      ? pointerY + 12
+      : pointerY - tooltipHeight - 12;
+    const top = Math.min(
+      Math.max(8, rect.height - tooltipHeight - 8),
+      Math.max(8, proposedTop),
+    );
+    tooltip.style.left = left + "px";
+    tooltip.style.top = top + "px";
+  }
+  function attachMapTooltip(element, detail) {
+    element.setAttribute("aria-describedby", "geography-country-tooltip");
+    tooltip.id = "geography-country-tooltip";
+    element.addEventListener("pointerenter", function (event) {
+      showMapTooltip(detail, event.clientX, event.clientY);
+    });
+    element.addEventListener("pointermove", function (event) {
+      showMapTooltip(detail, event.clientX, event.clientY);
+    });
+    element.addEventListener("pointerleave", hideMapTooltip);
+    element.addEventListener("focus", function () {
+      const rect = element.getBoundingClientRect();
+      showMapTooltip(detail, rect.left + rect.width / 2, rect.top + rect.height / 2);
+    });
+    element.addEventListener("blur", hideMapTooltip);
+  }
   function styleMapLocation(element, code, value) {
     if (value === undefined) {
       element.setAttribute("fill", "#27313d");
@@ -360,18 +421,17 @@ function renderGeography(payload, date) {
     const strength = Math.log1p(value) / Math.log1p(maximum);
     element.setAttribute("fill", "rgba(74, 163, 255, " + (0.22 + 0.78 * strength).toFixed(3) + ")");
     element.setAttribute("tabindex", "0");
-    const detail = countryName(code) + ": " + audienceNumber(value) + " " + active.unit;
+    const detail = period + " UTC · " + countryName(code) + " · " + audienceNumber(value) + " " + active.unit;
     element.setAttribute("aria-label", detail);
     const title = document.createElementNS(svg.namespaceURI, "title");
     title.textContent = detail;
     element.appendChild(title);
+    attachMapTooltip(element, detail);
   }
-  const layout = el("div", "geography-layout");
-  const mapFrame = el("div", "geography-map-frame");
   const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
   svg.setAttribute("viewBox", "0 0 1000 500");
   svg.setAttribute("role", "group");
-  svg.setAttribute("aria-label", active.label + " by country on " + date + " UTC");
+  svg.setAttribute("aria-label", active.label + " by country from " + period + " UTC");
   svg.classList.add("geography-map");
   Object.keys(WORLD_COUNTRY_PATHS).forEach(function (code) {
     const path = document.createElementNS(svg.namespaceURI, "path");
@@ -394,13 +454,11 @@ function renderGeography(payload, date) {
   layout.appendChild(mapFrame);
 
   const summary = el("aside", "geography-summary");
-  const values = active.source.requests ?? active.source.visitors;
-  const totalLabel = active.key === "cloudflare" ? "Edge requests" : "Anonymous sessions";
-  summary.appendChild(el("span", "geography-summary-label", totalLabel));
-  summary.appendChild(el("strong", "geography-summary-value", audienceNumber(values)));
-  summary.appendChild(el("p", "geography-summary-date", "Country activity · " + date + " UTC"));
+  summary.appendChild(el("span", "geography-summary-label", active.totalLabel));
+  summary.appendChild(el("strong", "geography-summary-value", audienceNumber(active.total)));
+  summary.appendChild(el("p", "geography-summary-date", "Country activity · " + period + " UTC"));
   summary.appendChild(infoDisclosure("About location data", active.key === "cloudflare"
-    ? "Cloudflare counts zone-wide edge requests, including repeat clients and automated traffic. This is not a visitor or completed-download count."
+    ? "Cloudflare counts one request for each page, file, image, or API call. One page view can create many requests; repeat clients, bots, and other automated traffic also count. This is not a count of people, sessions, or completed downloads."
     : "Umami counts anonymous unique-session estimates. A session is not an identified person, and sessions without a reported country are not shown."));
   const hasWithheldValues = active.source.suppressed_small_countries === true;
   const hint = el("p", "geography-map-hint", coded.size
@@ -409,7 +467,7 @@ function renderGeography(payload, date) {
       ? "Country values are withheld under the privacy threshold; no country location is shown."
       : countries.length
         ? "Country values were reported, but none match a location on the map."
-        : "No country values were reported for this source and date.");
+        : active.source.note || "No country values were reported for this source and period.");
   summary.appendChild(hint);
   const legend = el("div", "geography-map-legend");
   legend.appendChild(el("span", null, "Fewer"));
@@ -440,58 +498,37 @@ function renderGeography(payload, date) {
 
   const sourceDetails = el("details", "geography-details");
   sourceDetails.appendChild(el("summary", null, "Coverage and map details"));
-  const coverage = active.source.coverage && active.source.coverage.start && active.source.coverage.end
-    ? active.source.coverage.start + " to " + active.source.coverage.end + " UTC"
+  const coverage = countryCoverage && countryCoverage.start && countryCoverage.end
+    ? countryCoverage.start + " to " + countryCoverage.end + " UTC"
     : "Unavailable";
-  sourceDetails.appendChild(el("p", null, "Source " + active.label + " · coverage " + coverage + " · status " + audienceStatus(active.source.status) + "."));
-  sourceDetails.appendChild(el("p", null, "The map uses one completed UTC day. Country values below 10 are grouped as “Other / withheld” only when their combined total reaches 10; smaller combined totals are omitted. NEMAR S3 byte totals are bucket-wide and have no country attribution."));
+  sourceDetails.appendChild(el("p", null, "Source " + active.label + " · country coverage " + coverage + " · status " + audienceStatus(active.source.status) + "."));
+  sourceDetails.appendChild(el("p", null, active.key === "cloudflare"
+    ? "Cloudflare request totals follow the selected date range, use completed UTC days for the map, and suppress small country values per day before adding reportable daily totals. Requests can include bots and repeat clients. NEMAR S3 bytes are bucket-wide and have no country attribution."
+    : "Umami country values are anonymous unique-session estimates for one completed UTC day. They are not added across days or described as identified people."));
   if (active.source.note) sourceDetails.appendChild(el("p", null, active.source.note));
   root.appendChild(sourceDetails);
-}
-function loadGeography() {
-  const input = document.getElementById("geography-date");
-  const date = input.value;
-  const root = document.getElementById("geography");
-  const requestId = ++geographyRequestId;
-  if (!date || date >= isoDay(new Date())) {
-    root.textContent = "";
-    root.appendChild(el("p", "muted", "Choose a completed UTC day to view locations."));
-    return;
-  }
-  root.textContent = "";
-  root.appendChild(el("p", "muted", "Loading country activity…"));
-  fetch(API + "/audience?start=" + encodeURIComponent(date) + "&end=" + encodeURIComponent(date))
-    .then(function (response) {
-      if (!response.ok) throw new Error("Location data returned HTTP " + response.status + ".");
-      return response.json();
-    })
-    .then(function (payload) {
-      if (requestId !== geographyRequestId || input.value !== date) return;
-      renderGeography(payload, date);
-    })
-    .catch(function (error) {
-      if (requestId !== geographyRequestId) return;
-      console.error("[observability] Country activity request failed", error);
-      root.textContent = "";
-      root.appendChild(el("p", "muted", "Could not load country activity."));
-    });
 }
 function loadAudience() {
   const start = document.getElementById("range-start").value;
   const end = document.getElementById("range-end").value;
   const root = document.getElementById("audience");
+  const geography = document.getElementById("geography");
   const requestId = ++audienceRequestId;
   root.textContent = "";
+  geography.textContent = "";
   if (!start || !end || start > end) {
     root.appendChild(el("p", "muted", "Choose a valid UTC date range."));
+    geography.appendChild(el("p", "muted", "Choose a valid UTC date range to view country activity."));
     return;
   }
   const days = (Date.parse(end + "T00:00:00Z") - Date.parse(start + "T00:00:00Z")) / 86400000 + 1;
   if (!Number.isFinite(days) || days > 3660) {
     root.appendChild(el("p", "muted", "Choose a valid UTC date range of 3,660 days or fewer."));
+    geography.appendChild(el("p", "muted", "Choose a valid UTC date range to view country activity."));
     return;
   }
   root.appendChild(el("p", "muted", "Loading audience and country metrics…"));
+  geography.appendChild(el("p", "muted", "Loading country activity for the selected dates…"));
   fetch(API + "/audience?start=" + encodeURIComponent(start) + "&end=" + encodeURIComponent(end))
     .then(function (response) {
       if (!response.ok) throw new Error("Could not load audience metrics.");
@@ -501,11 +538,15 @@ function loadAudience() {
       if (requestId !== audienceRequestId) return;
       if (document.getElementById("range-start").value !== start || document.getElementById("range-end").value !== end) return;
       renderAudience(payload);
+      renderGeography(payload, start, end);
     })
     .catch(function () {
       if (requestId !== audienceRequestId) return;
       root.textContent = "";
       root.appendChild(el("p", "muted", "Could not load audience metrics."));
+      const geography = document.getElementById("geography");
+      geography.textContent = "";
+      geography.appendChild(el("p", "muted", "Could not load country activity."));
     });
 }
 function syncRangePresets() {
@@ -612,7 +653,7 @@ function seriesPlane(series) {
   const key = String(series.section || "").toLowerCase();
   if (key === "website") return { key: "website", label: "What activity is recorded on the website?", description: "Anonymous browser analytics record page views and action events. These are events, not unique people." };
   if (key === "access") return { key: "access", label: "How is data accessed through NEMAR?", description: "Server-side access counts represent requests or redirects. Archive redirects do not confirm completed downloads; response bytes are shown only where the server records them." };
-  if (key === "cf") return { key: "cf", label: "What traffic reaches the Cloudflare edge?", description: "Edge requests and bytes can include bots and repeat clients. They do not represent unique people or completed downloads." };
+  if (key === "cf") return { key: "cf", label: "How much traffic does Cloudflare handle?", description: "Cloudflare counts one request for each page, file, image, or API call. One page view can create many requests, and automated traffic is included. Request and byte totals do not represent people, sessions, or completed downloads." };
   if (key === "egress") return { key: "egress", label: "How much data did NEMAR return?", description: "Bytes returned by the NEMAR S3 bucket across all NEMAR data planes. This includes visitor reads and internal operations such as Zarr conversions, so it is not a count of completed visitor downloads. The metric has no user or country attribution." };
   const section = series.section || "unknown section";
   return { key: "other:" + section, label: "Additional source: " + section, description: "Source " + (series.source || "unknown") + " reports its own additive daily measures. Measures remain separate; missing observations are unknown, not zero." };
@@ -684,11 +725,30 @@ function valuesTable(series, buckets) {
   return details;
 }
 function chart(series, buckets, grouping, start, end, description) {
+  const wrapper = el("div", "series-chart-wrap");
   const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
-  svg.setAttribute("viewBox", "0 0 900 250"); svg.setAttribute("role", "img");
+  svg.setAttribute("viewBox", "0 0 900 250"); svg.setAttribute("role", "group");
   svg.setAttribute("aria-label", seriesDisplayLabel(series) + " by " + grouping + " in " + series.unit);
   svg.setAttribute("aria-description", description);
   svg.classList.add("series-chart");
+  const tooltip = el("div", "series-tooltip");
+  tooltip.setAttribute("role", "tooltip");
+  tooltip.setAttribute("aria-hidden", "true");
+  function hideTooltip() {
+    tooltip.textContent = "";
+    tooltip.classList.remove("visible");
+    tooltip.setAttribute("aria-hidden", "true");
+  }
+  function showTooltip(detail, clientX, clientY) {
+    const rect = wrapper.getBoundingClientRect();
+    tooltip.textContent = detail;
+    tooltip.classList.add("visible");
+    tooltip.setAttribute("aria-hidden", "false");
+    const half = tooltip.offsetWidth / 2;
+    const left = Math.min(rect.width - half - 8, Math.max(half + 8, clientX - rect.left));
+    tooltip.style.left = left + "px";
+    tooltip.style.top = Math.max(8, clientY - rect.top - 10) + "px";
+  }
   const partialPeriods = buckets.filter(function (bucket) { return bucket.partial; }).map(function (bucket) { return bucket.label; });
   if (partialPeriods.length) {
     const description = document.createElementNS(svg.namespaceURI, "desc");
@@ -708,8 +768,20 @@ function chart(series, buckets, grouping, start, end, description) {
   if (path) { const line = document.createElementNS(svg.namespaceURI, "path"); line.setAttribute("d", path); line.setAttribute("stroke", "#4aa3ff"); line.setAttribute("stroke-width", "3"); line.setAttribute("fill", "none"); svg.appendChild(line); }
   points.forEach(function (p, i) {
     if (p.value !== null) {
-      const dot = document.createElementNS(svg.namespaceURI, "circle"); dot.setAttribute("cx", p.x); dot.setAttribute("cy", p.y); dot.setAttribute("r", "3"); dot.setAttribute("fill", "#4aa3ff"); dot.setAttribute("tabindex", "0"); dot.setAttribute("aria-label", p.bucket.label + ": " + seriesValue(p.value, series.unit));
-      const title = document.createElementNS(svg.namespaceURI, "title"); title.textContent = p.bucket.label + " · " + seriesValue(p.value, series.unit); dot.appendChild(title); svg.appendChild(dot);
+      const dot = document.createElementNS(svg.namespaceURI, "circle");
+      const detail = p.bucket.label + " UTC · " + seriesDisplayLabel(series) + " · " + seriesValue(p.value, series.unit)
+        + (series.unit === "bytes" ? " (" + exactSeriesValue(p.value, series.unit) + ")" : "");
+      dot.setAttribute("cx", p.x); dot.setAttribute("cy", p.y); dot.setAttribute("r", "5.5"); dot.setAttribute("class", "series-point"); dot.setAttribute("tabindex", "0"); dot.setAttribute("aria-label", detail);
+      const title = document.createElementNS(svg.namespaceURI, "title"); title.textContent = detail; dot.appendChild(title);
+      dot.addEventListener("pointerenter", function (event) { showTooltip(detail, event.clientX, event.clientY); });
+      dot.addEventListener("pointermove", function (event) { showTooltip(detail, event.clientX, event.clientY); });
+      dot.addEventListener("pointerleave", hideTooltip);
+      dot.addEventListener("focus", function () {
+        const rect = dot.getBoundingClientRect();
+        showTooltip(detail, rect.left + rect.width / 2, rect.top + rect.height / 2);
+      });
+      dot.addEventListener("blur", hideTooltip);
+      svg.appendChild(dot);
     }
     if (buckets.length < 20 || i % Math.ceil(buckets.length / 12) === 0) { const label = document.createElementNS(svg.namespaceURI, "text"); label.setAttribute("x", p.x); label.setAttribute("y", "230"); label.setAttribute("text-anchor", "middle"); label.textContent = start.slice(0, 4) === end.slice(0, 4) ? p.bucket.start.slice(5) : p.bucket.start; svg.appendChild(label); }
   });
@@ -720,7 +792,9 @@ function chart(series, buckets, grouping, start, end, description) {
     ? "Range total · Unknown (no observations)"
     : (gap ? "Observed total · " : "Range total · ") + seriesValue(observedTotal, series.unit) + (gap ? " · incomplete buckets plot as gaps" : "");
   const note = document.createElementNS(svg.namespaceURI, "text"); note.setAttribute("x", "58"); note.setAttribute("y", "18"); note.textContent = totalLabel; svg.appendChild(note);
-  return svg;
+  wrapper.appendChild(svg);
+  wrapper.appendChild(tooltip);
+  return wrapper;
 }
 
 function load() {
@@ -741,12 +815,7 @@ document.querySelectorAll("[data-range]").forEach(function (button) { button.add
 document.getElementById("range-start").addEventListener("change", loadSelectedRange);
 document.getElementById("range-end").addEventListener("change", loadSelectedRange);
 document.getElementById("grouping").addEventListener("change", regroupSeries);
-const geographyDate = shiftDay(isoDay(new Date()), -1);
-document.getElementById("geography-date").value = geographyDate;
-document.getElementById("geography-date").max = geographyDate;
-document.getElementById("geography-date").addEventListener("change", loadGeography);
 loadSelectedRange();
-loadGeography();
 `;
 
 const STYLES = String.raw`
@@ -769,7 +838,7 @@ header .spacer { flex: 1; }
 header .portal { color: var(--muted); font-size: 13px; text-decoration: none;
   border: 1px solid var(--border); border-radius: 8px; padding: 6px 12px; }
 header .portal:hover { color: var(--fg); border-color: var(--accent); }
-main { padding: 20px 24px 60px; max-width: 1680px; margin: 0 auto; }
+main { padding: 20px 24px 60px; max-width: 1440px; margin: 0 auto; }
 .card { background: var(--panel); border: 1px solid var(--border); border-radius: 14px;
   padding: 15px 16px 16px; margin-bottom: 14px; }
 .card-head { display: flex; align-items: baseline; gap: 10px; margin-bottom: 14px; }
@@ -824,7 +893,7 @@ main { padding: 20px 24px 60px; max-width: 1680px; margin: 0 auto; }
 .series-controls button[aria-pressed="true"] { border-color: var(--accent); background: rgba(74,163,255,.14); color: var(--fg); }
 .range-help { color: var(--muted); font-size: 11px; margin: -7px 0 10px; }
 .range-help p { max-width: 760px; margin: 6px 0 0; }
-.audience-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; align-items: start; }
+.audience-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; align-items: start; max-width: 1180px; }
 .audience-source { min-width: 0; background: var(--panel-2); border: 1px solid var(--border); border-radius: 10px; padding: 13px; }
 .audience-source-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .audience-source h3 { margin: 0; font-size: 14px; }
@@ -845,7 +914,7 @@ main { padding: 20px 24px 60px; max-width: 1680px; margin: 0 auto; }
 .audience-event-table { border-collapse: collapse; font-size: 11px; margin-top: 8px; width: 100%; }
 .audience-event-table th, .audience-event-table td { border-bottom: 1px solid var(--border); padding: 5px; text-align: left; }
 .audience-event-table th:not(:first-child), .audience-event-table td { font-variant-numeric: tabular-nums; }
-.series-card { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; margin: 14px 0 10px; padding: 14px; }
+.series-card { max-width: 1180px; background: var(--panel); border: 1px solid var(--border); border-radius: 12px; margin: 14px 0 10px; padding: 14px; }
 .series-heading { display: flex; align-items: center; gap: 8px; }
 .series-card h3 { margin: 0; font-size: 15px; }
 .series-card h4, .series-measure h4 { margin: 4px 0 0; font-size: 14px; }
@@ -856,8 +925,14 @@ main { padding: 20px 24px 60px; max-width: 1680px; margin: 0 auto; }
 .series-meta { color: var(--muted); font-size: 11px; margin: 4px 0; }
 .series-meta.stale { color: var(--warn); }
 .series-source-details { color: var(--muted); font-size: 11px; margin-top: 4px; }
+.series-chart-wrap { position: relative; width: 100%; }
 .series-chart { display: block; width: 100%; min-height: 150px; }
 .series-chart text { fill: var(--muted); font-size: 11px; }
+.series-point { fill: var(--accent); stroke: var(--panel); stroke-width: 2; cursor: crosshair; }
+.series-point:hover, .series-point:focus { fill: #fff; stroke: var(--accent); stroke-width: 3; outline: none; }
+.series-tooltip, .geography-tooltip { position: absolute; z-index: 3; display: none; max-width: min(320px, calc(100vw - 32px)); padding: 7px 10px; border: 1px solid var(--border); border-radius: 7px; background: #0c1118; box-shadow: 0 5px 18px rgba(0,0,0,.4); color: var(--fg); font-size: 12px; line-height: 1.35; pointer-events: none; transform: translate(-50%, -100%); white-space: normal; }
+.geography-tooltip { width: max-content; }
+.series-tooltip.visible, .geography-tooltip.visible { display: block; }
 .series-values { color: var(--muted); font-size: 12px; margin-top: 8px; }
 .series-values summary { cursor: pointer; }
 .series-values table { border-collapse: collapse; margin-top: 8px; width: 100%; }
@@ -866,15 +941,14 @@ main { padding: 20px 24px 60px; max-width: 1680px; margin: 0 auto; }
 .geography-heading { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; }
 .geography-heading h2 { margin: 0; font-size: 15px; }
 .geography-heading .health-intro { margin: 4px 0 0; }
-.geography-heading label { display: grid; margin-left: auto; color: var(--muted); font-size: 12px; gap: 3px; }
-.geography-heading input { color: var(--fg); background: var(--panel-2); border: 1px solid var(--border); border-radius: 6px; padding: 6px 9px; }
+.geography-period { color: var(--muted); font-size: 12px; margin-left: auto; font-variant-numeric: tabular-nums; }
 .geography-sources { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
 .geography-source { display: flex; align-items: center; gap: 8px; color: var(--fg); background: var(--panel-2); border: 1px solid var(--border); border-radius: 8px; padding: 7px 10px; cursor: pointer; font: inherit; font-size: 12px; }
 .geography-source[aria-pressed="true"] { border-color: var(--accent); background: rgba(74,163,255,.12); }
 .geography-source:disabled { opacity: .55; cursor: not-allowed; }
 .geography-source-status { color: var(--muted); font-size: 10px; }
-.geography-layout { display: grid; grid-template-columns: minmax(0, 2fr) minmax(190px, .65fr); gap: 14px; align-items: center; }
-.geography-map-frame { min-width: 0; overflow: hidden; border: 1px solid var(--border); border-radius: 10px; background: #111820; }
+.geography-layout { display: grid; grid-template-columns: minmax(0, 1fr) minmax(220px, 270px); gap: 14px; align-items: center; max-width: 1260px; }
+.geography-map-frame { position: relative; min-width: 0; overflow: hidden; border: 1px solid var(--border); border-radius: 10px; background: #111820; }
 .geography-map { display: block; width: 100%; height: auto; }
 .map-country { stroke: #111820; stroke-width: 1; stroke-linejoin: round; }
 .map-country-marker { stroke: #111820; stroke-width: 1; }
@@ -893,7 +967,7 @@ main { padding: 20px 24px 60px; max-width: 1680px; margin: 0 auto; }
 .geography-values td:last-child, .geography-values th:last-child { text-align: right; font-variant-numeric: tabular-nums; }
 .geography-details p { margin: 6px 0; }
 @media (max-width: 600px) { header { padding: 12px; flex-wrap: wrap; } main { padding: 14px 12px 40px; } #meta { display: none; } }
-@media (max-width: 720px) { .audience-grid { grid-template-columns: 1fr; } .geography-layout { grid-template-columns: 1fr; } .geography-heading { align-items: flex-start; flex-wrap: wrap; } .geography-heading label { margin-left: 0; } }
+@media (max-width: 720px) { .audience-grid { grid-template-columns: 1fr; } .geography-layout { grid-template-columns: 1fr; } .geography-heading { align-items: flex-start; flex-wrap: wrap; } .geography-period { margin-left: 0; } }
 `;
 
 export function renderDashboardPage(): string {
@@ -935,19 +1009,19 @@ export function renderDashboardPage(): string {
     </section>
     <section class="card">
       <h2>What activity happens on the website?</h2>
-      <p class="health-intro">Website and edge activity for the selected dates.</p>
+      <p class="health-intro">Website activity and Cloudflare requests for the selected dates.</p>
       <div id="audience" aria-live="polite"><p class="muted">Loading audience metrics…</p></div>
     </section>
     <section class="card geography-card">
       <div class="geography-heading">
         <div>
-          <h2>Where do visitors and requests come from?</h2>
-          <p class="health-intro">Reported activity by country.</p>
+          <h2>Where are requests coming from?</h2>
+          <p class="health-intro">Cloudflare request counts by country for the selected dates. Website sessions are shown separately when available.</p>
         </div>
-        <label>Map date (UTC)<input id="geography-date" type="date"></label>
+        <span class="geography-period">Selected period · UTC</span>
         <details class="info-disclosure">
           <summary class="info-icon" aria-label="About the location map">i</summary>
-          <span class="info-content">Website sessions and Cloudflare edge requests are separate measures. S3 bucket downloads include internal reads and have no location data.</span>
+          <span class="info-content">Cloudflare counts requests for individual pages, files, images, and API calls; one page view can create many requests, and automated traffic is included. Website sessions are a separate measure. S3 bucket downloads include internal reads and have no location data.</span>
         </details>
       </div>
       <div id="geography" aria-live="polite"><p class="muted">Loading country activity…</p></div>

@@ -7,9 +7,10 @@ Epic: `nemarOrg/nemar-observability#52`
 ## Goal
 
 Show selected-range totals for recorded website activity and Cloudflare zone
-requests, with country breakdowns for one completed UTC day. Keep website
-session estimates and edge request counts in separate source panels. This phase
-adds the public **Reach** view; it does not claim identified people, completed
+requests, with a selected-range country map for Cloudflare requests and a
+single-completed-day country map for Umami sessions. Keep website session
+estimates and Cloudflare HTTP request counts in separate source panels. This
+phase adds the public **Reach** view; it does not claim identified people, completed
 downloads, or caller attribution.
 
 ## Decisions
@@ -30,10 +31,9 @@ downloads, or caller attribution.
   labeled partial and reports the exact measured dates.
 - Use Umami `/stats` for selected-range visitors, visits, and page views, and
   `/metrics?type=country` only for a single completed UTC day. Do not fetch
-  country rows for multi-day, current-day, or future-day ranges: arbitrary
-  overlapping ranges and a changing current day can expose suppressed country
-  cells by subtraction, while future dates have no observations yet. The existing
-  day/week/month grouping selector applies to
+  country rows for multi-day, current-day, or future-day ranges: the visitor
+  measure is non-additive, and range-overlap differences can expose suppressed
+  cells. The existing day/week/month grouping selector applies to
   additive time-series only; the UI says so.
 - Report the fixed, consent-gated event names `citation_click`, `viewer_open`,
   `viewer_interaction`, `upload_started`, and `upload_completed`. Query
@@ -51,13 +51,15 @@ downloads, or caller attribution.
 - Add small-cell suppression at 10 for country rows. Group smaller rows into
   `Other / withheld` only if their combined count is at least 10; otherwise omit
   that bucket and state that small values were suppressed.
-- Query Cloudflare's daily zone rollup with `countryMap` only for a single
-  completed UTC day within the existing 30-day range. Use a requests-only
-  query for longer or in-progress ranges. Mark ranges containing the current
-  UTC day partial. Label it as requests by country, not visitors. Report
+- Query Cloudflare's daily zone rollup with `countryMap` for the selected range,
+  bounded to its available 30-day window. Discard the in-progress day from the
+  map. Apply the minimum-cell rule independently to every completed day before
+  adding reportable daily country rows for the selected range. A longer range
+  therefore cannot turn a withheld daily country value into a mapped value.
+  Keep the source-native zone request total separate from mapped country rows
+  and Umami sessions. Mark ranges containing the current UTC day partial. Report
   partial coverage when the selection extends beyond Cloudflare's available
-  window; report unavailable when it has no overlap. Keep its request totals
-  separate from Umami sessions.
+  window; report unavailable when it has no overlap.
 - Apply the same country suppression rule to Cloudflare request counts. Do not
   include account, machine, IP, dataset, object, or caller identifiers.
 - Use the existing public cache policy for the aggregate response. Missing
@@ -83,6 +85,7 @@ interface AudienceResponse {
   umami: {
     status: SourceStatus;
     coverage: Coverage;
+    country_coverage: Coverage;
     visitors: number | null;
     visits: number | null;
     pageviews: number | null;
@@ -103,6 +106,8 @@ interface AudienceResponse {
   cloudflare: {
     status: SourceStatus;
     coverage: Coverage;
+    country_coverage: Coverage;
+    country_requests: number | null;
     requests: number | null;
     countries: CountryRow[];
     suppressed_small_countries: boolean;
@@ -118,17 +123,19 @@ details. Numeric `0` means the source successfully measured a covered range;
 
 ## Acceptance
 
-1. Custom UTC date ranges query source-native visitor/request totals;
-   country breakdowns require a single completed UTC day. Day/week/month grouping
-   applies only to additive time-series and never sums distinct visitor counts.
+1. Custom UTC date ranges query source-native visitor/request totals. Umami
+   country breakdowns require one completed UTC day. Cloudflare map totals add
+   only daily country rows that pass small-cell suppression. Day/week/month
+   grouping applies only to additive time-series and never sums distinct
+   visitor counts.
 2. Umami coverage and Cloudflare's narrower range are visible in the response
    and UI. Unknown, missing, unconfigured, partial, and measured-zero states
    remain distinguishable.
 3. Umami visitors/visits and single-day country estimates are separate from
    Cloudflare request/country counts. Event counts and event-associated
-   anonymous sessions use verified instrumentation coverage. Country values
-   appear only for a single completed UTC day; small country groups are
-   suppressed.
+   anonymous sessions use verified instrumentation coverage. Umami country
+   values appear only for a single completed UTC day; small country groups are
+   suppressed per day before any Cloudflare range aggregation.
 4. The page remains credential-free and the endpoint returns aggregate values
    only.
 5. The UI updates audience summaries when the selected dates change and ignores

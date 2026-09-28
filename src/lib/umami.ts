@@ -13,6 +13,7 @@ const REQUEST_TIMEOUT_MS = 8_000;
 export interface UmamiAudience {
   status: AudienceSourceStatus;
   coverage: AudienceCoverage | null;
+  country_coverage: AudienceCoverage | null;
   visitors: number | null;
   visits: number | null;
   pageviews: number | null;
@@ -40,6 +41,7 @@ function emptyAudience(
   return {
     status,
     coverage,
+    country_coverage: null,
     visitors: null,
     visits: null,
     pageviews: null,
@@ -356,6 +358,7 @@ export async function fetchUmamiAudience(
   return {
     status,
     coverage,
+    country_coverage: includeCountryBreakdown && countriesAvailable ? coverage : null,
     visitors: stats?.visitors ?? null,
     visits: stats?.visits ?? null,
     pageviews: stats?.pageviews ?? null,
