@@ -207,7 +207,7 @@ query at today's UTC midnight so it requests only complete UTC days
 
 ## Daily S3 storage size
 
-`scripts/push-s3-storage.ts` pushes section `storage` (label "S3 storage", source `aws-s3-cloudwatch`) so administrators can monitor how much data bucket `nemar` in `us-east-2` holds.
+`scripts/push-s3-storage.ts` pushes section `storage` (label "Data storage", source `aws-s3-cloudwatch`) so administrators can monitor how much data bucket `nemar` in `us-east-2` holds.
 It reads the daily S3 storage metrics with one `GetMetricData` call: `AWS/S3:BucketSizeBytes` for every documented `StorageType`, and `AWS/S3:NumberOfObjects` for `StorageType=AllStorageTypes`, both `Stat=Average`, `Period=86400`, `BucketName=nemar`.
 These storage metrics need no bucket metrics configuration, and the existing read-only CloudWatch key already permits the call.
 
@@ -215,8 +215,8 @@ These storage metrics need no bucket metrics configuration, and the existing rea
 |---|---|---|
 | `storage.bucket_bytes` | `bytes` | bytes stored, summed across the storage classes that report |
 | `storage.object_count` | `count` | objects stored, all storage classes |
-| `storage.by_class` | `count` | number of reporting storage classes; `breakdown` gives bytes per `StorageType` label, `breakdown_unit: "bytes"` |
-| `storage.collector.errors` | `errors` | `0` after a successful run; a failed run replaces the section with this metric alone, at `1` and severity `error` |
+| `storage.by_class` | `count` | number of reporting storage classes; `breakdown` gives bytes per class, largest first, under a plain label such as "Standard" or "Infrequent access" (unknown classes read "Other storage class"), `breakdown_unit: "bytes"` |
+| `storage.collector.errors` | `errors` | `0` after a successful run; a failed run replaces the section with this metric alone, at `1` and severity `error`, with a generic hint; the failure detail is only in the journal |
 
 S3 reports these values once per day, timestamped at 00:00 UTC, with roughly a one-day lag.
 They cover the whole bucket, including archives, Zarr copies, and internal objects.

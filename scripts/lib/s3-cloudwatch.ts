@@ -329,14 +329,15 @@ export async function postSection(sectionKey: string, token: string, payload: un
 
 /**
  * Run a collector and, on a collection failure, replace its section with a red
- * error-status metric so an unknown value never reads as a current one.
+ * error-status metric so an unknown value never reads as a current one. The
+ * failure detail goes only to the journal; the public status is generic.
  */
 export function runCollector(options: {
   tag: string;
   sectionKey: string;
   tokenVariable: string;
   collect: () => Promise<void>;
-  failureStatus: (message: string) => unknown;
+  failureStatus: () => unknown;
 }): void {
   const { tag, sectionKey, tokenVariable, collect, failureStatus } = options;
   collect().catch(async (error: unknown) => {
@@ -355,7 +356,7 @@ export function runCollector(options: {
     const token = Bun.env[tokenVariable];
     if (token?.trim()) {
       try {
-        await postSection(sectionKey, token, failureStatus(message));
+        await postSection(sectionKey, token, failureStatus());
         console.info(`[${tag}] published the collector failure status`);
       } catch {
         console.error(

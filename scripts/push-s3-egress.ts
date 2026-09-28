@@ -63,10 +63,10 @@ export function parsePoints(output: string, startDate: string, endDate: string):
   return points;
 }
 
-async function pushSection(token: string, points: DailyPoint[]) {
+export function egressSection(points: DailyPoint[]) {
   const first = points[0];
   const latest = points[points.length - 1];
-  const payload = {
+  return {
     key: "egress",
     label: "Storage egress",
     source: "aws-s3-cloudwatch",
@@ -102,17 +102,19 @@ async function pushSection(token: string, points: DailyPoint[]) {
       },
     ],
   };
+}
 
-  await postSection("egress", token, payload);
+async function pushSection(token: string, points: DailyPoint[]) {
+  await postSection("egress", token, egressSection(points));
   console.info(
-    `[s3-egress] posted ${points.length} daily points (${first.date} through ${latest.date} UTC)`,
+    `[s3-egress] posted ${points.length} daily points (${points[0].date} through ${points[points.length - 1].date} UTC)`,
   );
 }
 
-function failureStatus(message: string) {
+export function egressFailureStatus(now = new Date()) {
   return {
     key: "egress",
-    label: "S3 egress",
+    label: "Storage egress",
     source: "aws-s3-cloudwatch",
     metrics: [
       {
@@ -121,7 +123,7 @@ function failureStatus(message: string) {
         value: 1,
         unit: "errors",
         severity: "error",
-        hint: `${utcDate(new Date())} UTC collection failed: ${message}. Existing daily points were not replaced.`,
+        hint: `${utcDate(now)} UTC collection failed; existing daily points were not replaced.`,
       },
     ],
   };
@@ -158,6 +160,6 @@ if ((import.meta as ImportMeta & { main?: boolean }).main) {
     sectionKey: "egress",
     tokenVariable: "OBS_EGRESS_INGEST_TOKEN",
     collect: main,
-    failureStatus,
+    failureStatus: () => egressFailureStatus(),
   });
 }

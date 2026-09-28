@@ -60,6 +60,46 @@ export const STORAGE_TYPES = [
   "ExpressOneZoneStorage",
 ] as const;
 
+type StorageType = (typeof STORAGE_TYPES)[number];
+
+/** Plain public names for the storage-class breakdown; ids stay in the query. */
+const STORAGE_CLASS_LABELS = {
+  StandardStorage: "Standard",
+  StandardIAStorage: "Infrequent access",
+  StandardIASizeOverhead: "Infrequent access, small-object minimum",
+  StandardIAObjectOverhead: "Infrequent access, per-object overhead",
+  IntelligentTieringFAStorage: "Intelligent tiering, frequent",
+  IntelligentTieringIAStorage: "Intelligent tiering, infrequent",
+  IntelligentTieringAAStorage: "Intelligent tiering, archive",
+  IntelligentTieringAIAStorage: "Intelligent tiering, archive instant",
+  IntelligentTieringDAAStorage: "Intelligent tiering, deep archive",
+  IntAAObjectOverhead: "Intelligent tiering archive, per-object overhead",
+  IntAAS3ObjectOverhead: "Intelligent tiering archive, per-object metadata",
+  IntDAAObjectOverhead: "Intelligent tiering deep archive, per-object overhead",
+  IntDAAS3ObjectOverhead: "Intelligent tiering deep archive, per-object metadata",
+  OneZoneIAStorage: "One-zone infrequent access",
+  OneZoneIASizeOverhead: "One-zone infrequent access, small-object minimum",
+  ReducedRedundancyStorage: "Reduced redundancy",
+  GlacierInstantRetrievalStorage: "Glacier instant retrieval",
+  GlacierIRSizeOverhead: "Glacier instant retrieval, small-object minimum",
+  GlacierStorage: "Glacier",
+  GlacierStagingStorage: "Glacier, uploads in progress",
+  GlacierObjectOverhead: "Glacier, per-object overhead",
+  GlacierS3ObjectOverhead: "Glacier, per-object metadata",
+  DeepArchiveStorage: "Deep archive",
+  DeepArchiveObjectOverhead: "Deep archive, per-object overhead",
+  DeepArchiveS3ObjectOverhead: "Deep archive, per-object metadata",
+  DeepArchiveStagingStorage: "Deep archive, uploads in progress",
+  ExpressOneZoneStorage: "Express one zone",
+} satisfies Record<StorageType, string>;
+
+/** The public name for a storage class, with a neutral fallback. */
+export function storageClassLabel(storageType: string): string {
+  return Object.prototype.hasOwnProperty.call(STORAGE_CLASS_LABELS, storageType)
+    ? STORAGE_CLASS_LABELS[storageType as StorageType]
+    : "Other storage class";
+}
+
 const OBJECTS_QUERY_ID = "objects_AllStorageTypes";
 /** Days of history each run reads to find the newest complete observation. */
 export const STORAGE_WINDOW_DAYS = 7;
@@ -184,11 +224,14 @@ export function assertCurrentStorageDay(date: string, now = new Date()): void {
 const SCOPE_NOTE =
   "Reported once per day, about one day behind; a value older than the previous UTC day is shown as a failed collection instead. Covers the whole bucket, including archives, Zarr copies, and internal objects.";
 
+/** Public section label; the key, `storage`, is the stable contract. */
+const SECTION_LABEL = "Data storage";
+
 export function storageSection(observation: StorageObservation) {
   const { date } = observation;
   return {
     key: "storage",
-    label: "S3 storage",
+    label: SECTION_LABEL,
     source: "aws-s3-cloudwatch",
     metrics: [
       {
@@ -214,7 +257,7 @@ export function storageSection(observation: StorageObservation) {
         unit: "count",
         severity: "info",
         breakdown: observation.byClass.map((item) => ({
-          label: item.storageType,
+          label: storageClassLabel(item.storageType),
           value: item.bytes,
         })),
         breakdown_unit: "bytes",
@@ -232,10 +275,11 @@ export function storageSection(observation: StorageObservation) {
   };
 }
 
-export function storageFailureStatus(message: string, now = new Date()) {
+/** The public failure status; the detail stays in the collector's journal. */
+export function storageFailureStatus(now = new Date()) {
   return {
     key: "storage",
-    label: "S3 storage",
+    label: SECTION_LABEL,
     source: "aws-s3-cloudwatch",
     metrics: [
       {
@@ -244,7 +288,7 @@ export function storageFailureStatus(message: string, now = new Date()) {
         value: 1,
         unit: "errors",
         severity: "error",
-        hint: `${utcDate(now)} UTC collection failed: ${message}. The stored amount is unknown until a later run succeeds.`,
+        hint: `${utcDate(now)} UTC collection failed; the stored amount is unknown until a later run succeeds.`,
       },
     ],
   };
@@ -275,6 +319,6 @@ if ((import.meta as ImportMeta & { main?: boolean }).main) {
     sectionKey: "storage",
     tokenVariable: "OBS_STORAGE_INGEST_TOKEN",
     collect: main,
-    failureStatus: storageFailureStatus,
+    failureStatus: () => storageFailureStatus(),
   });
 }

@@ -105,7 +105,7 @@ describe("storage section ingest and snapshot", () => {
     const [section] = await loadPushedSections(db);
     expect(section).toMatchObject({
       key: "storage",
-      label: "S3 storage",
+      label: "Data storage",
       source: "aws-s3-cloudwatch",
     });
     expect(section.metrics.map((metric) => metric.key)).toEqual([
@@ -132,7 +132,7 @@ describe("storage section ingest and snapshot", () => {
       unit: "count",
     });
     expect(metrics.get("storage.by_class")).toMatchObject({
-      breakdown: [{ label: "StandardStorage", value: 121_650_377_907_484 }],
+      breakdown: [{ label: "Standard", value: 121_650_377_907_484 }],
       breakdown_unit: "bytes",
     });
 
@@ -144,7 +144,7 @@ describe("storage section ingest and snapshot", () => {
 
   test("a failure status replaces the stored amount, so it reads as unknown", async () => {
     expect((await push("storage", STORAGE_TOKEN, payload)).status).toBe(200);
-    const failure = storageFailureStatus("CloudWatch query failed (AccessDenied)");
+    const failure = storageFailureStatus();
     expect((await push("storage", STORAGE_TOKEN, failure)).status).toBe(200);
 
     const [section] = await loadPushedSections(db);

@@ -5,6 +5,7 @@ import {
   STORAGE_TYPES,
   assertCurrentStorageDay,
   latestStorageObservation,
+  storageClassLabel,
   storageFailureStatus,
   storageQueries,
   storageSection,
@@ -260,7 +261,7 @@ describe("storage section payload", () => {
     const payload = storageSection(observation);
     const parsed = SectionIngestSchema.safeParse(payload);
     expect(parsed.success).toBe(true);
-    expect(payload).toMatchObject({ key: "storage", label: "S3 storage" });
+    expect(payload).toMatchObject({ key: "storage", label: "Data storage" });
     expect(payload.source).toBe("aws-s3-cloudwatch");
     // A gauge is never sent as an additive daily series.
     expect("daily_series" in payload).toBe(false);
@@ -276,7 +277,7 @@ describe("storage section payload", () => {
     });
     expect(byKey.get("storage.by_class")).toMatchObject({
       value: 1,
-      breakdown: [{ label: "StandardStorage", value: 121_650_377_907_484 }],
+      breakdown: [{ label: "Standard", value: 121_650_377_907_484 }],
       breakdown_unit: "bytes",
     });
     expect(byKey.get("storage.collector.errors")).toMatchObject({ value: 0, severity: "ok" });
@@ -288,14 +289,34 @@ describe("storage section payload", () => {
     }
   });
 
-  test("a failure status replaces the headline instead of reporting zero", () => {
-    const status = storageFailureStatus(
-      "CloudWatch returned no object count observations",
-      new Date("2026-09-28T08:30:00Z"),
+  test("labels each storage class in plain words, largest first", () => {
+    const payload = storageSection(
+      latestStorageObservation(multiclass, CURRENT.startDate, CURRENT.endDate),
     );
+    const byClass = payload.metrics.find((metric) => metric.key === "storage.by_class");
+    expect(byClass?.breakdown).toEqual([
+      { label: "Standard", value: 121_650_377_907_484 },
+      { label: "Infrequent access", value: 3_500_000_000_000 },
+      { label: "Infrequent access, small-object minimum", value: 12_000_000 },
+    ]);
+  });
+
+  test("every storage class has a distinct plain label, with a neutral fallback", () => {
+    const labels = STORAGE_TYPES.map(storageClassLabel);
+    expect(new Set(labels).size).toBe(STORAGE_TYPES.length);
+    expect(labels).not.toContain("Other storage class");
+    expect(storageClassLabel("SomeFutureStorage")).toBe("Other storage class");
+    expect(storageClassLabel("toString")).toBe("Other storage class");
+  });
+
+  test("a failure status replaces the headline with a generic message", () => {
+    const status = storageFailureStatus(new Date("2026-09-28T08:30:00Z"));
     expect(SectionIngestSchema.safeParse(status).success).toBe(true);
+    expect(status).toMatchObject({ key: "storage", label: "Data storage" });
     expect(status.metrics.map((metric) => metric.key)).toEqual(["storage.collector.errors"]);
     expect(status.metrics[0]).toMatchObject({ value: 1, severity: "error" });
-    expect(status.metrics[0].hint).toStartWith("2026-09-28 UTC collection failed:");
+    expect(status.metrics[0].hint).toBe(
+      "2026-09-28 UTC collection failed; the stored amount is unknown until a later run succeeds.",
+    );
   });
 });
