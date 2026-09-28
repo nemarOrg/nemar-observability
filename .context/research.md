@@ -446,7 +446,8 @@ account Settings. A first-party preference cookie shares the choice between the 
 sites. If that cookie cannot be used, local/session storage is scoped to the site where the choice
 was made; if every storage option is blocked, the opt-out lasts only for the current page.
 
-The website implementation and canonical docs policy are being prepared on separate branches.
-Keep the production website ID unset until the Umami site is provisioned and real-browser
-default-on/opt-out, event, and test-host acceptance passes. The privacy policy change should be
-promoted alongside the production website behavior.
+The website implementation is in draft PR `nemarOrg/website#365` targeting `staging`; the
+canonical policy is in draft PR `nemarOrg/docs#46` targeting `main`. Keep the production website
+ID unset until the Umami site is provisioned and real-browser default-on/opt-out, event, and
+test-host acceptance passes. Hold the policy PR until the production website behavior ships, and
+update its effective date if rollout slips.

@@ -45,9 +45,13 @@ dashboard implementation phases.
   anonymous analytics policy in `nemarOrg/website#345`: no saved preference
   enables tracking only on configured production hosts and allowlisted pages,
   including the signed-in upload flow; the saved opt-out disables it. The
-  canonical privacy policy is being aligned before production rollout. See
-  those issues for the remaining owner gates and `.context/research.md` for the
-  exact routing and verification results.
+  implementation is in draft `nemarOrg/website#365`, targeting `staging`. The
+  canonical policy update is draft `nemarOrg/docs#46`, targeting `main`; hold it
+  until the matching production website behavior ships, and update its
+  effective date if rollout slips. Keep issue #345 open until the dedicated
+  property and real-browser acceptance are complete. This reconciliation is
+  tracked in PR #78. See `.context/research.md` for routing and verification
+  details.
 - S3 `BytesDownloaded` collection is the separate deferred follow-up in issue
   #59; it does not block the closed core usage epic. Collector and dashboard
   support are merged, and the historical read-only CloudWatch query succeeded.
