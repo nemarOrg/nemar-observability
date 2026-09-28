@@ -1,17 +1,42 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# Runs one installed S3 CloudWatch collector with secrets injected from the
+# read-only Infisical path prod:/observability/egress. Both collectors reuse
+# its CloudWatch read key; each child sees only its own section-ingest token.
+
+INSTALL_ROOT="/opt/nemar-observability"
+LOG_TAG="s3-collector"
+
 die() {
-  printf '[s3-egress] ERROR: %s\n' "$*" >&2
+  printf '[%s] ERROR: %s\n' "$LOG_TAG" "$*" >&2
   exit 2
 }
 
 if (($# != 1)); then
-  die "usage: $0 /opt/nemar-observability/scripts/push-s3-egress.ts"
+  die "usage: $0 $INSTALL_ROOT/scripts/push-s3-egress.ts|push-s3-storage.ts"
 fi
 COLLECTOR="$1"
-EXPECTED_COLLECTOR="/opt/nemar-observability/scripts/push-s3-egress.ts"
-[[ "$COLLECTOR" == "$EXPECTED_COLLECTOR" ]] || die "collector path must be $EXPECTED_COLLECTOR"
+INFISICAL_RUN_ENV=()
+case "$COLLECTOR" in
+  "$INSTALL_ROOT/scripts/push-s3-egress.ts")
+    LOG_TAG="s3-egress"
+    OTHER_INGEST_TOKEN="OBS_STORAGE_INGEST_TOKEN"
+    if [[ ${EGRESS_START_DATE+x} ]]; then
+      INFISICAL_RUN_ENV+=("EGRESS_START_DATE=$EGRESS_START_DATE")
+    fi
+    if [[ ${EGRESS_LOOKBACK_DAYS+x} ]]; then
+      INFISICAL_RUN_ENV+=("EGRESS_LOOKBACK_DAYS=$EGRESS_LOOKBACK_DAYS")
+    fi
+    ;;
+  "$INSTALL_ROOT/scripts/push-s3-storage.ts")
+    LOG_TAG="s3-storage"
+    OTHER_INGEST_TOKEN="OBS_EGRESS_INGEST_TOKEN"
+    ;;
+  *)
+    die "collector path must be $INSTALL_ROOT/scripts/push-s3-egress.ts or push-s3-storage.ts"
+    ;;
+esac
 [ -r "$COLLECTOR" ] || die "collector script is not readable"
 
 INFISICAL_CLI="${INFISICAL_CLI:-${HOME}/.local/bin/infisical}"
@@ -33,9 +58,6 @@ TOKEN_MODE="$(stat -c '%a' -- "$TOKEN_FILE")"
 
 INFISICAL_TOKEN="$(<"$TOKEN_FILE")"
 [ -n "$INFISICAL_TOKEN" ] || die "the Infisical token file is empty"
-INFISICAL_RUN_ENV=()
-[[ ${EGRESS_START_DATE+x} ]] && INFISICAL_RUN_ENV+=("EGRESS_START_DATE=$EGRESS_START_DATE")
-[[ ${EGRESS_LOOKBACK_DAYS+x} ]] && INFISICAL_RUN_ENV+=("EGRESS_LOOKBACK_DAYS=$EGRESS_LOOKBACK_DAYS")
 
 # Use the public Infisical hostname through the nemar-infisical tunnel. Cloudflare Access
 # bypasses the exact hostname; Infisical still authenticates this scoped service token.
@@ -54,7 +76,7 @@ exec env -i \
   --include-imports=false \
   --silent \
   -- \
-  env -u INFISICAL_TOKEN -u INFISICAL_DOMAIN -u INFISICAL_PROFILE \
+  env -u INFISICAL_TOKEN -u INFISICAL_DOMAIN -u INFISICAL_PROFILE -u "$OTHER_INGEST_TOKEN" \
     AWS_CONFIG_FILE=/dev/null \
     AWS_SHARED_CREDENTIALS_FILE=/dev/null \
     AWS_EC2_METADATA_DISABLED=true \

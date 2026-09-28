@@ -1,5 +1,5 @@
 [Unit]
-Description=Collect daily NEMAR S3 download bytes for observability
+Description=Collect the daily NEMAR S3 storage size for observability
 Wants=network-online.target
 After=network-online.target
 
@@ -10,7 +10,7 @@ Group=yahya
 Environment=HOME=/home/yahya
 Environment=PATH=/home/yahya/.local/bin:/home/yahya/.bun/bin:/usr/local/bin:/usr/bin:/bin
 WorkingDirectory=/opt/nemar-observability
-ExecStart=/opt/nemar-observability/ops/with-collector-secrets.sh /opt/nemar-observability/scripts/push-s3-egress.ts
+ExecStart=/opt/nemar-observability/ops/with-collector-secrets.sh /opt/nemar-observability/scripts/push-s3-storage.ts
 NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=strict
