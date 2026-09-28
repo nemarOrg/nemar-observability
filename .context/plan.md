@@ -4,7 +4,9 @@ Epic: nemarOrg/nemar-cli#695. This repo covers Phases 2-7.
 
 ## NEMAR observability dashboard epic (#52)
 
-Last reconciled with GitHub on 2026-09-27. Epic #52 is closed.
+Last reconciled with GitHub on 2026-09-27. Core epic #52 is closed; the
+remaining Umami and website items are live owner-acceptance gates, not unfinished
+dashboard implementation phases.
 
 - Issue #51 and daily-series/API work PR #60 are closed/merged. Per-section
   ingest authorization is deployed; each producer still needs its own token
@@ -18,12 +20,26 @@ Last reconciled with GitHub on 2026-09-27. Epic #52 is closed.
 - Country-map and question-led clarity work issue #69 and PRs #70-#71 are
   closed/merged. The map uses vendored country boundaries and preserves small
   locations with point markers.
+- Dashboard sizing, hover, and range-map work issue #72 / PR #73 are
+  closed/merged and deployed. The layout has balanced desktop widths, stacks
+  on small screens, and shows date plus exact value on chart and map hover or
+  keyboard focus. Cloudflare country values follow the selected range after
+  per-day small-cell suppression; Umami country sessions remain one completed
+  UTC day.
 - Umami issue `nemarOrg/nemar-umami#1` and website issue
   `nemarOrg/website#345` remain open for owner-run service, configuration,
-  privacy, and live-browser acceptance. Their implementation PRs #2-#6 and
-  #363 have merged; see those issues for remaining gates.
-- S3 `BytesDownloaded` collection is the separate active follow-up in issue
-  #59. It does not block the closed core usage epic.
+  privacy, and live-browser acceptance. Their implementation PRs are merged,
+  but Umami is not yet running and the website tracker has not passed real-
+  browser acceptance. Keep the public tunnel connector stopped until the exact
+  `POST analytics.nemar.org/api/send` rate limit is verified; the available
+  Cloudflare API token currently receives 403 for that rule. See those issues
+  for the owner gates.
+- S3 `BytesDownloaded` collection is the separate deferred follow-up in issue
+  #59; it does not block the closed core usage epic. Collector and dashboard
+  support are merged, and the historical read-only CloudWatch query succeeded.
+  The egress token/Worker secret, live section push, timer installation, and
+  end-to-end chart acceptance remain outstanding. Keep the timer disabled
+  until those gates pass; see `.context/phase4-plan.md`.
 
 The first dashboard implementation (schema, Worker/API, UI, D1 history, cron,
 deployment, and docs) is already on `main`; the old P2-P7 scaffold checklist is
@@ -53,46 +69,23 @@ summed across buckets as unique people.
 
 ## Active follow-ups
 
-- [ ] **Dashboard sizing, hover, and range map (issue #72)** — balance chart
-      and map widths; show UTC period and exact value on hover/focus; have the
-      Cloudflare map follow the selected range, suppressing small cells per
-      completed day before aggregation. Keep Umami country sessions to one
-      completed day because distinct sessions are not additive. S3 response
-      bytes remain bucket-wide across NEMAR data planes, include internal
-      conversion reads, and have no country attribution, so do not place them
-      on the map.
-- [ ] **S3 response-byte collection (issue #59)** — the collector and systemd
-      units from PR #61 are in the repo, but the timer is not installed or
-      enabled. Query `AWS/S3:BytesDownloaded`, `Stat=Sum`, `Period=86400`,
-      `BucketName=nemar`, `FilterId=EntireBucket`, in `us-east-2`. These are
-      bucket-wide response bytes, including conversion reads; they cannot
-      identify a caller, machine, or location. Keep them separate from
-      Cloudflare edge bytes and Worker-observed bytes. There is no billing
-      reconciliation requirement.
-      The 2026-08-01 through 2026-09-26 UTC CloudWatch backfill returned all 57
-      expected daily points, totaling 394,926,061,470,340 bytes (394.926 TB
-      decimal); this is a source query, not yet a dashboard series.
-      Nemaring now reads AWS secrets from `https://infisical.nemar.org` through
-      the existing tunnel. The exact-host Cloudflare Access app is
-      `Bypass / Everyone`; the public API status check returned HTTP 200 with
-      no redirect. Infisical still authenticates its scoped service token;
-      public signup is disabled and administrator passkey MFA is enabled. Do
-      not route this collector through loopback or claim Cloudflare Access
-      continues to protect the Infisical hostname.
-      Activation is gated on an `egress` section token in Infisical and the
-      corresponding `OBS_INGEST_TOKENS_JSON` production Worker secret, then a
-      real section push and chart verification. Both are currently missing;
-      keep the timer disabled until these gates pass. Details and verification
-      receipts are in `.context/phase4-plan.md` and `.context/research.md`.
-- [ ] **Website and viewer interaction analytics** — website issue #345 is
-      still open. PR #363 is merged; the consent-gated tracker emits generic
-      page categories and fixed citation/viewer/upload events without
-      identifiers, URLs, or event properties. Umami deployment issue
-      `nemarOrg/nemar-umami#1` also remains open for owner-run service setup,
-      Access/rate-limit checks, credentials, backup, and live ingestion. Keep
-      these anonymous browser/event metrics separate from S3 bytes, server
-      requests, and distinct visitors. Follow both issues for their acceptance
-      gates.
+- [ ] **Live Umami and website acceptance** — complete the owner-run service,
+      privacy, backup, and credential setup in `nemarOrg/nemar-umami#1`, then
+      run the real-browser consent and event checks in `nemarOrg/website#345`.
+      The website tracker implementation is merged, but production website
+      configuration and live acceptance remain open. Keep visitor/session,
+      page-view, and event measures separate from requests and response bytes.
+      Set event coverage to the first complete UTC day after production
+      instrumentation is verified.
+- [ ] **S3 response-byte collection (issue #59)** — after the core browser
+      analytics gates, install and enable the existing collector. Query
+      `AWS/S3:BytesDownloaded`, `Stat=Sum`, `Period=86400`, dimensions
+      `BucketName=nemar` and `FilterId=EntireBucket`, in `us-east-2`. This is a
+      bucket-wide byte total that includes conversion reads; it has no caller,
+      machine, or location attribution. Keep it separate from Cloudflare and
+      Worker measures. The collector must inject the scoped secrets, push a
+      real section, and pass API/chart coverage checks before its timer is
+      enabled. See `.context/phase4-plan.md` and issue #59.
 
 ## v1 metric catalog (all derivable now)
 
