@@ -126,6 +126,7 @@ function loadAudience() {
   const requestId = ++audienceRequestId;
   if (!start || !end || start > end) {
     state.audience = null; state.audienceLoading = false; state.audienceFailed = false; state.audienceInvalid = true;
+    renderKpis();
     stateMessage(root, "info", "Choose a valid UTC date range.", "The start date must be on or before the end date.");
     stateMessage(geography, "info", "Choose a valid UTC date range to view country activity.");
     return;
@@ -133,11 +134,13 @@ function loadAudience() {
   const days = (Date.parse(end + "T00:00:00Z") - Date.parse(start + "T00:00:00Z")) / 86400000 + 1;
   if (!Number.isFinite(days) || days > 3660) {
     state.audience = null; state.audienceLoading = false; state.audienceFailed = false; state.audienceInvalid = true;
+    renderKpis();
     stateMessage(root, "info", "Choose a valid UTC date range of 3,660 days or fewer.");
     stateMessage(geography, "info", "Choose a valid UTC date range to view country activity.");
     return;
   }
   state.audienceLoading = true; state.audienceInvalid = false; state.audienceFailed = false;
+  renderKpis();
   markRefreshing(root, gridSkeleton);
   markRefreshing(geography, geoSkeleton);
   fetch(API + "/audience?start=" + encodeURIComponent(start) + "&end=" + encodeURIComponent(end))
@@ -152,11 +155,14 @@ function loadAudience() {
       state.audienceLoading = false;
       renderAudience(payload);
       renderGeography(payload, start, end);
+      renderKpis();
+      renderHeadline();
     })
     .catch(function (err) {
       if (requestId !== audienceRequestId) return;
       console.error("[ui] audience load failed:", err);
       state.audience = null; state.audienceLoading = false; state.audienceFailed = true;
+      renderKpis();
       stateMessage(root, "error", "Could not load audience metrics", "Website and request totals for these dates are unknown right now, which is not the same as zero.", loadAudience);
       stateMessage(document.getElementById("geography"), "error", "Could not load country activity", "Locations for these dates are unknown right now.", loadAudience);
     });
@@ -228,6 +234,7 @@ function renderSeries(payload, start, end) {
     : "All dates are UTC, with complete days through " + longDay(end) + ".";
   if (!payload.series.length) {
     stateMessage(root, "info", "No reporting series cover this range", "Coverage is unavailable here; this does not mean usage was zero.");
+    renderKpis();
     return;
   }
   settle(root);
@@ -288,6 +295,7 @@ function renderSeries(payload, start, end) {
     });
     root.appendChild(card);
   });
+  renderKpis();
 }
 function seriesPlane(series) {
   const key = String(series.section || "").toLowerCase();

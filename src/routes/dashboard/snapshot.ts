@@ -84,6 +84,8 @@ function renderSnapshot(snap) {
   renderUsageSnapshot(usage);
   renderHealth(health);
   renderStatus(snap, sections);
+  renderKpis();
+  renderHeadline();
   const meta = document.getElementById("health-meta");
   meta.textContent = "Latest snapshot generated " + formatDateTime(snap.generated_at) + " (" + relativeTime(snap.generated_at) + "). It refreshes every hour.";
 }
@@ -95,6 +97,7 @@ function renderSnapshotError() {
       root.appendChild(gridSkeleton());
     });
     state.snapshotFailed = false;
+    renderKpis();
     load();
   };
   document.getElementById("health-meta").textContent = "Could not load the latest snapshot.";
@@ -104,6 +107,7 @@ function renderSnapshotError() {
   const summary = document.getElementById("health-summary");
   summary.textContent = "";
   setPill("unknown", "Status unavailable", "Pipeline status is unavailable because the latest snapshot did not load.");
+  renderKpis();
 }
 function attentionItems(snap, sections) {
   const items = [];

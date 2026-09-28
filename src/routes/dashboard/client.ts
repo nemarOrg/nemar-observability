@@ -11,12 +11,14 @@
 
 import { CHARTS_JS } from "./charts";
 import { CORE_JS } from "./core";
+import { OVERVIEW_JS } from "./overview";
 import { REACH_JS } from "./reach";
 import { SNAPSHOT_JS } from "./snapshot";
 import { USAGE_JS } from "./usage";
 
 const BOOT_JS = String.raw`
 load();
+loadHistory();
 const initialRange = rangeFor(30);
 document.getElementById("range-start").value = initialRange.start;
 document.getElementById("range-end").value = initialRange.end;
@@ -27,4 +29,12 @@ document.getElementById("grouping").addEventListener("change", regroupSeries);
 loadSelectedRange();
 `;
 
-export const CLIENT_JS = [CORE_JS, CHARTS_JS, USAGE_JS, REACH_JS, SNAPSHOT_JS, BOOT_JS].join("\n");
+export const CLIENT_JS = [
+  CORE_JS,
+  CHARTS_JS,
+  USAGE_JS,
+  REACH_JS,
+  SNAPSHOT_JS,
+  OVERVIEW_JS,
+  BOOT_JS,
+].join("\n");
