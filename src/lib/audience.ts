@@ -50,10 +50,15 @@ export interface AudienceResponse {
   start: string;
   end: string;
   observed_at: string;
+  /**
+   * Umami country eligibility for the requested range. Each source's
+   * country_coverage is authoritative for that source's map rows.
+   */
   country_breakdown_scope: "single_completed_day" | "multi_day" | "in_progress_day" | "future_day";
   umami: {
     status: AudienceSourceStatus;
     coverage: AudienceCoverage | null;
+    country_coverage: AudienceCoverage | null;
     visitors: number | null;
     visits: number | null;
     pageviews: number | null;
@@ -65,6 +70,8 @@ export interface AudienceResponse {
   cloudflare: {
     status: AudienceSourceStatus;
     coverage: AudienceCoverage | null;
+    country_coverage: AudienceCoverage | null;
+    country_requests: number | null;
     requests: number | null;
     countries: CountryRow[];
     suppressed_small_countries: boolean;
@@ -107,6 +114,32 @@ export function summarizeCountries(rows: readonly CountryRow[]): CountrySummary 
   return {
     countries,
     suppressedSmallCountries: smallTotal > 0,
+    omittedUnreportedCountries,
+  };
+}
+
+/** Suppress each UTC day's small cells before adding reportable rows by label. */
+export function summarizeDailyCountryRows(
+  days: readonly { countries: readonly CountryRow[] }[],
+): CountrySummary {
+  const totals = new Map<string, number>();
+  let suppressedSmallCountries = false;
+  let omittedUnreportedCountries = false;
+
+  for (const day of days) {
+    const summary = summarizeCountries(day.countries);
+    suppressedSmallCountries ||= summary.suppressedSmallCountries;
+    omittedUnreportedCountries ||= summary.omittedUnreportedCountries;
+    for (const row of summary.countries) {
+      totals.set(row.label, (totals.get(row.label) ?? 0) + row.value);
+    }
+  }
+
+  return {
+    countries: [...totals.entries()]
+      .map(([label, value]) => ({ label, value }))
+      .sort((a, b) => b.value - a.value || a.label.localeCompare(b.label)),
+    suppressedSmallCountries,
     omittedUnreportedCountries,
   };
 }

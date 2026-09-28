@@ -218,8 +218,10 @@ const ZONE_REQUESTS_QUERY = `query($zone:String!,$since:Date!,$until:Date!){
 
 export interface ZoneCountryRange {
   coverage: AudienceCoverage | null;
+  country_coverage: AudienceCoverage | null;
+  country_requests: number | null;
   requests: number | null;
-  countries: CountryRow[];
+  country_days: { date: string; countries: CountryRow[] }[];
 }
 
 function validIsoDate(value: string): boolean {
@@ -233,9 +235,9 @@ function isRequestCount(value: unknown): value is number {
 }
 
 /**
- * Query selected-window zone request totals and country rollups. Cloudflare's
- * 30-day range includes the current UTC date; this source reports the exact
- * overlap and never describes its request counts as unique visitors.
+ * Query selected-window zone request totals and daily country rollups.
+ * Cloudflare's 30-day range includes the current UTC date; current-day country
+ * rows are discarded so the map covers completed days only.
  */
 export async function fetchZoneCountryRange(
   env: Bindings,
@@ -258,7 +260,19 @@ export async function fetchZoneCountryRange(
   );
   const start = requestedStart > earliest ? requestedStart : earliest;
   const end = requestedEnd < today ? requestedEnd : today;
-  if (start > end) return { coverage: null, requests: null, countries: [] };
+  if (start > end) {
+    return {
+      coverage: null,
+      country_coverage: null,
+      country_requests: null,
+      requests: null,
+      country_days: [],
+    };
+  }
+
+  const yesterday = isoDate(new Date(Date.parse(`${today}T00:00:00.000Z`) - 86_400_000));
+  const countryEnd = requestedEnd < today ? requestedEnd : yesterday;
+  const hasCompletedCountryDays = includeCountryBreakdown && start <= countryEnd;
 
   const nextDay = isoDate(new Date(Date.parse(`${end}T00:00:00.000Z`) + 86_400_000));
   const data = await queryGraphQL<{
@@ -284,7 +298,8 @@ export async function fetchZoneCountryRange(
   if (!Array.isArray(rows)) throw new Error("CF GraphQL audience response was invalid");
 
   let requests = 0;
-  const byCountry = new Map<string, number>();
+  let countryRequests = 0;
+  const countryDays: { date: string; countries: CountryRow[] }[] = [];
   for (const row of rows) {
     if (
       !row ||
@@ -300,6 +315,7 @@ export async function fetchZoneCountryRange(
       throw new Error("CF GraphQL audience response was invalid");
     }
     requests += row.sum.requests;
+    const countries: CountryRow[] = [];
     for (const country of row.sum.countryMap ?? []) {
       if (
         !country ||
@@ -308,17 +324,20 @@ export async function fetchZoneCountryRange(
       ) {
         throw new Error("CF GraphQL audience response was invalid");
       }
-      byCountry.set(
-        country.clientCountryName,
-        (byCountry.get(country.clientCountryName) ?? 0) + country.requests,
-      );
+      countries.push({ label: country.clientCountryName, value: country.requests });
+    }
+    if (hasCompletedCountryDays && row.dimensions.date < today) {
+      countryRequests += row.sum.requests;
+      countryDays.push({ date: row.dimensions.date, countries });
     }
   }
 
   return {
     coverage: { start, end },
+    country_coverage: hasCompletedCountryDays ? { start, end: countryEnd } : null,
+    country_requests: hasCompletedCountryDays ? countryRequests : null,
     requests,
-    countries: [...byCountry.entries()].map(([label, value]) => ({ label, value })),
+    country_days: countryDays,
   };
 }
 

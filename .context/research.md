@@ -274,19 +274,68 @@ country groups before publishing. Multi-day ranges and the current/future day
 do not return country values, so overlapping queries and changing live counts
 cannot be used to subtract withheld daily cells.
 
-The daily country panel uses Cloudflare's zone rollup
-`httpRequests1dGroups.sum.countryMap` only for one completed UTC day. These are
-HTTP requests by country, including repeat clients and automated traffic; they
-are not unique visitors. Multi-day country queries are omitted because
-overlapping additive request ranges can expose suppressed small cells by
-subtraction. The current UTC day is omitted because its counts can change
-between requests; future dates have no observations yet. Longer selected ranges
-still return source totals, using a requests-only Cloudflare query. The existing integration queries a 30-day
-window; Cloudflare dataset query limits and retention are specific to each
-zone/account, so the dashboard should report the actual covered subrange and
-avoid assuming arbitrary historical coverage. A source outage, unconfigured
-secret, or range outside its data window is unavailable/partial rather than
-zero.
+The Phase 5 country map uses Cloudflare's zone rollup
+`httpRequests1dGroups.sum.countryMap` and shows HTTP request counts by country.
+One request is one HTTP resource/API call; one page view can create multiple
+requests. Repeat clients, bots, and other automated traffic can be included, so
+this is not a count of people, sessions, or page views. Keep the public label
+plain ("Requests to NEMAR" / "requests by country") and explain this in the
+location details; never convert request counts into an estimated number of
+visitors or sessions.
+
+Cloudflare also exposes a separate `visits` measure on
+`httpRequestsAdaptiveGroups`; Cloudflare defines a visit by a page view that
+originated from another site or a direct link, and one visit can contain
+multiple page views. This is not Umami's anonymous unique-session estimate and
+is not available in the existing country-map rollup, so it must not be used to
+reinterpret these country request counts. Use Umami page views and
+unique-session estimates for website audience measures when configured. The
+current UTC day is omitted from the country map because its counts can change
+between requests; future dates have no observations yet. The existing
+integration queries a 30-day window; Cloudflare dataset query limits and
+retention are specific to each zone/account, so the dashboard should report the
+actual covered subrange and avoid assuming arbitrary historical coverage. A
+source outage, unconfigured secret, or range outside its data window is
+unavailable/partial rather than zero.
+
+### Dashboard range map and hover behavior (issue #72, 2026-09-27)
+
+The Cloudflare map follows the selected usage range. The API carries separate
+`country_coverage` and `country_requests` values: map coverage includes only
+completed UTC days, while the request total may include the in-progress day and
+is explicitly marked partial. For each completed day, apply the existing
+minimum-10 country rule first. Add only those daily published rows across the
+selected range; keep each day's `Other / withheld` aggregate pooled and omit it
+when that day's combined small rows do not reach 10. This ensures that a long
+range cannot make an otherwise suppressed daily country row appear. Cloudflare
+range coverage remains bounded by its current 30-day query window, and the map
+shows the actual country coverage dates.
+
+The response-level `country_breakdown_scope` describes Umami country
+eligibility only. Consumers determine whether a source has map data and which
+dates it covers from that source's own `country_coverage`. Umami country metrics
+are queried only when the date-range API confirms coverage for the entire
+selected UTC day; partial-day Umami coverage leaves country rows unavailable.
+
+The daily suppression-before-range aggregation has no dedicated behavioral
+test yet. `.rules/testing.md` prohibits fabricated or mocked datasets, and the
+repository has no provider-produced raw country fixture; committing real
+sub-10 country rows would defeat the same privacy threshold the code protects.
+Keep this as a known test gap until a privacy-safe real fixture or an approved
+real-source test path is available.
+
+Umami country values remain a source-native anonymous unique-session estimate
+for exactly one completed UTC day. They are never summed across days. When a
+multi-day range is selected, the map's website-session source is unavailable
+for that range; the Cloudflare request map remains available independently.
+S3 byte egress is bucket-wide across NEMAR data planes, includes internal
+conversion reads, and has no country attribution.
+
+Time-series points and map regions expose the UTC period and exact measure on
+pointer hover and keyboard focus. The chart tooltip also shows a human-readable
+byte amount alongside the exact byte count. The dashboard main content, series
+cards, and map have capped desktop widths; the map stacks its summary under the
+map on narrow screens.
 
 Current primary references checked against official docs on 2026-09-27:
 
@@ -296,6 +345,8 @@ Current primary references checked against official docs on 2026-09-27:
 - Umami [self-hosted API overview](https://docs.umami.is/docs/api)
 - Cloudflare [GraphQL limits and per-dataset range constraints](https://developers.cloudflare.com/analytics/graphql-api/limits/)
 - Cloudflare [filtering and date bounds](https://developers.cloudflare.com/analytics/graphql-api/features/filtering/)
+- Cloudflare [HTTP request and visit measures](https://developers.cloudflare.com/analytics/graphql-api/migration-guides/graphql-api-analytics/)
+- Cloudflare [what Analytics counts and how it differs from browser analytics](https://developers.cloudflare.com/analytics/faq/about-analytics/)
 
 ### Infisical public-host access and current S3 egress receipt (2026-09-27)
 

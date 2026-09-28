@@ -15,6 +15,9 @@ Last reconciled with GitHub on 2026-09-27. Epic #52 is closed.
 - Issue #63 and range-aware visitor/country metrics PR #65 are closed/merged.
 - Follow-up fixes PR #66 (stale-series visibility) and PR #67 (Cloudflare byte
   labels) are merged to `main`.
+- Country-map and question-led clarity work issue #69 and PRs #70-#71 are
+  closed/merged. The map uses vendored country boundaries and preserves small
+  locations with point markers.
 - Umami issue `nemarOrg/nemar-umami#1` and website issue
   `nemarOrg/website#345` remain open for owner-run service, configuration,
   privacy, and live-browser acceptance. Their implementation PRs #2-#6 and
@@ -50,14 +53,14 @@ summed across buckets as unique people.
 
 ## Active follow-ups
 
-- [ ] **Dashboard clarity and country map (issue #69)** — compact the public
-      usage view, keep daily points as the default with rolling date presets,
-      and move metric definitions and source coverage into info/details. Show
-      one completed UTC day on a country map with Cloudflare requests and
-      Umami sessions as separate selectable sources; preserve small-cell
-      suppression. S3 response bytes remain a bucket-wide measure across all
-      NEMAR data planes, include internal conversion reads, and have no country
-      attribution, so do not place them on the map.
+- [ ] **Dashboard sizing, hover, and range map (issue #72)** — balance chart
+      and map widths; show UTC period and exact value on hover/focus; have the
+      Cloudflare map follow the selected range, suppressing small cells per
+      completed day before aggregation. Keep Umami country sessions to one
+      completed day because distinct sessions are not additive. S3 response
+      bytes remain bucket-wide across NEMAR data planes, include internal
+      conversion reads, and have no country attribution, so do not place them
+      on the map.
 - [ ] **S3 response-byte collection (issue #59)** — the collector and systemd
       units from PR #61 are in the repo, but the timer is not installed or
       enabled. Query `AWS/S3:BytesDownloaded`, `Stat=Sum`, `Period=86400`,
