@@ -45,13 +45,15 @@ dashboard implementation phases.
   anonymous analytics policy in `nemarOrg/website#345`: no saved preference
   enables tracking only on configured production hosts and allowlisted pages,
   including the signed-in upload flow; the saved opt-out disables it. The
-  implementation is in draft `nemarOrg/website#365`, targeting `staging`. The
-  canonical policy update is draft `nemarOrg/docs#46`, targeting `main`; hold it
-  until the matching production website behavior ships, and update its
-  effective date if rollout slips. Keep issue #345 open until the dedicated
-  property and real-browser acceptance are complete. This reconciliation is
-  tracked in PR #78. See `.context/research.md` for routing and verification
-  details.
+  implementation PR `nemarOrg/website#365` merged into `staging` on 2026-09-28
+  as `b6a1489`. The staging deploy workflow (#36449749794) succeeded, and
+  `test.nemar.org` returned HTTP 200 with the updated notice. This is staging
+  only; production Umami property setup and real-browser acceptance remain
+  open in issue #345. The canonical policy update is draft
+  `nemarOrg/docs#46`, targeting `main`; hold it until the matching production
+  website behavior ships, and update its effective date if rollout slips. The
+  initial epic reconciliation is PR #78. See `.context/research.md` for exact
+  routing and verification details.
 - S3 `BytesDownloaded` collection is the separate deferred follow-up in issue
   #59; it does not block the closed core usage epic. Collector and dashboard
   support are merged, and the historical read-only CloudWatch query succeeded.
@@ -91,9 +93,11 @@ summed across buckets as unique people.
       connectors are running; `analytics.nemar.org` and `infisical.nemar.org`
       have host-scoped Managed Challenge on non-API paths. Umami's
       Cloudflare Access policy is Bypass Everyone, with Umami's own login still
-      required. Complete initial-admin/signup setup, website provisioning,
-      backup/retention schedules, and the real-browser default-on/opt-out and
-      event checks in `nemarOrg/nemar-umami#1` and `nemarOrg/website#345`.
+      required. The default-on/opt-out website code is merged to `staging` and
+      deployed to `test.nemar.org`; complete initial-admin/signup setup,
+      website provisioning, backup/retention schedules, and the production
+      real-browser default-on/opt-out and event checks in
+      `nemarOrg/nemar-umami#1` and `nemarOrg/website#345`.
       `/api/send` remains
       unchallenged and has no dedicated rate limit: the Free-plan rate limiter
       lacks host and method fields, and a zone-wide path rule has not been
