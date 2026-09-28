@@ -113,6 +113,15 @@ summed across buckets as unique people.
       Worker measures. The collector must inject the scoped secrets, push a
       real section, and pass API/chart coverage checks before its timer is
       enabled. See `.context/phase4-plan.md` and issue #59.
+- [ ] **S3 storage size section (`storage`):** collector
+      `scripts/push-s3-storage.ts`, units, and tests are on branch
+      `feat/s3-storage-section`. It reuses the egress CloudWatch key from
+      `prod:/observability/egress` and pushes gauges only (no daily series;
+      trend via `/snapshot/history`). Operator steps still open: add
+      `OBS_STORAGE_INGEST_TOKEN` to that Infisical path, add the same value as
+      `storage` in `OBS_INGEST_TOKENS_JSON`, then run the combined nemaring
+      install block in the README and confirm `storage.bucket_bytes` in the
+      snapshot.
 
 ## v1 metric catalog (all derivable now)
 

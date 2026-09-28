@@ -76,7 +76,7 @@ curl -X POST https://dashboard.nemar.org/observability/api/sections/qa \
 ```
 
 Set `OBS_INGEST_TOKENS_JSON` to a JSON object mapping section keys to distinct
-bearer tokens (for example `{"website":"…","egress":"…"}`). There is no
+bearer tokens (for example `{"website":"…","egress":"…","storage":"…"}`). There is no
 endpoint-wide token fallback. Values must be distinct after trimming whitespace,
 and a token is valid only for its matching URL key.
 Daily series accept additive `count` or `bytes` values in UTC. Missing dates
@@ -183,11 +183,9 @@ missing, so the collector cannot push its section yet. The `prod` environment
 supplies production `api.nemar.org` credentials; the `dev` environment targets
 `api-test.nemar.org`, and local development uses `.dev.vars`.
 
-For the initial backfill and acceptance run from `/opt/nemar-observability`:
-
-```bash
-EGRESS_START_DATE=2026-08-01 ops/with-egress-secrets.sh /opt/nemar-observability/scripts/push-s3-egress.ts
-```
+The one-time backfill (`EGRESS_START_DATE=2026-08-01`), unit installation, and
+first runs are part of the combined block in
+[Installing the collectors on nemaring](#installing-the-collectors-on-nemaring).
 
 The collector publishes a red `Latest collector run errors` status metric when
 AWS collection or freshness validation fails but the section token and
@@ -198,23 +196,6 @@ or has no ingest token, the systemd journal records the failure and the last
 series eventually ages stale. Check the service logs and
 `GET /observability/api/timeseries` for the returned dates.
 
-Install the units and run the collector once for acceptance:
-
-```bash
-sudo install -m 0644 ops/systemd/nemar-observability-egress.service /etc/systemd/system/
-sudo install -m 0644 ops/systemd/nemar-observability-egress.timer /etc/systemd/system/
-sudo systemctl daemon-reload
-sudo systemctl start nemar-observability-egress.service
-sudo journalctl -u nemar-observability-egress.service -n 100 --no-pager
-```
-
-After the real section is accepted, appears in the time-series API, and the
-dashboard shows the expected dates and gaps, enable the schedule:
-
-```bash
-sudo systemctl enable --now nemar-observability-egress.timer
-```
-
 The timer is scheduled daily at 08:17 UTC with up to 15 minutes of randomized
 delay. `Persistent=true` catches up a missed timer activation after downtime;
 it does not retry a collector process that ran and failed. Failures remain in
@@ -223,6 +204,67 @@ run re-reads the 14-day overlap, replacing corrected observations. CloudWatch's
 `GetMetricData` API uses an exclusive end timestamp; the collector ends each
 query at today's UTC midnight so it requests only complete UTC days
 ([API reference](https://docs.aws.amazon.com/AmazonCloudWatch/latest/APIReference/API_GetMetricData.html)).
+
+## Daily S3 storage size
+
+`scripts/push-s3-storage.ts` pushes section `storage` (label "S3 storage", source `aws-s3-cloudwatch`) so administrators can monitor how much data bucket `nemar` in `us-east-2` holds.
+It reads the daily S3 storage metrics with one `GetMetricData` call: `AWS/S3:BucketSizeBytes` for every documented `StorageType`, and `AWS/S3:NumberOfObjects` for `StorageType=AllStorageTypes`, both `Stat=Average`, `Period=86400`, `BucketName=nemar`.
+These storage metrics need no bucket metrics configuration, and the existing read-only CloudWatch key already permits the call.
+
+| metric | unit | value |
+|---|---|---|
+| `storage.bucket_bytes` | `bytes` | bytes stored, summed across the storage classes that report |
+| `storage.object_count` | `count` | objects stored, all storage classes |
+| `storage.by_class` | `count` | number of reporting storage classes; `breakdown` gives bytes per `StorageType` label, `breakdown_unit: "bytes"` |
+| `storage.collector.errors` | `errors` | `0` after a successful run; a failed run replaces the section with this metric alone, at `1` and severity `error` |
+
+S3 reports these values once per day, timestamped at 00:00 UTC, with roughly a one-day lag.
+They cover the whole bucket, including archives, Zarr copies, and internal objects.
+Each run reads the last seven UTC days and reports the newest day on which the object count and every reporting storage class all have a value; a class with no datapoints is omitted, never counted as zero.
+A run fails, and publishes the error status the same way the egress collector does, when that day ended more than 36 hours ago or no complete day exists.
+
+These are gauges, not additive quantities, so the collector sends no `daily_series`: the week and month views would add them up.
+The trend comes from snapshot history instead, for example `GET /observability/api/snapshot/history?metric=storage.bucket_bytes`, which returns the value each hourly snapshot saw (about one week).
+
+## Installing the collectors on nemaring
+
+Both collectors run through `ops/with-collector-secrets.sh`, which injects the existing read-only Infisical path `prod:/observability/egress` using the existing token file `$HOME/.config/infisical/nemar-observability-egress.token`.
+The storage collector reuses that path's `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, and `AWS_REGION`; no new AWS key or IAM change is needed.
+The wrapper removes the other collector's ingest token from each child's environment.
+
+A human must first create one new secret, in two places, with a fresh random value (for example `openssl rand -hex 32`):
+
+1. In Infisical project `nemar` (ID `817f7473-a318-4e99-9cf4-a89db057f5fc`), environment `prod`, path `/observability/egress`, add `OBS_STORAGE_INGEST_TOKEN`. (The egress collector still needs its own `OBS_EGRESS_INGEST_TOKEN` there, with a matching `egress` entry in the Worker secret, if that is not done yet.)
+2. Add the same value under key `storage` in the production Worker secret `OBS_INGEST_TOKENS_JSON`, keeping every existing entry (such as `egress`) and a distinct value per key: `npx cfman wrangler --account sccn secret put OBS_INGEST_TOKENS_JSON -c wrangler.toml`.
+
+Then, on nemaring, this one block clones or updates the checkout, installs both units, runs the one-time egress backfill, enables both timers, runs each service once, and shows the journal:
+
+```bash
+sudo bash -euo pipefail <<'EOF'
+REPO=/opt/nemar-observability
+if [ -d "$REPO/.git" ]; then
+  git -C "$REPO" pull --ff-only
+else
+  git clone https://github.com/nemarOrg/nemar-observability.git "$REPO"
+fi
+install -m 0644 "$REPO"/ops/systemd/nemar-observability-{egress,storage}.{service,timer} /etc/systemd/system/
+systemctl daemon-reload
+sudo -u yahya env HOME=/home/yahya \
+  PATH=/home/yahya/.local/bin:/home/yahya/.bun/bin:/usr/local/bin:/usr/bin:/bin \
+  EGRESS_START_DATE=2026-08-01 \
+  "$REPO/ops/with-collector-secrets.sh" "$REPO/scripts/push-s3-egress.ts" \
+  || echo "egress backfill failed; see the output above"
+systemctl enable --now nemar-observability-egress.timer nemar-observability-storage.timer
+systemctl start nemar-observability-egress.service || echo "egress run failed; see the journal below"
+systemctl start nemar-observability-storage.service || echo "storage run failed; see the journal below"
+journalctl -u nemar-observability-egress.service -u nemar-observability-storage.service -n 100 --no-pager
+systemctl list-timers 'nemar-observability-*' --no-pager
+EOF
+```
+
+Afterward, confirm `storage.bucket_bytes` in `GET /observability/api/snapshot?cb=$(date +%s)` (the snapshot picks up a push at the next hourly cron) and the egress dates in `GET /observability/api/timeseries`.
+If either run failed, disable its timer with `sudo systemctl disable --now nemar-observability-<name>.timer` until the cause is fixed.
+The storage timer runs daily at 08:47 UTC with up to 15 minutes of randomized delay.
 
 ## Development
 

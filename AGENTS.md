@@ -35,7 +35,7 @@ src/
 
 Every metric is a headline number (a total, or a percent like "% with archive"); each tile can drill into the list of datasets behind it. Pipelines contribute **sections** to one versioned `MetricSnapshot` schema (`src/lib/schema/`). Two contribution modes:
 - **pull** — the hourly cron computes built-in sections it knows (`datasets`, `sizes`, `archive`, `zarr`, `imports`, `publication`, `access`, `cf`, `users`) from `nemar-db`, Analytics Engine, and Cloudflare zone analytics. (`sync` was retired with nemar-cli migration 0053 but stays reserved so a pushed section cannot recycle the key.)
-- **push** — an external pipeline (future data-processing / QA) `POST`s a schema-conformant section to `/observability/api/sections/:key` (token-auth); it is stored and merged into the snapshot. Adding a pipeline never requires changing the dashboard core.
+- **push** — an external pipeline (future data-processing / QA) `POST`s a schema-conformant section to `/observability/api/sections/:key` (token-auth); it is stored and merged into the snapshot. Adding a pipeline never requires changing the dashboard core. The first-party pushed sections are `egress` and `storage`, collected on nemaring by `scripts/push-s3-*.ts` through `ops/with-collector-secrets.sh`; each has its own entry in `OBS_INGEST_TOKENS_JSON` (README, "Installing the collectors on nemaring").
 
 ### Privacy boundary
 Public snapshot (the tiles) carries **headline numbers only, no private dataset IDs**.
@@ -55,6 +55,7 @@ Public snapshot (the tiles) carries **headline numbers only, no private dataset 
 - **Archives are not generated above 100 GB.** nemar-cli #752 records this in `archive_skip_reason` and leaves `archive_status` **NULL**, so any predicate keyed on `archive_status` alone counts a deliberate skip as a missing archive. Always pair the two: "missing" means `archive_skip_reason IS NULL AND archive_status != 'ready'`, and the denominator for archive coverage is published **minus** skipped.
 - **AE sampling:** aggregate access metrics with `SUM(_sample_interval)`, never `COUNT(*)`.
 - **AE blob layout** is a contract with nemar-cli's `buildAccessDataPoint`: `blob1` dataset_id, `blob2` source, `blob3` detail (`index`/`metadata`/`chunk` for zarr). Never sum across `blob3` — index.json crawling dwarfs real data reads.
+- **S3 storage (`storage`) is a gauge.** `BucketSizeBytes` and `NumberOfObjects` are daily point-in-time values: push them as snapshot metrics only, never as a `daily_series` (week and month views add values); the trend is `/snapshot/history`. Sum `BucketSizeBytes` only across the `StorageType`s that all report the same UTC day. The CloudWatch key allows only `GetMetricData` (no `ListMetrics`), so storage classes are enumerated, not discovered.
 - **Zone analytics** needs `CF_ZONE_ANALYTICS_TOKEN` (Zone > Analytics > Read on nemar.org; account-level Analytics Read does NOT cover it). `httpRequestsAdaptiveGroups` is the only host-dimensioned dataset and rejects windows wider than 1 day, so per-host data is accumulated daily into `cf_daily_host`. Exclude `rate-limit.internal`, and never sum daily uniques into a window total.
 
 ## Reading the shared documentation, and what to do when you cannot
