@@ -5,39 +5,44 @@ set -euo pipefail
 # read-only Infisical path prod:/observability/egress. Both collectors reuse
 # its CloudWatch read key; each child sees only its own section-ingest token.
 
-INSTALL_ROOT="/opt/nemar-observability"
-LOG_TAG="s3-collector"
-
 die() {
-  printf '[%s] ERROR: %s\n' "$LOG_TAG" "$*" >&2
+  printf '[%s] ERROR: %s\n' "${LOG_TAG:-s3-collector}" "$*" >&2
   exit 2
 }
+
+# Keep only an allowlist of inherited exported variables, so nothing else
+# reaches Infisical or the collector. The Infisical token is exported below
+# rather than passed to a command, so it never appears in a process argv.
+while IFS= read -r name; do
+  case "$name" in
+    HOME | PATH | INFISICAL_CLI | BUN_BIN | EGRESS_START_DATE | EGRESS_LOOKBACK_DAYS) ;;
+    *) unset "$name" 2>/dev/null || die "cannot clear inherited variable $name" ;;
+  esac
+done < <(compgen -e)
+
+INSTALL_ROOT="/opt/nemar-observability"
+LOG_TAG="s3-collector"
 
 if (($# != 1)); then
   die "usage: $0 $INSTALL_ROOT/scripts/push-s3-egress.ts|push-s3-storage.ts"
 fi
 COLLECTOR="$1"
-INFISICAL_RUN_ENV=()
 case "$COLLECTOR" in
   "$INSTALL_ROOT/scripts/push-s3-egress.ts")
     LOG_TAG="s3-egress"
     OTHER_INGEST_TOKEN="OBS_STORAGE_INGEST_TOKEN"
-    if [[ ${EGRESS_START_DATE+x} ]]; then
-      INFISICAL_RUN_ENV+=("EGRESS_START_DATE=$EGRESS_START_DATE")
-    fi
-    if [[ ${EGRESS_LOOKBACK_DAYS+x} ]]; then
-      INFISICAL_RUN_ENV+=("EGRESS_LOOKBACK_DAYS=$EGRESS_LOOKBACK_DAYS")
-    fi
     ;;
   "$INSTALL_ROOT/scripts/push-s3-storage.ts")
     LOG_TAG="s3-storage"
     OTHER_INGEST_TOKEN="OBS_EGRESS_INGEST_TOKEN"
+    unset EGRESS_START_DATE EGRESS_LOOKBACK_DAYS
     ;;
   *)
     die "collector path must be $INSTALL_ROOT/scripts/push-s3-egress.ts or push-s3-storage.ts"
     ;;
 esac
 [ -r "$COLLECTOR" ] || die "collector script is not readable"
+[ -n "${HOME:-}" ] || die "HOME must be set"
 
 INFISICAL_CLI="${INFISICAL_CLI:-${HOME}/.local/bin/infisical}"
 [ -x "$INFISICAL_CLI" ] || INFISICAL_CLI="$(command -v infisical 2>/dev/null || true)"
@@ -46,6 +51,8 @@ INFISICAL_CLI="${INFISICAL_CLI:-${HOME}/.local/bin/infisical}"
 BUN_BIN="${BUN_BIN:-${HOME}/.bun/bin/bun}"
 [ -x "$BUN_BIN" ] || BUN_BIN="$(command -v bun 2>/dev/null || true)"
 [ -n "$BUN_BIN" ] && [ -x "$BUN_BIN" ] || die "Bun is not executable"
+# The tool paths are only needed here, not in the children's environment.
+export -n INFISICAL_CLI BUN_BIN
 
 TOKEN_FILE="${HOME}/.config/infisical/nemar-observability-egress.token"
 if [ ! -f "$TOKEN_FILE" ] || [ -L "$TOKEN_FILE" ] || [ ! -r "$TOKEN_FILE" ]; then
@@ -58,17 +65,13 @@ TOKEN_MODE="$(stat -c '%a' -- "$TOKEN_FILE")"
 
 INFISICAL_TOKEN="$(<"$TOKEN_FILE")"
 [ -n "$INFISICAL_TOKEN" ] || die "the Infisical token file is empty"
+export INFISICAL_TOKEN
+export INFISICAL_DISABLE_UPDATE_CHECK=true NO_COLOR=1
+export PATH="${PATH:-/usr/local/bin:/usr/bin:/bin}"
 
 # Use the public Infisical hostname through the nemar-infisical tunnel. Cloudflare Access
 # bypasses the exact hostname; Infisical still authenticates this scoped service token.
-exec env -i \
-  HOME="$HOME" \
-  PATH="${PATH:-/usr/local/bin:/usr/bin:/bin}" \
-  INFISICAL_TOKEN="$INFISICAL_TOKEN" \
-  INFISICAL_DISABLE_UPDATE_CHECK=true \
-  NO_COLOR=1 \
-  "${INFISICAL_RUN_ENV[@]}" \
-  "$INFISICAL_CLI" run \
+exec "$INFISICAL_CLI" run \
   --domain "https://infisical.nemar.org" \
   --projectId "817f7473-a318-4e99-9cf4-a89db057f5fc" \
   --env prod \
