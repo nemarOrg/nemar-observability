@@ -241,29 +241,48 @@ document.addEventListener("keydown", function (event) {
   });
 });
 
+// Theme: no data-theme attribute means follow the system, live. The toggle
+// cycles system and the two explicit themes, opposite of the system first so
+// the first click always changes something, and lasts for this page view only:
+// the page stores nothing in the browser. A host that sets data-theme on the
+// root element (an embedding viewer) is respected as the starting choice.
 const themeQuery = window.matchMedia ? window.matchMedia("(prefers-color-scheme: dark)") : null;
-function effectiveTheme() {
+function systemTheme() { return themeQuery && themeQuery.matches ? "dark" : "light"; }
+function themeOrder() { return systemTheme() === "dark" ? ["system", "light", "dark"] : ["system", "dark", "light"]; }
+function themeChoice() {
   const chosen = document.documentElement.getAttribute("data-theme");
-  if (chosen === "light" || chosen === "dark") return chosen;
-  return themeQuery && themeQuery.matches ? "dark" : "light";
+  return chosen === "light" || chosen === "dark" ? chosen : "system";
+}
+function effectiveTheme() {
+  const chosen = themeChoice();
+  return chosen === "system" ? systemTheme() : chosen;
+}
+function nextTheme() {
+  const order = themeOrder();
+  return order[(order.indexOf(themeChoice()) + 1) % order.length];
 }
 function syncThemeToggle() {
   const button = document.getElementById("theme-toggle");
   if (!button) return;
-  const next = effectiveTheme() === "dark" ? "light" : "dark";
-  button.setAttribute("aria-label", "Switch to " + next + " theme");
-  button.setAttribute("title", "Switch to " + next + " theme");
-}
-// The choice lasts for this page view only: the page stores nothing in the
-// browser, so a reload follows the system setting again.
-document.getElementById("theme-toggle").addEventListener("click", function () {
-  const next = effectiveTheme() === "dark" ? "light" : "dark";
-  document.documentElement.setAttribute("data-theme", next);
+  const choice = themeChoice();
+  const next = nextTheme();
+  button.setAttribute("data-mode", choice);
+  const label = "Theme: " + (choice === "system" ? "system, currently " + effectiveTheme() : choice) + ". Switch to " + next + ".";
+  button.setAttribute("aria-label", label);
+  button.setAttribute("title", label);
   const meta = document.querySelector('meta[name="color-scheme"]');
-  if (meta) meta.setAttribute("content", next);
+  if (meta) meta.setAttribute("content", choice === "system" ? "light dark" : choice);
+}
+document.getElementById("theme-toggle").addEventListener("click", function () {
+  const next = nextTheme();
+  if (next === "system") document.documentElement.removeAttribute("data-theme");
+  else document.documentElement.setAttribute("data-theme", next);
   syncThemeToggle();
 });
 if (themeQuery && themeQuery.addEventListener) themeQuery.addEventListener("change", syncThemeToggle);
+if ("MutationObserver" in window) {
+  new MutationObserver(syncThemeToggle).observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
+}
 syncThemeToggle();
 
 document.querySelectorAll(".nav-menu a").forEach(function (link) {

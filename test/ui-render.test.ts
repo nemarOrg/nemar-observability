@@ -48,14 +48,26 @@ describe("dashboard shell", () => {
   });
 
   test("theme follows the system by default and the toggle overrides it per page view", () => {
-    expect(html).toContain('<html lang="en" data-theme="system">');
+    // No data-theme on the root: the media query alone decides, and a host that
+    // sets data-theme (an embedding viewer) is not fighting a server value.
+    expect(html).toContain('<html lang="en">');
+    expect(html).not.toMatch(/<html[^>]*data-theme/);
     expect(html).toContain('<meta name="color-scheme" content="light dark">');
-    expect(html).toContain('id="theme-toggle"');
-    // Dark tokens apply under the OS setting unless light was picked, and under
-    // an explicit dark pick regardless of the OS setting.
-    expect(html).toContain("@media (prefers-color-scheme: dark)");
-    expect(html).toContain(':root:not([data-theme="light"])');
-    expect(html).toContain(':root[data-theme="dark"]');
+    expect(html).toMatch(/<button id="theme-toggle"[^>]*data-mode="system"/);
+    for (const mode of ["theme-system", "theme-dark", "theme-light"]) expect(html).toContain(mode);
+    // Light tokens on bare :root; dark under the OS setting unless light was
+    // picked, and under an explicit dark pick regardless of the OS setting.
+    const css = html.slice(html.indexOf("<style>"), html.indexOf("</style>"));
+    expect(css).toMatch(/:root \{[^}]*--bg:/);
+    expect(css).toMatch(
+      /@media \(prefers-color-scheme: dark\) \{\s*:root:not\(\[data-theme="light"\]\) \{[^}]*--bg:/,
+    );
+    expect(css).toMatch(/:root\[data-theme="dark"\] \{[^}]*--bg:/);
+    expect(css).toMatch(/body \{[^}]*background: var\(--bg\)/);
+    // The choice is never persisted.
+    expect(CLIENT_JS).not.toContain("sessionStorage");
+    expect(CLIENT_JS).not.toContain("document.cookie");
+    expect(CLIENT_JS).toContain('removeAttribute("data-theme")');
   });
 
   test("the status pill links to pipeline health and starts in a loading state", () => {

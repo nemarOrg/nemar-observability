@@ -13,8 +13,9 @@
 // use (Bearer, admin-only) and is removed in phase 3 (#13) once the website
 // carries equivalent dataset-health lists (phase 2: nemar-cli#1032 + website#195).
 //
-// The page stores nothing in the browser. The theme toggle sets a data-theme
-// attribute for the current page view only; a reload follows the system theme.
+// The page stores nothing in the browser. With no data-theme attribute the page
+// follows the system color scheme, live; the toggle cycles system, dark, light
+// for the current page view only, and a host that sets data-theme wins.
 //
 // No external requests: fonts are the system stack, icons are inline SVG, and
 // the world map ships as path data from lib/world-map. Styles and the client
@@ -50,17 +51,21 @@ const icon = (paths: string[], cls = "icon") =>
     .map((d) => `<path d="${d}"/>`)
     .join("")}</svg>`;
 
-const ICON_SUN = icon(
-  [
-    "M8 5.25a2.75 2.75 0 1 0 0 5.5a2.75 2.75 0 1 0 0-5.5z",
-    "M8 1.5v1.25M8 13.25v1.25M1.5 8h1.25M13.25 8h1.25M3.4 3.4l.9.9M11.7 11.7l.9.9M3.4 12.6l.9-.9M11.7 4.3l.9-.9",
-  ],
-  "icon theme-sun",
-);
-const ICON_MOON = icon(
-  ["M13.5 9.6A5.75 5.75 0 0 1 6.4 2.5a5.75 5.75 0 1 0 7.1 7.1z"],
-  "icon theme-moon",
-);
+// Theme icons use the NEMAR website's 24px strokes; the visible one names the
+// current choice (monitor when following the system).
+const themeIcon = (cls: string, body: string) =>
+  `<svg class="theme-icon ${cls}" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">${body}</svg>`;
+const THEME_ICONS = [
+  themeIcon(
+    "theme-system",
+    '<rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/>',
+  ),
+  themeIcon("theme-dark", '<path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>'),
+  themeIcon(
+    "theme-light",
+    '<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/>',
+  ),
+].join("");
 const ICON_CALENDAR = icon([
   "M3 3.75h10a.75.75 0 0 1 .75.75v8.75H2.25V4.5A.75.75 0 0 1 3 3.75z",
   "M2.25 6.75h11.5M5.5 2.25v2.5M10.5 2.25v2.5",
@@ -98,7 +103,7 @@ const info = (label: string, text: string) =>
 
 export function renderDashboardPage(): string {
   return `<!doctype html>
-<html lang="en" data-theme="system">
+<html lang="en">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -120,7 +125,7 @@ export function renderDashboardPage(): string {
       <nav class="topnav" aria-label="Page sections">${navLinks}</nav>
       <div class="topbar-actions">
         <a id="status-pill" class="status-pill" href="#pipelines" data-state="loading" aria-label="Checking pipeline status">${ICON_NEUTRAL}<span class="pill-text">Checking status</span></a>
-        <button id="theme-toggle" class="icon-button" type="button" aria-label="Switch theme">${ICON_SUN}${ICON_MOON}</button>
+        <button id="theme-toggle" class="icon-button theme-toggle" type="button" data-mode="system" aria-label="Theme: system. Switch to dark.">${THEME_ICONS}</button>
         <a class="button portal-link" href="${ADMIN_PORTAL}" target="_blank" rel="noopener">Admin portal ${ICON_EXTERNAL}</a>
         <details class="popover nav-menu">
           <summary class="icon-button" aria-label="Open the section menu">${ICON_MENU}</summary>

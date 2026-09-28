@@ -6,9 +6,11 @@
 // surface. The chart and map ramps follow the dataviz reference palette (one
 // blue hue; five validated ordinal steps per mode for the map).
 //
-// Dark tokens are declared twice on purpose. The media query follows the OS
-// setting unless the viewer picked light; the data-theme scope follows the
-// in-page toggle, which must win in both directions.
+// Light tokens live on bare :root, so the page is complete with no attribute
+// at all. Dark tokens are declared twice on purpose: the media query follows
+// the OS setting unless the root says data-theme="light", and the
+// data-theme="dark" scope follows the in-page toggle or an embedding host,
+// which must win in both directions.
 
 const DARK_TOKENS = `
   color-scheme: dark;
@@ -55,8 +57,6 @@ const DARK_TOKENS = `
   --topbar-bg: rgba(11, 13, 17, 0.82);
   --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.35);
   --shadow-pop: 0 18px 40px rgba(0, 0, 0, 0.55), 0 2px 8px rgba(0, 0, 0, 0.4);
-  --theme-sun: inline-block;
-  --theme-moon: none;
 `;
 
 export const STYLES = String.raw`
@@ -114,8 +114,6 @@ export const STYLES = String.raw`
   --topbar-bg: rgba(245, 246, 248, 0.84);
   --shadow-sm: 0 1px 2px rgba(16, 24, 40, 0.05);
   --shadow-pop: 0 16px 36px rgba(16, 24, 40, 0.14), 0 2px 6px rgba(16, 24, 40, 0.08);
-  --theme-sun: none;
-  --theme-moon: inline-block;
 }
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {${DARK_TOKENS}}
@@ -167,8 +165,8 @@ button, input, select { font: inherit; color: inherit; }
 .status-pill:hover { border-color: currentColor; }
 .icon-button { display: inline-grid; place-items: center; width: 32px; height: 32px; border-radius: var(--radius-md); border: 1px solid var(--border); background: var(--surface); color: var(--text-2); cursor: pointer; }
 .icon-button:hover { color: var(--text); border-color: var(--border-strong); }
-.icon-button .theme-sun { display: var(--theme-sun); }
-.icon-button .theme-moon { display: var(--theme-moon); }
+.theme-toggle .theme-icon { display: none; }
+.theme-toggle[data-mode="system"] .theme-system, .theme-toggle[data-mode="dark"] .theme-dark, .theme-toggle[data-mode="light"] .theme-light { display: block; }
 .button { display: inline-flex; align-items: center; gap: 6px; height: 32px; padding: 0 12px; border-radius: var(--radius-md); border: 1px solid var(--border); background: var(--surface); color: var(--text); font-size: var(--fs-sm); font-weight: 500; text-decoration: none; cursor: pointer; white-space: nowrap; }
 .button:hover { border-color: var(--border-strong); background: var(--surface-2); }
 .button .icon { width: 14px; height: 14px; color: var(--text-3); }
