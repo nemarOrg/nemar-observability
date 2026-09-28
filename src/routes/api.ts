@@ -263,10 +263,10 @@ apiRoutes.get("/audience", async (c) => {
     countryBreakdownScope === "single_completed_day"
       ? undefined
       : countryBreakdownScope === "in_progress_day"
-        ? "Country breakdowns are available only for completed UTC days; select a date before today."
+        ? "Umami country sessions require one completed UTC day; select a date before today."
         : countryBreakdownScope === "future_day"
-          ? "Country breakdowns are unavailable for future UTC days; select a completed UTC day."
-          : "Umami country sessions are available only for one completed UTC day; Cloudflare request totals can cover completed days in this range.";
+          ? "Umami country sessions are unavailable for future UTC days; select a completed UTC day."
+          : "Umami country sessions are available only for one completed UTC day.";
   const umamiPromise = fetchUmamiAudience(c.env, start, end, includeUmamiCountryBreakdown).catch(
     () => {
       console.error("[api] Umami audience request failed");

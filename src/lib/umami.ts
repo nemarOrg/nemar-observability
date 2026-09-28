@@ -308,11 +308,13 @@ export async function fetchUmamiAudience(
 
   const coverage = { start: isoDateAt(startAt), end: isoDateAt(endAt) };
   const clipped = startAt > requestedStartAt || endAt < requestedEndAt;
+  const canQueryCountryBreakdown =
+    includeCountryBreakdown && startAt === requestedStartAt && endAt === requestedEndAt;
   const params = { startAt: String(startAt), endAt: String(endAt) };
   const [[statsResult, countryResult], eventMetrics] = await Promise.all([
     Promise.allSettled([
       fetchJson(endpoint(base, `${websitePath}/stats`, params), apiKey),
-      includeCountryBreakdown
+      canQueryCountryBreakdown
         ? fetchJson(
             endpoint(base, `${websitePath}/metrics`, { ...params, type: "country" }),
             apiKey,
@@ -324,13 +326,14 @@ export async function fetchUmamiAudience(
 
   const stats = statsResult.status === "fulfilled" ? parseStats(statsResult.value) : null;
   const countries =
-    includeCountryBreakdown && countryResult.status === "fulfilled"
+    canQueryCountryBreakdown && countryResult.status === "fulfilled"
       ? parseCountryRows(countryResult.value)
       : null;
   const statsAvailable = stats !== null;
-  const countriesAvailable = !includeCountryBreakdown || countries !== null;
+  const countriesAvailable =
+    !includeCountryBreakdown || (canQueryCountryBreakdown && countries !== null);
   if (!statsAvailable) console.error("[audience] Umami summary request failed or was invalid");
-  if (includeCountryBreakdown && !countriesAvailable) {
+  if (includeCountryBreakdown && !countriesAvailable && canQueryCountryBreakdown) {
     console.error("[audience] Umami country request failed or was invalid");
   }
 
@@ -347,7 +350,11 @@ export async function fetchUmamiAudience(
   if (clipped) notes.push("Umami data covers only part of the selected range.");
   if (!statsAvailable) notes.push("Umami summary values are unavailable.");
   if (includeCountryBreakdown && !countriesAvailable) {
-    notes.push("Umami country values are unavailable.");
+    notes.push(
+      canQueryCountryBreakdown
+        ? "Umami country values are unavailable."
+        : "Umami country values are unavailable because source coverage does not include the full selected UTC day.",
+    );
   }
   if (includeCountryBreakdown && countriesAvailable) {
     notes.push(
@@ -358,7 +365,7 @@ export async function fetchUmamiAudience(
   return {
     status,
     coverage,
-    country_coverage: includeCountryBreakdown && countriesAvailable ? coverage : null,
+    country_coverage: canQueryCountryBreakdown && countriesAvailable ? coverage : null,
     visitors: stats?.visitors ?? null,
     visits: stats?.visits ?? null,
     pageviews: stats?.pageviews ?? null,

@@ -15,7 +15,7 @@ describe("public dashboard page", () => {
     expect(html).toContain('id="grouping"');
     expect(html).toContain("Calendar week");
     expect(html).toContain("Calendar month");
-    expect(html).toContain("Where do visitors and requests come from?");
+    expect(html).toContain("Where are requests coming from?");
     expect(html).toContain("What is the latest state of datasets and pipelines?");
   });
 });

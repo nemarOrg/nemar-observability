@@ -50,6 +50,10 @@ export interface AudienceResponse {
   start: string;
   end: string;
   observed_at: string;
+  /**
+   * Umami country eligibility for the requested range. Each source's
+   * country_coverage is authoritative for that source's map rows.
+   */
   country_breakdown_scope: "single_completed_day" | "multi_day" | "in_progress_day" | "future_day";
   umami: {
     status: AudienceSourceStatus;

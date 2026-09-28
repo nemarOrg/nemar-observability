@@ -256,7 +256,7 @@ function renderAudience(payload) {
       : "unavailable";
   const details = el("details", "audience-observation-details");
   details.appendChild(el("summary", null, "How these measures work"));
-  details.appendChild(el("p", "audience-note", "Selected-range totals are queried from each source; visitors and sessions are not added across days. Country location data is available in the map for one completed UTC day, with small values withheld."));
+  details.appendChild(el("p", "audience-note", "Selected-range totals are queried from each source; visitors and sessions are not added across days. Umami country sessions cover one completed UTC day. Cloudflare request locations cover completed days in the selected range, with small daily values withheld before totals are combined."));
   details.appendChild(el("p", "audience-coverage", "Sources last checked: " + observationLabel + " (UTC)."));
   root.appendChild(details);
   const grid = el("div", "audience-grid");
@@ -300,6 +300,25 @@ function countryName(label) {
   const code = countryCode(label);
   if (!code) return label;
   return (WORLD_COUNTRY_NAMES[code] && WORLD_COUNTRY_NAMES[code][0]) || label;
+}
+function positionFloatingTooltip(tooltip, frame, clientX, clientY) {
+  const rect = frame.getBoundingClientRect();
+  tooltip.style.maxWidth = Math.max(0, rect.width - 16) + "px";
+  tooltip.style.transform = "translateX(-50%)";
+  const half = tooltip.offsetWidth / 2;
+  const left = Math.min(rect.width - half - 8, Math.max(half + 8, clientX - rect.left));
+  const pointerY = clientY - rect.top;
+  const tooltipHeight = tooltip.offsetHeight;
+  const roomBelow = rect.height - pointerY - 12;
+  const roomAbove = pointerY - 12;
+  const showBelow = roomBelow >= tooltipHeight || roomBelow >= roomAbove;
+  const proposedTop = showBelow ? pointerY + 12 : pointerY - tooltipHeight - 12;
+  const top = Math.min(
+    Math.max(8, rect.height - tooltipHeight - 8),
+    Math.max(8, proposedTop),
+  );
+  tooltip.style.left = left + "px";
+  tooltip.style.top = top + "px";
 }
 function geographySources(payload) {
   return [
@@ -373,28 +392,10 @@ function renderGeography(payload, start, end) {
     tooltip.setAttribute("aria-hidden", "true");
   }
   function showMapTooltip(detail, clientX, clientY) {
-    const rect = mapFrame.getBoundingClientRect();
     tooltip.textContent = detail;
     tooltip.classList.add("visible");
     tooltip.setAttribute("aria-hidden", "false");
-    tooltip.style.maxWidth = Math.max(0, rect.width - 16) + "px";
-    tooltip.style.transform = "translateX(-50%)";
-    const half = tooltip.offsetWidth / 2;
-    const left = Math.min(rect.width - half - 8, Math.max(half + 8, clientX - rect.left));
-    const pointerY = clientY - rect.top;
-    const tooltipHeight = tooltip.offsetHeight;
-    const roomBelow = rect.height - pointerY - 12;
-    const roomAbove = pointerY - 12;
-    const showBelow = roomBelow >= tooltipHeight || roomBelow >= roomAbove;
-    const proposedTop = showBelow
-      ? pointerY + 12
-      : pointerY - tooltipHeight - 12;
-    const top = Math.min(
-      Math.max(8, rect.height - tooltipHeight - 8),
-      Math.max(8, proposedTop),
-    );
-    tooltip.style.left = left + "px";
-    tooltip.style.top = top + "px";
+    positionFloatingTooltip(tooltip, mapFrame, clientX, clientY);
   }
   function attachMapTooltip(element, detail) {
     element.setAttribute("aria-describedby", "geography-country-tooltip");
@@ -740,14 +741,10 @@ function chart(series, buckets, grouping, start, end, description) {
     tooltip.setAttribute("aria-hidden", "true");
   }
   function showTooltip(detail, clientX, clientY) {
-    const rect = wrapper.getBoundingClientRect();
     tooltip.textContent = detail;
     tooltip.classList.add("visible");
     tooltip.setAttribute("aria-hidden", "false");
-    const half = tooltip.offsetWidth / 2;
-    const left = Math.min(rect.width - half - 8, Math.max(half + 8, clientX - rect.left));
-    tooltip.style.left = left + "px";
-    tooltip.style.top = Math.max(8, clientY - rect.top - 10) + "px";
+    positionFloatingTooltip(tooltip, wrapper, clientX, clientY);
   }
   const partialPeriods = buckets.filter(function (bucket) { return bucket.partial; }).map(function (bucket) { return bucket.label; });
   if (partialPeriods.length) {

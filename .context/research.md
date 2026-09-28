@@ -311,6 +311,12 @@ range cannot make an otherwise suppressed daily country row appear. Cloudflare
 range coverage remains bounded by its current 30-day query window, and the map
 shows the actual country coverage dates.
 
+The response-level `country_breakdown_scope` describes Umami country
+eligibility only. Consumers determine whether a source has map data and which
+dates it covers from that source's own `country_coverage`. Umami country metrics
+are queried only when the date-range API confirms coverage for the entire
+selected UTC day; partial-day Umami coverage leaves country rows unavailable.
+
 Umami country values remain a source-native anonymous unique-session estimate
 for exactly one completed UTC day. They are never summed across days. When a
 multi-day range is selected, the map's website-session source is unavailable
