@@ -141,3 +141,30 @@ describe("request windows", () => {
     );
   });
 });
+
+describe("series freshness", () => {
+  const { seriesFreshness } = clientLogic(["seriesFreshness"]);
+  // The fixture's series declares a 36-hour allowance and last reported Sep 26,
+  // so it is current until 36 hours after Sep 26 ends (Sep 28, 12:00 UTC).
+  test("current within the declared allowance, stale after it", () => {
+    expect(egress.freshness_after_hours).toBe(36);
+    expect(seriesFreshness(egress, Date.parse("2026-09-28T11:59:00Z"))).toBe("current");
+    expect(seriesFreshness(egress, Date.parse("2026-09-28T12:01:00Z"))).toBe("stale");
+  });
+
+  test("a series without a usable allowance is flagged, never assumed fresh", () => {
+    const now = Date.parse("2026-09-27T00:00:00Z");
+    for (const hours of [undefined, null, Number.NaN, 0, -5, "36"]) {
+      expect(seriesFreshness({ ...egress, freshness_after_hours: hours }, now)).toBe("unknown");
+    }
+  });
+
+  test("a series with no counted day is stale", () => {
+    expect(
+      seriesFreshness(
+        { ...egress, latest_observation_date: null },
+        Date.parse("2026-09-27T00:00:00Z"),
+      ),
+    ).toBe("stale");
+  });
+});

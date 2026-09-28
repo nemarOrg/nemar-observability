@@ -13,24 +13,31 @@ export const RANGE_JS = String.raw`
 // ---------- date range ----------
 // The widest span the API serves in one request.
 const MAX_RANGE_DAYS = 3660;
-// Cloudflare zone analytics keep 30 UTC days, today included, so an earlier
-// period cannot be measured and is not requested.
+// The network edge (Cloudflare zone analytics) keeps 30 UTC days, today
+// included, so an earlier period cannot be measured and is not requested.
 const CLOUDFLARE_RETENTION_DAYS = 30;
 function isoDay(date) { return date.toISOString().slice(0, 10); }
 function shiftDay(day, offset) { const d = new Date(day + "T00:00:00.000Z"); d.setUTCDate(d.getUTCDate() + offset); return isoDay(d); }
 function rangeDays(start, end) { return Math.round((Date.parse(end + "T00:00:00Z") - Date.parse(start + "T00:00:00Z")) / 86400000) + 1; }
-function validRange(start, end) {
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(start || "") || !/^\d{4}-\d{2}-\d{2}$/.test(end || "") || start > end) return false;
-  const days = rangeDays(start, end);
-  return Number.isFinite(days) && days <= MAX_RANGE_DAYS;
+// A real calendar day in ISO form: the shape alone would accept 2026-02-31,
+// which Date quietly rolls over to March 3, so the day must survive a round trip.
+function isValidDay(day) {
+  if (typeof day !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(day)) return false;
+  const date = new Date(day + "T00:00:00Z");
+  return Number.isFinite(date.getTime()) && isoDay(date) === day;
 }
-// Presets end yesterday, so every day they cover is complete.
-function rangeFor(days) { const end = shiftDay(isoDay(new Date()), -1); return { start: shiftDay(end, 1 - days), end: end }; }
-function presetFor(start, end) {
-  const presets = [7, 30, 90, 365];
-  for (let i = 0; i < presets.length; i++) {
-    const r = rangeFor(presets[i]);
-    if (r.start === start && r.end === end) return presets[i];
+function validRange(start, end) {
+  if (!isValidDay(start) || !isValidDay(end) || start > end) return false;
+  return rangeDays(start, end) <= MAX_RANGE_DAYS;
+}
+function todayUtc() { return isoDay(new Date()); }
+const PRESET_DAYS = [7, 30, 90, 365];
+// Presets end yesterday (UTC), so every day they cover is complete.
+function rangeFor(days, today) { const end = shiftDay(today || todayUtc(), -1); return { start: shiftDay(end, 1 - days), end: end }; }
+function presetFor(start, end, today) {
+  for (let i = 0; i < PRESET_DAYS.length; i++) {
+    const r = rangeFor(PRESET_DAYS[i], today);
+    if (r.start === start && r.end === end) return PRESET_DAYS[i];
   }
   return null;
 }
@@ -79,40 +86,58 @@ function matchedChange(series, start, end) {
   }
   return { current: current, previous: previous, matched: matched, days: days };
 }
-// Everything a series has reported, from its first covered day.
-function seriesToDate(series) {
+// Everything a series has reported inside the loaded window. The start is the
+// later of the series' first covered day and the window's first day, so a
+// window that cuts off earlier days is labeled as limited, never as lifetime.
+function seriesToDate(series, windowStart) {
   const values = pointValues(series);
-  let total = 0; let first = null; let last = null;
+  let total = 0; let reported = 0; let first = null; let last = null;
   values.forEach(function (value, day) {
-    total += value;
+    if (windowStart && day < windowStart) return;
+    total += value; reported++;
     if (first === null || day < first) first = day;
     if (last === null || day > last) last = day;
   });
-  const since = series && typeof series.coverage_start === "string" ? series.coverage_start : first;
+  const covered = series && isValidDay(series.coverage_start) ? series.coverage_start : first;
+  const clipped = Boolean(windowStart && covered && covered < windowStart);
+  const since = clipped ? windowStart : covered;
   return {
     total: total,
-    reported: values.size,
+    reported: reported,
     since: since,
     through: last,
-    days: since && last ? rangeDays(since, last) : 0
+    days: since && last ? rangeDays(since, last) : 0,
+    clipped: clipped
   };
 }
 
 // ---------- change labels ----------
 function comparisonLabel(days) { return "previous " + (days === 1 ? "day" : days.toLocaleString("en-US") + " days"); }
+// The change from the prior period to this one. Invalid or missing numbers give
+// null (the caller says there is no comparison). A prior period with nothing in
+// it is a real measurement, not a gap: zero to zero is no change, and anything
+// from zero is stated plainly because a percentage from zero is undefined.
 function percentDelta(current, previous, versus) {
-  if (typeof current !== "number" || typeof previous !== "number" || !Number.isFinite(current) || !(previous > 0)) return null;
+  if (typeof current !== "number" || typeof previous !== "number" || !Number.isFinite(current) || !Number.isFinite(previous) || current < 0 || previous < 0) return null;
+  if (previous === 0) {
+    return current === 0
+      ? { direction: "flat", text: "No change vs " + versus }
+      : { direction: "none", text: "No activity in the " + versus };
+  }
   const change = ((current - previous) / previous) * 100;
   const size = Math.abs(change) >= 10 ? Math.round(Math.abs(change)) : Math.round(Math.abs(change) * 10) / 10;
   if (size === 0) return { direction: "flat", text: "No change vs " + versus };
   return { direction: change > 0 ? "up" : "down", text: (change > 0 ? "+" : "−") + size.toLocaleString("en-US") + "% vs " + versus };
 }
 function countDelta(current, previous, versus) {
-  if (typeof current !== "number" || typeof previous !== "number") return null;
+  if (typeof current !== "number" || typeof previous !== "number" || !Number.isFinite(current) || !Number.isFinite(previous)) return null;
   const diff = current - previous;
   if (diff === 0) return { direction: "flat", text: "No change vs " + versus };
   return { direction: diff > 0 ? "up" : "down", text: (diff > 0 ? "+" : "−") + Math.abs(diff).toLocaleString("en-US") + " vs " + versus };
 }
-// Said in place of a change when the prior period was not fully measured.
+// Said in place of a change, each for its own reason: the earlier period was
+// never measured, its request failed, or this period is only partly measured.
 const NO_COMPARISON = { direction: "none", text: "No measured earlier period to compare" };
+const COMPARISON_FAILED = { direction: "none", text: "Comparison unavailable, could not load the earlier period" };
+const PARTIAL_PERIOD = { direction: "none", text: "Partial period, no comparison" };
 `;

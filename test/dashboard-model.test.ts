@@ -11,6 +11,7 @@ const {
   comparisonFor,
   priorRange,
   NO_COMPARISON,
+  COMPARISON_FAILED,
 } = clientLogic([
   "normalizeThemeChoice",
   "themeOrder",
@@ -20,6 +21,7 @@ const {
   "comparisonFor",
   "priorRange",
   "NO_COMPARISON",
+  "COMPARISON_FAILED",
 ]);
 
 // A real /audience answer for a fully covered week (see the fixture's source
@@ -96,5 +98,22 @@ describe("comparisons", () => {
     expect(comparisonFor(current, false, wrong, compute)).toBe(NO_COMPARISON);
     const right = { start: period.start, end: period.end, payload: week, loading: false };
     expect(comparisonFor(current, false, right, compute)).toEqual({ direction: "up", text: "+1%" });
+  });
+});
+
+describe("prior-period failures", () => {
+  test("a failed earlier-period request says so, apart from never measured", () => {
+    const current = { start: week.start, end: week.end, payload: week };
+    const period = priorRange(week.start, week.end);
+    const failed = {
+      start: period.start,
+      end: period.end,
+      payload: null,
+      loading: false,
+      failed: true,
+    };
+    expect(comparisonFor(current, false, failed, () => null)).toBe(COMPARISON_FAILED);
+    const unmeasured = { ...failed, failed: false };
+    expect(comparisonFor(current, false, unmeasured, () => null)).toBe(NO_COMPARISON);
   });
 });

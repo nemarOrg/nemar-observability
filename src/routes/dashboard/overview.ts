@@ -60,27 +60,7 @@ function renderHeadline() {
   }
   words(".");
 }
-function historyDelta(key, formatter) {
-  const points = state.history[key];
-  if (!points || points.length < 2) return null;
-  const first = points[0]; const last = points[points.length - 1];
-  const diff = last.value - first.value;
-  const hours = (Date.parse(last.at) - Date.parse(first.at)) / 3600000;
-  if (!Number.isFinite(hours) || hours <= 0) return null;
-  const span = hours < 36 ? " in " + plural(Math.round(hours), "hour", "hours") : " in " + plural(Math.round(hours / 24), "day", "days");
-  if (diff === 0) return "No change" + span;
-  return (diff > 0 ? "+" : "−") + formatter(Math.abs(diff)) + span;
-}
-
 // ---------- daily series lookups ----------
-function egressSeries(payload) {
-  return ((payload && payload.series) || []).find(function (s) { return String(s.section).toLowerCase() === "egress" && s.unit === "bytes"; }) || null;
-}
-function requestSeries(payload) {
-  return ((payload && payload.series) || []).find(function (s) {
-    return String(s.section).toLowerCase() === "cf" && /request/i.test(String(s.key) + " " + String(s.label)) && s.unit === "count";
-  }) || null;
-}
 function dailySpark(series, start, end, label, format) {
   const buckets = seriesBuckets(series, start, end, "day");
   if (buckets.filter(function (b) { return b.value !== null; }).length < 2) return null;
@@ -91,12 +71,18 @@ function dailySpark(series, start, end, label, format) {
     tooltip: function (i) { return { title: longDay(buckets[i].start) + " (UTC)", value: buckets[i].value === null ? "No data reported" : format(buckets[i].value) }; }
   });
 }
+// The loaded daily series for exactly these dates, or null.
+function seriesFor(start, end) {
+  const loaded = state.series;
+  return loaded && loaded.start === start && loaded.end === end ? loaded : null;
+}
 // The loaded daily series, when it is for the selected dates.
 function selectedSeries() {
   const range = selectedRange();
-  const loaded = state.series;
-  return loaded && loaded.start === range.start && loaded.end === range.end ? loaded : null;
+  return seriesFor(range.start, range.end);
 }
+// Said on every card whose range reaches today, which is not over yet.
+function inProgressNote(end) { return end >= todayUtc() ? "Today (UTC) is still in progress." : ""; }
 
 // ---------- comparisons ----------
 function audienceComparison(compute) {
@@ -131,24 +117,42 @@ function kpiCard(spec) {
   if (foot.childNodes.length) card.appendChild(foot);
   return card;
 }
+// One card that cannot be drawn says so and leaves the others standing.
+function safeKpi(label, info, build) {
+  try {
+    return build();
+  } catch (err) {
+    console.error("[ui] KPI display failed:", label, err);
+    return kpiCard({ label: label, info: info, value: "Unavailable", muted: true, context: "This figure could not be displayed." });
+  }
+}
+function withRangeNotes(spec, end) {
+  const note = inProgressNote(end);
+  if (note) spec.context = spec.context ? spec.context.replace(/\.?$/, ". ") + note : note;
+  return spec;
+}
 function audienceKpi(label, info, build) {
-  if (state.audienceInvalid) return kpiCard({ label: label, info: info, value: "No range", muted: true, context: "Choose a valid UTC date range." });
-  if (state.audienceFailed) return kpiCard({ label: label, info: info, value: "Unavailable", muted: true, context: "Could not load usage for these dates. Unknown is not zero." });
-  if (!state.audience) return kpiCard({ label: label, info: info, loading: true });
-  const spec = build(state.audience.payload, state.audience.start, state.audience.end);
-  spec.label = label; spec.info = spec.info || info;
-  spec.refreshing = state.audienceLoading;
-  return kpiCard(spec);
+  return safeKpi(label, info, function () {
+    if (state.audienceInvalid) return kpiCard({ label: label, info: info, value: "No range", muted: true, context: "Choose a valid UTC date range." });
+    if (state.audienceFailed) return kpiCard({ label: label, info: info, value: "Unavailable", muted: true, context: "Could not load usage for these dates. Unknown is not zero." });
+    if (!state.audience) return kpiCard({ label: label, info: info, loading: true });
+    const spec = withRangeNotes(build(state.audience.payload, state.audience.start, state.audience.end), state.audience.end);
+    spec.label = label; spec.info = spec.info || info;
+    spec.refreshing = state.audienceLoading;
+    return kpiCard(spec);
+  });
 }
 function seriesKpi(label, info, build) {
-  const range = selectedRange();
-  if (!validRange(range.start, range.end)) return kpiCard({ label: label, info: info, value: "No range", muted: true, context: "Choose a valid UTC date range." });
-  const loaded = selectedSeries();
-  if (!loaded && state.seriesFailed) return kpiCard({ label: label, info: info, value: "Unavailable", muted: true, context: "Could not load daily usage for these dates. Unknown is not zero." });
-  if (!loaded) return kpiCard({ label: label, info: info, loading: true });
-  const spec = build(loaded.payload, range.start, range.end);
-  spec.label = label; spec.info = spec.info || info;
-  return kpiCard(spec);
+  return safeKpi(label, info, function () {
+    const range = selectedRange();
+    if (!validRange(range.start, range.end)) return kpiCard({ label: label, info: info, value: "No range", muted: true, context: "Choose a valid UTC date range." });
+    const loaded = selectedSeries();
+    if (!loaded && state.seriesFailed) return kpiCard({ label: label, info: info, value: "Unavailable", muted: true, context: "Could not load daily usage for these dates. Unknown is not zero." });
+    if (!loaded) return kpiCard({ label: label, info: info, loading: true });
+    const spec = withRangeNotes(build(loaded.payload, range.start, range.end), range.end);
+    spec.label = label; spec.info = spec.info || info;
+    return kpiCard(spec);
+  });
 }
 function renderKpis() {
   const root = document.getElementById("kpis");
@@ -159,14 +163,16 @@ function renderKpis() {
     if (typeof cf.requests !== "number") return { value: "Not measured", muted: true, context: audienceStatus(cf.status) + ". Unknown is not zero." };
     const full = fullyMeasured(cf, start, end, "coverage");
     const coverage = cf.coverage && cf.coverage.start && cf.coverage.end ? rangeText(cf.coverage.start, cf.coverage.end) : "";
-    const loaded = selectedSeries();
+    // The daily line must be for the same dates as the total; while new dates
+    // load, the card shows the old total dimmed and no line.
+    const loaded = state.audienceLoading ? null : seriesFor(start, end);
     const daily = loaded ? requestSeries(loaded.payload) : null;
     return {
       value: compact(cf.requests),
       exact: num(cf.requests) + " requests",
       delta: full ? audienceComparison(function (prior, period) {
         return fullyMeasured(prior.cloudflare, period.start, period.end, "coverage") ? percentDelta(cf.requests, prior.cloudflare.requests, comparisonLabel(period.days)) : null;
-      }) : NO_COMPARISON,
+      }) : PARTIAL_PERIOD,
       context: !full && coverage ? "Measured " + coverage + " only" : rangeSentence(start, end),
       spark: daily ? dailySpark(daily, start, end, "Cloudflare requests", function (v) { return num(v) + " requests"; }) : null
     };
@@ -206,7 +212,7 @@ function renderKpis() {
         if (!fullyMeasured(prior.cloudflare, period.start, period.end, "country_coverage")) return null;
         const before = countriesIn(prior);
         return before ? countDelta(reach.count, before.count, comparisonLabel(period.days)) : null;
-      }) : NO_COMPARISON,
+      }) : PARTIAL_PERIOD,
       context: notes.join(" ")
     };
   }));
@@ -226,7 +232,7 @@ function renderKpis() {
       exact: num(umami.visitors) + " anonymous sessions",
       delta: full ? audienceComparison(function (prior, period) {
         return fullyMeasured(prior.umami, period.start, period.end, "coverage") ? percentDelta(umami.visitors, prior.umami.visitors, comparisonLabel(period.days)) : null;
-      }) : NO_COMPARISON,
+      }) : PARTIAL_PERIOD,
       context: "Anonymous unique sessions" + (umami.status === "partial" ? ", partial coverage" : "")
     };
   }));
@@ -252,93 +258,47 @@ function allTimeItem(parent, spec) {
   }
   parent.appendChild(item);
 }
-// Everything a daily series has reported, labeled from its first covered day
-// and never stretched to cover the days before it.
-function seriesSinceSpec(series, labelFrom, format, unit) {
-  const toDate = seriesToDate(series);
-  if (!toDate.reported || !toDate.since) return null;
-  return {
-    label: labelFrom + " since " + longDay(toDate.since),
-    value: format(toDate.total),
-    exact: num(toDate.total) + " " + unit,
-    note: (toDate.reported === toDate.days ? plural(toDate.days, "day", "days") : num(toDate.reported) + " of " + plural(toDate.days, "day", "days")) + " reported, through " + longDay(toDate.through)
-  };
-}
+// The strip's wording lives in allTimeSpecs (model.ts); this only draws it.
 function renderAllTime() {
   const root = document.getElementById("all-time");
   if (!root) return;
   root.textContent = "";
-  const index = metricIndex(state.snapshot);
-  const snapLoading = !state.snapshot && !state.snapshotFailed;
-  const pub = index["datasets.public"];
-  const priv = index["datasets.private"];
-  const doi = index["datasets.with_doi"];
-  const bytes = index["datasets.bytes"];
-  const unavailable = { value: "Unavailable", muted: true, note: state.snapshotFailed ? "The latest snapshot did not load." : "Not in the latest snapshot." };
-  function snapshotItem(label, metric, build) {
-    if (snapLoading) return allTimeItem(root, { label: label, loading: true });
-    const spec = metric ? build(metric) : Object.assign({}, unavailable);
-    spec.label = label;
-    allTimeItem(root, spec);
-  }
-  snapshotItem("Public datasets", pub, function (m) {
-    const notes = [];
-    const doiShare = doi ? pct(doi.value, doi.total) : null;
-    if (doiShare != null) notes.push(doiShare + "% with a DOI");
-    if (priv) notes.push(num(priv.value) + " private");
-    const change = historyDelta("datasets.public", num);
-    if (change) notes.push(change);
-    return { value: num(m.value), note: notes.join(", "), info: "Datasets published and publicly visible now. A digital object identifier (DOI) makes a dataset citable." };
-  });
-  snapshotItem("Data volume", bytes, function (m) {
-    const change = historyDelta("datasets.bytes", humanBytes);
-    return { value: humanBytes(m.value), exact: num(m.value) + " bytes", note: (pub ? "Across " + num(pub.value) + " public datasets" : "Public datasets") + (change ? ", " + change : "") };
-  });
-  const archiveLoading = !state.archive && !state.archiveFailed;
-  const archiveMissing = { value: "Unavailable", muted: true, note: "Daily usage did not load." };
-  if (archiveLoading) {
-    allTimeItem(root, { label: "Data downloaded", loading: true });
-    allTimeItem(root, { label: "Requests", loading: true });
-    allTimeItem(root, { label: "Usage measured since", loading: true });
-  } else if (!state.archive) {
-    allTimeItem(root, Object.assign({ label: "Data downloaded" }, archiveMissing));
-    allTimeItem(root, Object.assign({ label: "Requests" }, archiveMissing));
-    allTimeItem(root, Object.assign({ label: "Usage measured since" }, archiveMissing));
-  } else {
-    const egress = egressSeries(state.archive);
-    const downloads = egress ? seriesSinceSpec(egress, "Downloaded", humanBytes, "bytes") : null;
-    allTimeItem(root, downloads
-      ? Object.assign(downloads, { info: "Bytes the NEMAR S3 bucket returned on each reported day, added up. Includes internal reads such as Zarr conversions." })
-      : { label: "Data downloaded", value: "Not recorded", muted: true, note: "No download series is reporting." });
-    const requests = requestSeries(state.archive);
-    const requestTotal = requests ? seriesSinceSpec(requests, "Requests", compact, "requests") : null;
-    allTimeItem(root, requestTotal || {
-      label: "Requests to date",
-      value: "Not recorded",
-      muted: true,
-      note: "Cloudflare keeps only the last 30 days",
-      info: "Request totals come from Cloudflare, which keeps 30 days of zone analytics. No longer daily record exists yet, so a lifetime total would be a guess."
+  try {
+    const specs = allTimeSpecs({
+      snapshot: state.snapshot,
+      snapshotFailed: state.snapshotFailed,
+      history: state.history,
+      historyFailed: state.historyFailed,
+      archive: state.archive,
+      archiveWindow: state.archiveWindow,
+      archiveFailed: state.archiveFailed
     });
-    const starts = (state.archive.series || []).map(function (s) { return s.coverage_start; }).filter(function (d) { return typeof d === "string"; }).sort();
-    allTimeItem(root, starts.length
-      ? { label: "Usage measured since", value: longDay(starts[0]), note: "First day of stored daily usage" }
-      : { label: "Usage measured since", value: "Not recorded", muted: true, note: "No daily usage is stored yet." });
+    specs.forEach(function (spec) { allTimeItem(root, spec); });
+    root.setAttribute("aria-busy", String(specs.some(function (spec) { return spec.loading; })));
+  } catch (err) {
+    console.error("[ui] all-time strip display failed:", err);
+    root.textContent = "";
+    root.removeAttribute("aria-busy");
+    allTimeItem(root, { label: "All-time figures", value: "Unavailable", muted: true, note: "These figures could not be displayed." });
   }
-  root.setAttribute("aria-busy", String(snapLoading || archiveLoading));
 }
+// Each history request stands alone. A failure is stated on its item instead
+// of passing for "no change", and the snapshot's Try again asks again.
 function loadHistory() {
   HISTORY_KEYS.forEach(function (key) {
-    fetch(API + "/snapshot/history?metric=" + encodeURIComponent(key))
-      .then(function (r) { if (!r.ok) throw new Error("history " + r.status); return r.json(); })
+    state.historyFailed[key] = false;
+    getJson("/snapshot/history?metric=" + encodeURIComponent(key), validHistory, "snapshot history")
       .then(function (body) {
-        state.history[key] = (Array.isArray(body.points) ? body.points : []).filter(function (p) {
+        state.history[key] = body.points.filter(function (p) {
           return p && typeof p.value === "number" && Number.isFinite(p.value) && typeof p.at === "string";
         });
+        state.historyFailed[key] = false;
         renderAllTime();
-      })
-      .catch(function (err) {
+      }, function (err) {
         console.error("[ui] metric history failed:", key, err);
         state.history[key] = [];
+        state.historyFailed[key] = true;
+        renderAllTime();
       });
   });
 }

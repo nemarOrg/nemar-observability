@@ -64,6 +64,19 @@ function seriesBuckets(series, start, end, grouping) {
   }
   return buckets;
 }
+// Whether a series is current: "current" while its latest day is within the
+// freshness allowance it declares, "stale" past it or with no day counted, and
+// "unknown" when it declares no usable allowance, which is flagged rather than
+// assumed fresh.
+function seriesFreshness(series, now) {
+  const at = typeof now === "number" ? now : Date.now();
+  const hours = series ? series.freshness_after_hours : undefined;
+  if (typeof hours !== "number" || !Number.isFinite(hours) || hours <= 0) return "unknown";
+  const lastDay = series.latest_observation_date;
+  if (!isValidDay(lastDay)) return "stale";
+  const periodEnd = Date.parse(lastDay + "T00:00:00Z") + 86400000;
+  return at - periodEnd > hours * 3600000 ? "stale" : "current";
+}
 function seriesValue(value, unit) {
   if (value === null) return "Unknown";
   if (unit === "bytes") return humanBytes(value);

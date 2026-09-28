@@ -98,22 +98,32 @@ function renderSnapshot(snap) {
   meta.textContent = "Latest snapshot generated " + formatDateTime(snap.generated_at) + " (" + relativeTime(snap.generated_at) + "). It refreshes every hour."
     + (missing.length ? " Not in this snapshot: " + missing.join(", ") + "." : "");
 }
-function renderSnapshotError() {
+// A snapshot that failed to load and one that loaded but could not be drawn
+// get different words; both offer Try again, which also asks for the history
+// again, so nothing is left on a skeleton.
+function renderSnapshotError(kind, err) {
   const retry = function () {
     ["catalog", "usage-snapshot", "sections"].forEach(function (id) {
       const root = document.getElementById(id);
-      root.textContent = "";
-      root.appendChild(gridSkeleton());
+      root.dataset.ready = "false";
+      markRefreshing(root, gridSkeleton);
     });
+    document.getElementById("health-meta").textContent = "Loading the latest snapshot.";
+    state.snapshot = null;
     state.snapshotFailed = false;
     renderAllTime();
     load();
+    loadHistory();
   };
-  document.getElementById("health-meta").textContent = "Could not load the latest snapshot.";
-  stateMessage(document.getElementById("sections"), "error", "Could not load the latest snapshot", "The current state of the pipelines is unknown until it loads.", retry);
-  stateMessage(document.getElementById("catalog"), "error", "Could not load catalog figures", "The latest snapshot did not load.", retry);
-  stateMessage(document.getElementById("usage-snapshot"), "error", "Could not load the rolling 30-day measures", "The latest snapshot did not load.", retry);
+  const display = kind === "display";
+  const title = display ? "Could not display the latest snapshot" : "Could not load the latest snapshot";
+  const reason = display ? "It loaded, but this page could not show it. " : failureDetail(err, "") + " ";
+  document.getElementById("health-meta").textContent = title + ".";
+  stateMessage(document.getElementById("sections"), "error", title, (reason + "The current state of the pipelines is unknown until it " + (display ? "can be shown." : "loads.")).trim(), retry);
+  stateMessage(document.getElementById("catalog"), "error", display ? "Could not display catalog figures" : "Could not load catalog figures", (reason + "Catalog figures are unknown right now.").trim(), retry);
+  stateMessage(document.getElementById("usage-snapshot"), "error", display ? "Could not display the rolling 30-day measures" : "Could not load the rolling 30-day measures", (reason + "These measures are unknown right now.").trim(), retry);
   renderAllTime();
+  renderHeadline();
 }
 function ring(percent) {
   const size = 64; const stroke = 6; const r = (size - stroke) / 2; const c = 2 * Math.PI * r;
@@ -337,18 +347,22 @@ function renderCatalog(sections) {
 }
 
 function load() {
-  fetch(API + "/snapshot")
-    .then(function (r) { if (!r.ok) throw new Error("snapshot " + r.status); return r.json(); })
-    .then(function (snap) {
-      state.snapshot = snap;
-      state.snapshotFailed = false;
+  getJson("/snapshot", validSnapshot, "the latest snapshot").then(function (snap) {
+    state.snapshot = snap;
+    state.snapshotFailed = false;
+    try {
       renderSnapshot(snap);
-    })
-    .catch(function (err) {
-      console.error("[ui] snapshot load failed:", err);
+    } catch (err) {
+      console.error("[ui] snapshot display failed:", err);
+      state.snapshot = null;
       state.snapshotFailed = true;
-      renderSnapshotError();
-    });
+      renderSnapshotError("display", err);
+    }
+  }, function (err) {
+    console.error("[ui] snapshot load failed:", err);
+    state.snapshotFailed = true;
+    renderSnapshotError("load", err);
+  });
 }
 
 `;

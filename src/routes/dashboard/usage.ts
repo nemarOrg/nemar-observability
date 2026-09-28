@@ -6,7 +6,6 @@
 
 export const USAGE_JS = String.raw`
 // ---------- audience ----------
-let audienceRequestId = 0;
 function audienceNumber(value) {
   return typeof value === "number" && Number.isFinite(value) ? value.toLocaleString("en-US") : "Unknown";
 }
@@ -120,37 +119,38 @@ function renderAudience(payload) {
 
 // One request per date range, shared: a range asked for again (a preset
 // clicked twice, or the prior period of one range being another range) reuses
-// the answer for a few minutes instead of querying again.
+// the answer for a few minutes instead of querying again. Only well-formed
+// answers are kept; a failed or malformed one is forgotten at once.
 const AUDIENCE_CACHE_MS = 5 * 60000;
-const audienceCache = new Map();
-function fetchAudience(start, end) {
-  const key = start + "|" + end;
-  const hit = audienceCache.get(key);
-  if (hit && Date.now() - hit.at < AUDIENCE_CACHE_MS) return hit.promise;
-  const promise = fetch(API + "/audience?start=" + encodeURIComponent(start) + "&end=" + encodeURIComponent(end))
-    .then(function (response) {
-      if (!response.ok) throw new Error("Could not load audience metrics.");
-      return response.json();
-    });
-  audienceCache.set(key, { at: Date.now(), promise: promise });
-  promise.catch(function () { if (audienceCache.get(key) && audienceCache.get(key).promise === promise) audienceCache.delete(key); });
-  return promise;
-}
+const audienceCache = createRequestCache(function (key) {
+  const parts = key.split("|");
+  return getJson("/audience?start=" + encodeURIComponent(parts[0]) + "&end=" + encodeURIComponent(parts[1]), validAudience, "audience metrics");
+}, AUDIENCE_CACHE_MS);
+function fetchAudience(start, end) { return audienceCache.get(start + "|" + end); }
+const audienceGuard = createLatestGuard();
 function isSelected(start, end) {
   const range = selectedRange();
   return range.start === start && range.end === end;
+}
+function showAudienceFailure(title, detail, geoTitle, geoDetail) {
+  state.audience = null; state.audienceLoading = false; state.audienceFailed = true;
+  renderKpis();
+  renderHeadline();
+  stateMessage(document.getElementById("audience"), "error", title, detail, loadAudience);
+  stateMessage(document.getElementById("geography"), "error", geoTitle, geoDetail, loadAudience);
 }
 function loadAudience() {
   const range = selectedRange();
   const start = range.start; const end = range.end;
   const root = document.getElementById("audience");
   const geography = document.getElementById("geography");
-  const requestId = ++audienceRequestId;
+  const token = audienceGuard.begin();
   state.audiencePrior = null;
   if (!validRange(start, end)) {
     state.audience = null; state.audienceLoading = false; state.audienceFailed = false; state.audienceInvalid = true;
     renderKpis();
-    stateMessage(root, "info", "Choose a valid UTC date range.", "The start date must be on or before the end date, and a range can span up to 3,660 days.");
+    renderHeadline();
+    stateMessage(root, "info", "Choose a valid UTC date range.", "The start date must be a real day on or before the end date, and a range can span up to 3,660 days.");
     stateMessage(geography, "info", "Choose a valid UTC date range to view country activity.");
     return;
   }
@@ -158,45 +158,55 @@ function loadAudience() {
   renderKpis();
   markRefreshing(root, gridSkeleton);
   markRefreshing(geography, geoSkeleton);
-  fetchAudience(start, end)
-    .then(function (payload) {
-      if (requestId !== audienceRequestId || !isSelected(start, end)) return;
-      state.audience = { start: start, end: end, payload: payload };
-      state.audienceLoading = false;
+  fetchAudience(start, end).then(function (payload) {
+    if (!audienceGuard.isCurrent(token) || !isSelected(start, end)) return;
+    state.audience = { start: start, end: end, payload: payload };
+    state.audienceLoading = false;
+    // Drawing is separate from loading: an answer that loaded but cannot be
+    // shown says so, and is dropped from the cache so a retry asks again.
+    try {
       renderAudience(payload);
       renderGeography(payload, start, end);
-      loadPriorAudience(start, end, payload, requestId);
-      renderKpis();
-      renderHeadline();
-    })
-    .catch(function (err) {
-      if (requestId !== audienceRequestId) return;
-      console.error("[ui] audience load failed:", err);
-      state.audience = null; state.audienceLoading = false; state.audienceFailed = true;
-      renderKpis();
-      stateMessage(root, "error", "Could not load audience metrics", "Website and request totals for these dates are unknown right now, which is not the same as zero.", loadAudience);
-      stateMessage(document.getElementById("geography"), "error", "Could not load country activity", "Locations for these dates are unknown right now.", loadAudience);
-    });
+    } catch (err) {
+      console.error("[ui] audience display failed:", err);
+      audienceCache.forget(start + "|" + end);
+      showAudienceFailure(
+        "Could not display audience metrics", "They loaded, but this page could not show them. Try again, or reload the page.",
+        "Could not display country activity", "It loaded, but this page could not show it."
+      );
+      return;
+    }
+    loadPriorAudience(start, end, payload, token);
+    renderKpis();
+    renderHeadline();
+  }, function (err) {
+    if (!audienceGuard.isCurrent(token)) return;
+    console.error("[ui] audience load failed:", err);
+    showAudienceFailure(
+      "Could not load audience metrics", failureDetail(err, "Website and request totals for these dates are unknown right now, which is not the same as zero."),
+      "Could not load country activity", failureDetail(err, "Locations for these dates are unknown right now.")
+    );
+  });
 }
-function loadPriorAudience(start, end, payload, requestId) {
+function loadPriorAudience(start, end, payload, token) {
   const prior = priorRange(start, end);
   if (!priorAudienceWanted(payload, prior)) {
-    state.audiencePrior = { start: prior.start, end: prior.end, payload: null, loading: false };
+    state.audiencePrior = { start: prior.start, end: prior.end, payload: null, loading: false, failed: false };
     return;
   }
-  state.audiencePrior = { start: prior.start, end: prior.end, payload: null, loading: true };
-  fetchAudience(prior.start, prior.end)
-    .then(function (priorPayload) {
-      if (requestId !== audienceRequestId || !isSelected(start, end)) return;
-      state.audiencePrior = { start: prior.start, end: prior.end, payload: priorPayload, loading: false };
-      renderKpis();
-    })
-    .catch(function (err) {
-      if (requestId !== audienceRequestId) return;
-      console.error("[ui] prior-period audience load failed:", err);
-      state.audiencePrior = { start: prior.start, end: prior.end, payload: null, loading: false };
-      renderKpis();
-    });
+  state.audiencePrior = { start: prior.start, end: prior.end, payload: null, loading: true, failed: false };
+  fetchAudience(prior.start, prior.end).then(function (priorPayload) {
+    if (!audienceGuard.isCurrent(token) || !isSelected(start, end)) return;
+    state.audiencePrior = { start: prior.start, end: prior.end, payload: priorPayload, loading: false, failed: false };
+    renderKpis();
+  }, function (err) {
+    if (!audienceGuard.isCurrent(token)) return;
+    console.error("[ui] prior-period audience load failed:", err);
+    // Distinct from "never measured": the earlier period may exist, but its
+    // request failed.
+    state.audiencePrior = { start: prior.start, end: prior.end, payload: null, loading: false, failed: true };
+    renderKpis();
+  });
 }
 
 // ---------- series loading ----------
@@ -209,49 +219,76 @@ function loadPriorAudience(start, end, payload, requestId) {
 // window covers it.
 const seriesWindows = [];
 const seriesPending = [];
+function forgetSeriesWindow(entry) {
+  const index = seriesWindows.indexOf(entry);
+  if (index >= 0) seriesWindows.splice(index, 1);
+}
+function showSeriesDisplayFailure(err) {
+  console.error("[ui] daily series display failed:", err);
+  state.series = null;
+  state.seriesFailed = true;
+  stateMessage(document.getElementById("series"), "error", "Could not display daily usage", "It loaded, but this page could not show it. Try again, or reload the page.", loadSeries);
+  renderKpis();
+}
+// Draws a loaded window for the range. On a drawing failure the window is
+// dropped, so a retry requests it again instead of redrawing the same answer.
+function showSeries(entry, start, end) {
+  try {
+    renderSeries(entry.payload, start, end);
+    return true;
+  } catch (err) {
+    forgetSeriesWindow(entry);
+    showSeriesDisplayFailure(err);
+    return false;
+  }
+}
 function loadSeries() {
   const range = selectedRange();
   const root = document.getElementById("series");
   if (!validRange(range.start, range.end)) {
-    stateMessage(root, "info", "Choose a valid UTC date range.", "The start date must be on or before the end date, and a range can span up to 3,660 days.");
+    state.series = null;
+    stateMessage(root, "info", "Choose a valid UTC date range.", "The start date must be a real day on or before the end date, and a range can span up to 3,660 days.");
     renderKpis();
     return;
   }
   const ready = coveringWindow(seriesWindows, range.start, range.end);
-  if (ready) { renderSeries(ready.payload, range.start, range.end); return; }
+  if (ready) { showSeries(ready, range.start, range.end); return; }
   state.seriesFailed = false;
   markRefreshing(root, chartSkeleton);
   renderKpis();
   if (!coveringWindow(seriesPending, range.start, range.end)) fetchSeriesWindow(seriesWindowFor(range.start, range.end));
 }
-function renderSelectedSeries() {
-  const range = selectedRange();
-  if (!validRange(range.start, range.end)) return;
-  const ready = coveringWindow(seriesWindows, range.start, range.end);
-  if (ready) renderSeries(ready.payload, range.start, range.end);
-}
 function fetchSeriesWindow(win) {
   const pending = { start: win.start, end: win.end };
   seriesPending.push(pending);
-  const archive = seriesArchiveWindow(isoDay(new Date()));
+  const archive = seriesArchiveWindow(todayUtc());
   const isArchive = win.start === archive.start && win.end === archive.end;
-  fetch(API + "/timeseries?start=" + encodeURIComponent(win.start) + "&end=" + encodeURIComponent(win.end))
-    .then(function (r) {
-      if (r.ok) return r.json();
-      return r.json().catch(function () { return null; }).then(function (body) {
-        throw new Error(body && body.error ? body.error : "Could not load daily series.");
-      });
-    })
+  function done() {
+    const index = seriesPending.indexOf(pending);
+    if (index >= 0) seriesPending.splice(index, 1);
+  }
+  getJson("/timeseries?start=" + encodeURIComponent(win.start) + "&end=" + encodeURIComponent(win.end), validTimeseries, "daily usage")
     .then(function (payload) {
+      done();
       for (let i = seriesWindows.length - 1; i >= 0; i--) {
         if (Date.now() - seriesWindows[i].at >= SERIES_CACHE_MS) seriesWindows.splice(i, 1);
       }
-      seriesWindows.push({ start: win.start, end: win.end, payload: payload, at: Date.now() });
-      if (isArchive) { state.archive = payload; state.archiveFailed = false; renderAllTime(); }
-      // Render whatever is selected now; a newer request that covers it wins.
-      renderSelectedSeries();
-    })
-    .catch(function (err) {
+      const entry = { start: win.start, end: win.end, payload: payload, at: Date.now() };
+      if (isArchive) {
+        state.archive = payload; state.archiveWindow = { start: win.start, end: win.end }; state.archiveFailed = false;
+        renderAllTime();
+      }
+      // Draw whatever is selected now, if this window holds it; a window is
+      // kept only once it has drawn, or when it was not needed yet.
+      const range = selectedRange();
+      if (!validRange(range.start, range.end) || !(win.start <= range.start && win.end >= range.end)) {
+        seriesWindows.push(entry);
+        return;
+      }
+      seriesWindows.push(entry);
+      showSeries(entry, range.start, range.end);
+    }, function (err) {
+      done();
       console.error("[ui] daily series load failed:", err);
       if (isArchive) { state.archiveFailed = true; renderAllTime(); }
       // Speak only for the current selection, and only when no other answer
@@ -259,14 +296,11 @@ function fetchSeriesWindow(win) {
       const range = selectedRange();
       if (!(win.start <= range.start && win.end >= range.end)) return;
       if (coveringWindow(seriesWindows, range.start, range.end)) return;
-      if (seriesPending.some(function (p) { return p !== pending && p.start <= range.start && p.end >= range.end; })) return;
+      if (coveringWindow(seriesPending, range.start, range.end)) return;
+      state.series = null;
       state.seriesFailed = true;
-      stateMessage(document.getElementById("series"), "error", "Could not load daily usage", (err && err.message ? err.message.replace(/\.?$/, ". ") : "") + "Daily usage for these dates is unknown right now, which is not the same as zero.", loadSeries);
+      stateMessage(document.getElementById("series"), "error", "Could not load daily usage", failureDetail(err, "Daily usage for these dates is unknown right now, which is not the same as zero."), loadSeries);
       renderKpis();
-    })
-    .finally(function () {
-      const index = seriesPending.indexOf(pending);
-      if (index >= 0) seriesPending.splice(index, 1);
     });
 }
 
@@ -304,8 +338,7 @@ function renderSeries(payload, start, end) {
     group.series.forEach(function (series) {
       const measure = el("article", "series-measure");
       const lastDay = series.latest_observation_date;
-      const lastPeriodEnd = lastDay ? Date.parse(lastDay + "T00:00:00Z") + 86400000 : NaN;
-      const stale = !Number.isFinite(lastPeriodEnd) || Date.now() - lastPeriodEnd > series.freshness_after_hours * 3600000;
+      const freshness = seriesFreshness(series);
       const buckets = seriesBuckets(series, start, end, grouping);
       const gap = buckets.some(function (b) { return b.value === null; });
       const observedPoints = series.points.filter(function (point) { return point.date >= start && point.date <= end; });
@@ -335,8 +368,9 @@ function renderSeries(payload, start, end) {
       }
       if (legend.childNodes.length) measure.appendChild(legend);
       const footer = el("div", "measure-foot");
-      const sourceDetails = disclosure("Source and coverage: " + (stale ? "stale" : "current"));
-      sourceDetails.appendChild(el("p", stale ? "fine stale" : "fine", "Source " + series.source + ", one value per day (UTC). Data covers " + series.coverage_start + " to " + series.coverage_end + "; latest day counted " + (lastDay || "none") + "; updated " + series.updated_at + "."));
+      const sourceDetails = disclosure("Source and coverage: " + (freshness === "unknown" ? "freshness unknown" : freshness));
+      sourceDetails.appendChild(el("p", freshness === "current" ? "fine" : "fine stale","Source " + series.source + ", one value per day (UTC). Data covers " + series.coverage_start + " to " + series.coverage_end + "; latest day counted " + (lastDay || "none") + "; updated " + series.updated_at + "."));
+      if (freshness === "unknown") sourceDetails.appendChild(el("p", "fine stale", "This series does not say how often it should update, so whether it is current is unknown."));
       footer.appendChild(sourceDetails);
       footer.appendChild(valuesTable(series, buckets));
       measure.appendChild(footer);

@@ -219,12 +219,11 @@ describe("dashboard shell", () => {
     expect(CLIENT_JS).not.toMatch(/method\s*:/);
     expect(CLIENT_JS).not.toMatch(/body\s*:/);
     expect(CLIENT_JS).not.toMatch(/credentials\s*:/);
-    const fetches = CLIENT_JS.match(/fetch\(API \+ "\/[a-z/]+/g) ?? [];
-    expect(fetches.sort()).toEqual([
-      'fetch(API + "/audience',
-      'fetch(API + "/snapshot',
-      'fetch(API + "/snapshot/history',
-      'fetch(API + "/timeseries',
-    ]);
+    // One fetch call site, a bare GET to the public API, and the four reads
+    // that go through it.
+    expect(CLIENT_JS.match(/\bfetch\(/g) ?? []).toEqual(["fetch("]);
+    expect(CLIENT_JS).toContain("return fetch(API + path)");
+    const reads = [...CLIENT_JS.matchAll(/getJson\("(\/[a-z/]+)/g)].map((m) => m[1]);
+    expect(reads.sort()).toEqual(["/audience", "/snapshot", "/snapshot/history", "/timeseries"]);
   });
 });

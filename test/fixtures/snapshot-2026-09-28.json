@@ -1,0 +1,863 @@
+{
+ "source": "GET https://dashboard.nemar.org/observability/api/snapshot, captured 2026-09-28",
+ "response": {
+  "schema_version": "1.0",
+  "generated_at": "2026-09-28T20:17:25.824Z",
+  "sections": [
+   {
+    "key": "datasets",
+    "label": "Datasets",
+    "source": "nemar-cli",
+    "metrics": [
+     {
+      "key": "datasets.public",
+      "label": "Public datasets",
+      "value": 777,
+      "total": 816,
+      "unit": "datasets",
+      "severity": "info",
+      "hint": "Active, publicly visible managed datasets"
+     },
+     {
+      "key": "datasets.private",
+      "label": "Private datasets",
+      "value": 39,
+      "unit": "datasets",
+      "severity": "info"
+     },
+     {
+      "key": "datasets.with_doi",
+      "label": "With DOI",
+      "value": 777,
+      "total": 777,
+      "unit": "datasets",
+      "severity": "info",
+      "hint": "Public datasets that have a concept DOI"
+     },
+     {
+      "key": "datasets.bytes",
+      "label": "Total data",
+      "value": 65588144252044,
+      "unit": "bytes",
+      "severity": "info",
+      "hint": "Sum of file sizes across public datasets"
+     },
+     {
+      "key": "datasets.by_license",
+      "label": "By license",
+      "value": 777,
+      "unit": "datasets",
+      "severity": "info",
+      "breakdown": [
+       {
+        "label": "public",
+        "value": 589
+       },
+       {
+        "label": "attribution",
+        "value": 113
+       },
+       {
+        "label": "noderiv",
+        "value": 25
+       },
+       {
+        "label": "sharealike",
+        "value": 19
+       },
+       {
+        "label": "unknown",
+        "value": 17
+       },
+       {
+        "label": "noncommercial",
+        "value": 14
+       }
+      ]
+     },
+     {
+      "key": "datasets.by_modality",
+      "label": "By modality",
+      "value": 777,
+      "unit": "datasets",
+      "severity": "info",
+      "breakdown": [
+       {
+        "label": "eeg",
+        "value": 612
+       },
+       {
+        "label": "anat",
+        "value": 77
+       },
+       {
+        "label": "ieeg",
+        "value": 75
+       },
+       {
+        "label": "beh",
+        "value": 73
+       },
+       {
+        "label": "meg",
+        "value": 60
+       },
+       {
+        "label": "func",
+        "value": 32
+       },
+       {
+        "label": "nirs",
+        "value": 27
+       },
+       {
+        "label": "emg",
+        "value": 11
+       },
+       {
+        "label": "fmap",
+        "value": 11
+       },
+       {
+        "label": "dwi",
+        "value": 8
+       },
+       {
+        "label": "motion",
+        "value": 4
+       },
+       {
+        "label": "perf",
+        "value": 1
+       }
+      ]
+     }
+    ],
+    "updated_at": "2026-09-28T20:17:25.824Z"
+   },
+   {
+    "key": "sizes",
+    "label": "Dataset sizes",
+    "source": "nemar-cli",
+    "metrics": [
+     {
+      "key": "sizes.histogram",
+      "label": "Size distribution",
+      "value": 777,
+      "unit": "datasets",
+      "severity": "info",
+      "breakdown": [
+       {
+        "label": "< 1 MB",
+        "value": 1
+       },
+       {
+        "label": "1 MB",
+        "value": 0
+       },
+       {
+        "label": "2 MB",
+        "value": 0
+       },
+       {
+        "label": "5 MB",
+        "value": 0
+       },
+       {
+        "label": "10 MB",
+        "value": 1
+       },
+       {
+        "label": "20 MB",
+        "value": 7
+       },
+       {
+        "label": "50 MB",
+        "value": 13
+       },
+       {
+        "label": "100 MB",
+        "value": 9
+       },
+       {
+        "label": "200 MB",
+        "value": 28
+       },
+       {
+        "label": "500 MB",
+        "value": 36
+       },
+       {
+        "label": "1 GB",
+        "value": 56
+       },
+       {
+        "label": "2 GB",
+        "value": 82
+       },
+       {
+        "label": "5 GB",
+        "value": 84
+       },
+       {
+        "label": "10 GB",
+        "value": 116
+       },
+       {
+        "label": "20 GB",
+        "value": 131
+       },
+       {
+        "label": "50 GB",
+        "value": 83
+       },
+       {
+        "label": "100 GB ─ cutoff",
+        "value": 64
+       },
+       {
+        "label": "200 GB",
+        "value": 46
+       },
+       {
+        "label": "500 GB",
+        "value": 12
+       },
+       {
+        "label": "1 TB",
+        "value": 5
+       },
+       {
+        "label": "2 TB",
+        "value": 2
+       },
+       {
+        "label": "5 TB",
+        "value": 1
+       },
+       {
+        "label": "10 TB",
+        "value": 0
+       }
+      ],
+      "hint": "Log-scaled bins — sizes span seven orders of magnitude, so equal-width bins would put ~98% of the catalog in one bar. 130 datasets (17%) sit above the 100 GB archive cutoff and get no downloadable zip."
+     },
+     {
+      "key": "sizes.largest",
+      "label": "Top 10 by size",
+      "value": 23604995920004,
+      "total": 65588144252044,
+      "unit": "bytes",
+      "severity": "info",
+      "breakdown": [
+       {
+        "label": "on004395",
+        "value": 9581115955881
+       },
+       {
+        "label": "nm000276",
+        "value": 3254808175422
+       },
+       {
+        "label": "on005127",
+        "value": 2422377463702
+       },
+       {
+        "label": "on007808",
+        "value": 1691099773494
+       },
+       {
+        "label": "on004078",
+        "value": 1492527010882
+       },
+       {
+        "label": "on004706",
+        "value": 1426144567177
+       },
+       {
+        "label": "on004024",
+        "value": 1096522009971
+       },
+       {
+        "label": "on006110",
+        "value": 1004663010141
+       },
+       {
+        "label": "on005185",
+        "value": 841005529018
+       },
+       {
+        "label": "nm000281",
+        "value": 794732424316
+       }
+      ],
+      "breakdown_unit": "bytes",
+      "breakdown_style": "ranked",
+      "hint": "The ten largest of 777 public datasets. Storage is heavily concentrated: the smaller half of the catalog accounts for 3% of all bytes."
+     }
+    ],
+    "updated_at": "2026-09-28T20:17:25.824Z",
+    "layout": "split"
+   },
+   {
+    "key": "archive",
+    "label": "Archives",
+    "source": "nemar-cli",
+    "metrics": [
+     {
+      "key": "archive.ready",
+      "label": "With archive",
+      "value": 660,
+      "total": 668,
+      "unit": "datasets",
+      "severity": "ok",
+      "hint": "Published datasets with a downloadable zip on S3, of those eligible for one"
+     },
+     {
+      "key": "archive.missing",
+      "label": "Missing archive",
+      "value": 8,
+      "total": 668,
+      "unit": "datasets",
+      "severity": "warn",
+      "drilldown": "archive.missing",
+      "hint": "Eligible but no confirmed archive (run archive-sweep / generate). Excludes datasets skipped by the >100 GB policy."
+     },
+     {
+      "key": "archive.skipped",
+      "label": "Archive skipped",
+      "value": 109,
+      "total": 777,
+      "unit": "datasets",
+      "severity": "info",
+      "drilldown": "archive.skipped",
+      "hint": "Too large to archive (>100 GB policy, nemar-cli #752). Working as designed, not a backlog."
+     },
+     {
+      "key": "archive.pending",
+      "label": "Archive pending",
+      "value": 0,
+      "unit": "datasets",
+      "severity": "ok",
+      "drilldown": "archive.pending"
+     },
+     {
+      "key": "archive.failed",
+      "label": "Archive failed",
+      "value": 0,
+      "unit": "datasets",
+      "severity": "ok",
+      "drilldown": "archive.failed"
+     }
+    ],
+    "updated_at": "2026-09-28T20:17:25.824Z"
+   },
+   {
+    "key": "zarr",
+    "label": "Zarr conversion",
+    "source": "nemar-cli",
+    "metrics": [
+     {
+      "key": "zarr.ready",
+      "label": "Zarr ready",
+      "value": 685,
+      "total": 777,
+      "unit": "datasets",
+      "severity": "ok",
+      "hint": "Public datasets with a built Zarr serving copy (of all public datasets)"
+     },
+     {
+      "key": "zarr.pending",
+      "label": "Processing",
+      "value": 8,
+      "unit": "datasets",
+      "severity": "warn",
+      "drilldown": "zarr.pending",
+      "hint": "Dispatched, conversion not yet confirmed"
+     },
+     {
+      "key": "zarr.failed",
+      "label": "Zarr failed",
+      "value": 68,
+      "unit": "datasets",
+      "severity": "error",
+      "drilldown": "zarr.failed"
+     },
+     {
+      "key": "zarr.stores",
+      "label": "Zarr stores",
+      "value": 172022,
+      "unit": "count",
+      "severity": "info",
+      "hint": "Total .zarr stores across ready datasets"
+     }
+    ],
+    "updated_at": "2026-09-28T20:17:25.824Z"
+   },
+   {
+    "key": "imports",
+    "label": "OpenNeuro import",
+    "source": "nemar-cli",
+    "metrics": [
+     {
+      "key": "imports.active",
+      "label": "In flight",
+      "value": 0,
+      "unit": "datasets",
+      "severity": "ok",
+      "drilldown": "imports.active",
+      "hint": "Imports currently preparing, copying, or finalizing"
+     },
+     {
+      "key": "imports.failed",
+      "label": "Failed",
+      "value": 0,
+      "unit": "datasets",
+      "severity": "ok",
+      "drilldown": "imports.failed",
+      "hint": "Imports that errored after the auto-retry cap"
+     },
+     {
+      "key": "imports.quarantined",
+      "label": "Quarantined",
+      "value": 59,
+      "unit": "datasets",
+      "severity": "error",
+      "drilldown": "imports.quarantined",
+      "hint": "Parked for admin review"
+     },
+     {
+      "key": "imports.upstream_inaccessible",
+      "label": "OpenNeuro inaccessible",
+      "value": 2,
+      "unit": "datasets",
+      "severity": "info",
+      "drilldown": "imports.upstream_inaccessible",
+      "hint": "OpenNeuro-side problem (objects not anonymously readable, no signed login); report to OpenNeuro support. Subset of Quarantined."
+     },
+     {
+      "key": "imports.imported",
+      "label": "Imported",
+      "value": 607,
+      "unit": "datasets",
+      "severity": "ok",
+      "hint": "OpenNeuro datasets imported into NEMAR (source='openneuro' in datasets; legacy ds-numbered rows retired per nemar-cli#793)"
+     },
+     {
+      "key": "imports.auto_24h",
+      "label": "Auto-dispatched (24h)",
+      "value": 0,
+      "unit": "count",
+      "severity": "info",
+      "hint": "Auto-import dispatches in the last 24h (~16/day when active; 0 while dark)"
+     }
+    ],
+    "updated_at": "2026-09-28T20:17:25.824Z"
+   },
+   {
+    "key": "publication",
+    "label": "Publication",
+    "source": "nemar-cli",
+    "metrics": [
+     {
+      "key": "publication.open",
+      "label": "Open requests",
+      "value": 2,
+      "unit": "datasets",
+      "severity": "warn",
+      "drilldown": "publication.open",
+      "hint": "Requested or in-progress publication requests"
+     },
+     {
+      "key": "publication.prescreen_failed",
+      "label": "Pre-screen failed",
+      "value": 6,
+      "unit": "datasets",
+      "severity": "error",
+      "drilldown": "publication.prescreen_failed"
+     },
+     {
+      "key": "publication.blocked",
+      "label": "Blocked",
+      "value": 0,
+      "unit": "datasets",
+      "severity": "ok",
+      "drilldown": "publication.blocked"
+     }
+    ],
+    "updated_at": "2026-09-28T20:17:25.824Z"
+   },
+   {
+    "key": "access",
+    "label": "Access (30d)",
+    "source": "access",
+    "metrics": [
+     {
+      "key": "access.archive_daily",
+      "label": "Archive downloads / day",
+      "value": 325,
+      "unit": "count",
+      "severity": "warn",
+      "hint": "Median day over 30d (20,747 total). Counts redirects ISSUED on /<id>/<version>.zip, not completed downloads. Distorted: 5,024 of these landed on 2026-09-20 (24% of the window) — treat the total as one client, not demand."
+     },
+     {
+      "key": "access.zarr_opens",
+      "label": "Dataset opens",
+      "value": 38813,
+      "unit": "count",
+      "severity": "info",
+      "hint": "zarr.nemar.org index.json fetches — one per dataset a client starts browsing. Includes crawlers."
+     },
+     {
+      "key": "access.zarr_chunks",
+      "label": "Chunk reads",
+      "value": 171853,
+      "unit": "count",
+      "severity": "info",
+      "hint": "Zarr data-chunk requests (plus 31,748 store-metadata reads). Small files by design, so a single viewer session produces many."
+     },
+     {
+      "key": "access.science_bytes",
+      "label": "Science data served",
+      "value": 16389303465,
+      "unit": "bytes",
+      "severity": "info",
+      "hint": "Zarr chunk bytes only. Archive bytes are excluded: those stream direct from S3 on a presigned URL and never cross the Worker."
+     },
+     {
+      "key": "access.catalog_bytes",
+      "label": "Catalog egress",
+      "value": 40357533018,
+      "unit": "bytes",
+      "severity": "info",
+      "hint": "Bytes spent on index.json rather than data. Large relative to science data means the store index is being crawled."
+     },
+     {
+      "key": "access.top",
+      "label": "Most read datasets",
+      "value": 20,
+      "unit": "count",
+      "severity": "info",
+      "breakdown": [
+       {
+        "label": "nm000339",
+        "value": 15166643771
+       },
+       {
+        "label": "nm000103",
+        "value": 190659397
+       },
+       {
+        "label": "on004625",
+        "value": 59720592
+       },
+       {
+        "label": "on003690",
+        "value": 46479079
+       },
+       {
+        "label": "nm000232",
+        "value": 36160914
+       },
+       {
+        "label": "on004100",
+        "value": 36026420
+       },
+       {
+        "label": "on007526",
+        "value": 34716055
+       },
+       {
+        "label": "on005514",
+        "value": 32513651
+       },
+       {
+        "label": "nm000323",
+        "value": 31914406
+       },
+       {
+        "label": "nm000132",
+        "value": 30234904
+       },
+       {
+        "label": "nm000165",
+        "value": 29193153
+       },
+       {
+        "label": "on004696",
+        "value": 29176096
+       },
+       {
+        "label": "on007139",
+        "value": 27740628
+       },
+       {
+        "label": "on004505",
+        "value": 24167481
+       },
+       {
+        "label": "on003739",
+        "value": 20956185
+       },
+       {
+        "label": "on005505",
+        "value": 20615661
+       },
+       {
+        "label": "on003626",
+        "value": 19715206
+       },
+       {
+        "label": "on004078",
+        "value": 18517625
+       },
+       {
+        "label": "on004602",
+        "value": 16047968
+       },
+       {
+        "label": "on004504",
+        "value": 15330027
+       }
+      ],
+      "breakdown_unit": "bytes",
+      "hint": "Ranked by Zarr chunk bytes, so index.json crawling cannot reach the top."
+     }
+    ],
+    "updated_at": "2026-09-28T20:17:25.824Z"
+   },
+   {
+    "key": "cf",
+    "label": "Edge traffic (30d)",
+    "source": "cloudflare",
+    "metrics": [
+     {
+      "key": "cf.bytes",
+      "label": "Cloudflare edge bytes",
+      "value": 768644396585,
+      "unit": "bytes",
+      "severity": "info",
+      "hint": "Bytes Cloudflare returned for the nemar.org zone over 30 days. Direct presigned S3 downloads bypass this metric and need separate S3 accounting."
+     },
+     {
+      "key": "cf.requests",
+      "label": "Requests",
+      "value": 15850310,
+      "unit": "count",
+      "severity": "info",
+      "hint": "Zone-wide edge requests."
+     },
+     {
+      "key": "cf.cache_ratio",
+      "label": "Served from cache",
+      "value": 4.7,
+      "unit": "percent",
+      "severity": "info",
+      "hint": "Share of bytes served from the edge cache rather than fetched from origin."
+     },
+     {
+      "key": "cf.peak_daily_uniques",
+      "label": "Busiest day (unique IPs)",
+      "value": 616052,
+      "unit": "count",
+      "severity": "info",
+      "hint": "Highest single-day unique-visitor estimate. Cloudflare approximates this per day, so it cannot be summed into a window total, and it counts clients (bots included), not people."
+     },
+     {
+      "key": "cf.visits_by_surface",
+      "label": "Visits by surface (30d)",
+      "value": 3133588,
+      "unit": "count",
+      "severity": "info",
+      "breakdown": [
+       {
+        "label": "Other",
+        "value": 1436411
+       },
+       {
+        "label": "Data plane",
+        "value": 1271267
+       },
+       {
+        "label": "Web",
+        "value": 425908
+       },
+       {
+        "label": "API",
+        "value": 2
+       }
+      ],
+      "hint": "Cloudflare \"visits\" (session starts) per NEMAR surface. Only meaningful on hosts a person browses: the API and S3 origin register ~0 by nature. Excludes rate-limit.internal."
+     },
+     {
+      "key": "cf.bytes_by_host",
+      "label": "Bytes by host (30d)",
+      "value": 204,
+      "unit": "count",
+      "severity": "info",
+      "breakdown": [
+       {
+        "label": "nemar.s3.us-east-2.amazonaws.com",
+        "value": 112937060284922
+       },
+       {
+        "label": "data.nemar.org",
+        "value": 8046811333538
+       },
+       {
+        "label": "ww1.nemar.org",
+        "value": 591792980116
+       },
+       {
+        "label": "api.nemar.org",
+        "value": 65203229888
+       },
+       {
+        "label": "ww2.nemar.org",
+        "value": 39814803623
+       },
+       {
+        "label": "zarr.nemar.org",
+        "value": 37305640973
+       },
+       {
+        "label": "raw.githubusercontent.com",
+        "value": 24067284582
+       },
+       {
+        "label": "nemar.org",
+        "value": 14625570171
+       },
+       {
+        "label": "zarr-test.nemar.org",
+        "value": 2331900142
+       },
+       {
+        "label": "api.github.com",
+        "value": 1680862432
+       }
+      ],
+      "breakdown_unit": "bytes",
+      "hint": "Separate per-host Cloudflare report from a different analytics query; values are not reconciled to the zone total and may include Cloudflare product traffic. Direct presigned S3 object responses bypass the zone."
+     },
+     {
+      "key": "cf.by_country",
+      "label": "Requests by country",
+      "value": 230,
+      "unit": "count",
+      "severity": "info",
+      "breakdown": [
+       {
+        "label": "US",
+        "value": 7193776
+       },
+       {
+        "label": "CN",
+        "value": 2111654
+       },
+       {
+        "label": "TR",
+        "value": 1418032
+       },
+       {
+        "label": "SG",
+        "value": 1315626
+       },
+       {
+        "label": "FR",
+        "value": 389707
+       },
+       {
+        "label": "BR",
+        "value": 379675
+       },
+       {
+        "label": "JP",
+        "value": 268835
+       },
+       {
+        "label": "IN",
+        "value": 261591
+       },
+       {
+        "label": "CA",
+        "value": 230745
+       },
+       {
+        "label": "DE",
+        "value": 141036
+       }
+      ],
+      "hint": "Zone-wide, so it includes crawler and origin traffic as well as readers."
+     }
+    ],
+    "updated_at": "2026-09-28T20:17:25.824Z"
+   },
+   {
+    "key": "users",
+    "label": "Users",
+    "source": "nemar-cli",
+    "metrics": [
+     {
+      "key": "users.verified",
+      "label": "Awaiting approval",
+      "value": 10,
+      "unit": "datasets",
+      "severity": "warn",
+      "drilldown": "users.verified",
+      "hint": "Email-verified users an admin can approve now (nemar approve)"
+     },
+     {
+      "key": "users.pending",
+      "label": "Pending verification",
+      "value": 23,
+      "unit": "datasets",
+      "severity": "info",
+      "drilldown": "users.pending",
+      "hint": "Signed up but not yet email-verified / web-onboarded — not one-click approvable"
+     },
+     {
+      "key": "users.approved",
+      "label": "Approved users",
+      "value": 16,
+      "unit": "datasets",
+      "severity": "info",
+      "drilldown": "users.approved"
+     },
+     {
+      "key": "users.active_tokens",
+      "label": "Active API tokens",
+      "value": 22,
+      "unit": "count",
+      "severity": "info"
+     }
+    ],
+    "updated_at": "2026-09-28T20:17:25.824Z"
+   },
+   {
+    "key": "egress",
+    "label": "S3 egress",
+    "source": "aws-s3-cloudwatch",
+    "metrics": [
+     {
+      "key": "egress.s3.latest_daily_bytes",
+      "label": "Latest reported S3 download day",
+      "value": 8631588503864,
+      "unit": "bytes",
+      "severity": "info",
+      "hint": "2026-09-26 UTC; bucket-wide response bytes, including conversion reads."
+     },
+     {
+      "key": "egress.collector.errors",
+      "label": "Latest collector run errors",
+      "value": 0,
+      "unit": "errors",
+      "severity": "ok",
+      "hint": "The latest scheduled CloudWatch query and dashboard push completed."
+     }
+    ],
+    "updated_at": "2026-09-27T21:58:45.336Z"
+   }
+  ]
+ }
+}

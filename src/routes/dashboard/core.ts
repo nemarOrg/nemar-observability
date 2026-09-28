@@ -29,9 +29,39 @@ const state = {
   seriesFailed: false,
   // Every reported day of every daily series, for the all-time strip.
   archive: null,
+  archiveWindow: null,
   archiveFailed: false,
-  history: {}
+  history: {},
+  historyFailed: {}
 };
+
+// Every read goes through here: a default GET to the public API (no method,
+// body, or credentials), an HTTP failure reported with the server's own
+// message when it sends one, and the answer's shape checked before anyone
+// uses it (see model.ts).
+function getJson(path, validate, what) {
+  return fetch(API + path)
+    .then(function (response) {
+      if (response.ok) return response.json().catch(function () { throw unexpectedResponse(what); });
+      return response.json().catch(function () { return null; }).then(function (body) {
+        throw new Error(body && typeof body.error === "string" ? body.error : "Could not load " + what + ".");
+      });
+    })
+    .then(function (body) {
+      if (!validate(body)) throw unexpectedResponse(what);
+      return body;
+    });
+}
+// The sentence under an error title: an unexpected answer is named as such,
+// anything else keeps the server's message when there is one.
+function failureDetail(err, fallback) {
+  if (err && err.unexpected) return ("The server sent an unexpected response. " + fallback).trim();
+  // The title already says it could not load; repeat only a server's reason.
+  const message = err && typeof err.message === "string" && err.message && !/^Could not load/.test(err.message)
+    ? err.message.replace(/\.?$/, ". ")
+    : "";
+  return (message + fallback).trim();
+}
 
 // ---------- DOM helpers ----------
 function el(tag, cls, text) {
@@ -153,13 +183,6 @@ function geoSkeleton() {
   for (let i = 0; i < 5; i++) side.appendChild(skeletonBlock("skeleton-line"));
   wrap.appendChild(map); wrap.appendChild(side);
   return wrap;
-}
-function metricIndex(snap) {
-  const index = {};
-  (snap && Array.isArray(snap.sections) ? snap.sections : []).forEach(function (section) {
-    (section.metrics || []).forEach(function (metric) { index[metric.key] = metric; });
-  });
-  return index;
 }
 function cardId(key) { return "card-" + String(key).replace(/[^a-z0-9_-]/gi, "-"); }
 
