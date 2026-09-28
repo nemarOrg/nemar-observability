@@ -388,3 +388,49 @@ The points have not yet been pushed to the observability API. Production also
 does not yet have the `OBS_INGEST_TOKENS_JSON` Worker secret map, so the
 section-keyed `egress` push and systemd timer remain disabled pending secure
 provisioning and live API/chart acceptance.
+
+### Cloudflare public hosts, bot challenge, and CLI routing (2026-09-28)
+
+The Cloudflare Free zone now has an active custom rule named
+`umami-infisical-browser-managed-challenge`. It applies Managed Challenge to
+requests for non-API paths on `analytics.nemar.org` and `infisical.nemar.org`.
+It excludes `/api` and `/api/*` on both hosts so Umami API calls and the
+Infisical CLI remain usable; it also excludes Umami's `/nmr-analytics.js`
+tracker script.
+The `NEMAR Umami` Access policy changed from email-only Allow to Bypass
+Everyone, removing Cloudflare Access email OTP and Access enforcement/logging
+for that app. Umami's built-in login remains. The Infisical application
+already used Bypass Everyone and was not changed.
+
+The Umami Compose `public` profile was started on nemaring using the existing
+mode-0600 Infisical runtime-token file and the read-only
+`/nemar-umami/runtime` path helper. The helper injected three runtime secrets
+without printing their values. Cloudflare reports both `nemar-umami` and
+`nemar-infisical` tunnels healthy, one replica each. The local Infisical CLI
+was already logged in to `https://infisical.nemar.org`; `infisical org list`
+completed against Admin Org, confirming the API path works through Cloudflare.
+No Infisical secrets were fetched by this check.
+
+Read-only external route checks returned:
+
+| Request | Result | Meaning |
+|---|---|---|
+| `GET analytics.nemar.org/nmr-analytics.js` | 200, no `cf-mitigated` header | Tracker script route is reachable. |
+| `GET analytics.nemar.org/login` | 403, `cf-mitigated: challenge` | Non-browser HTTP request receives the configured challenge; Chrome passed it and rendered the login page. |
+| `GET analytics.nemar.org/api/send` | 405, no `cf-mitigated` header | The endpoint is reached without a Cloudflare challenge; GET is not its expected POST method. No event was sent. |
+| `GET infisical.nemar.org/` | 403, `cf-mitigated: challenge` | Non-browser HTTP request receives the configured challenge; Chrome passed it and rendered the login page. |
+| `GET infisical.nemar.org/api/v1/auth/universal-auth/login` | 404 JSON, no `cf-mitigated` header | The API path reaches Infisical without a Cloudflare challenge; GET is not its login method. |
+| Chrome `https://analytics.nemar.org/login` | Managed Challenge completed automatically; Umami login page rendered | Browser route passed challenge; no Umami credentials were entered. |
+| Chrome `https://infisical.nemar.org/login` | Infisical login page rendered | Browser route passed challenge; no Infisical credentials were entered. |
+
+The Free-plan rate-limiting UI exposes only URI Path and Verified Bot match
+fields, not hostname or method, and this zone has one available rate-limit
+slot. No rate-limit rule was created because a `/api/send` path-only rule
+would cover that path on every hostname in the zone. Consequently, Umami's
+public `POST /api/send` remains without a dedicated rate limit; confirm whether
+that cross-host scope is safe or choose a host-aware rate-limiting option
+before claiming ingestion hardening. Bot Fight Mode was left off because it is
+zone-wide. Chrome passed the Managed Challenge on both hosts and displayed
+their login pages without submitting credentials. The real consent-gated event
+flow and website publisher ingestion remain acceptance gates in
+`nemarOrg/nemar-umami#1` and `nemarOrg/website#345`.
