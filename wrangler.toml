@@ -44,10 +44,9 @@ NEMAR_API_BASE = "https://api.nemar.org"
 CF_ACCOUNT_ID = "da8d7a2a8680dab01592bbbc6f67f12c"
 CF_ZONE_ID = "e684135de46029c91fd6c93715ace4ce"
 AE_DATASET = "nemar_access_metrics"
-# Optional range-aware audience source. Configure these non-secret values only
-# when the matching self-hosted Umami website is ready:
-# UMAMI_BASE_URL = "https://umami.nemar.org"
-# UMAMI_WEBSITE_ID = "<website-id>"
+# Range-aware audience source for the self-hosted NEMAR Umami website.
+UMAMI_BASE_URL = "https://analytics.nemar.org"
+UMAMI_WEBSITE_ID = "b4b5f61c-56b2-4b8c-9023-6a29ed3904ac"
 # UMAMI_EVENTS_COVERAGE_START = "YYYY-MM-DD" # set after production instrumentation is verified
 
 # Secrets (npx cfman wrangler --account sccn secret put <NAME> -c wrangler.toml):
