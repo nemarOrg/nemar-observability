@@ -1,6 +1,6 @@
 // The dashboard page: one server-rendered HTML document with embedded CSS and a
-// self-contained client script (DOM-built, no framework). It fetches
-// /observability/api/snapshot and renders tiles. That is all it does.
+// self-contained client script (DOM-built, no framework). It fetches the public
+// read API under /observability/api and renders it. That is all it does.
 //
 // ZERO AUTH, ZERO WRITES (#8). This page holds no credential and performs no
 // mutation. The approve/deny/delete controls and the paste-your-`nm_…`-API-key
@@ -8,14 +8,17 @@
 // app.nemar.org, behind an HttpOnly host-scoped session cookie. A spoof of this
 // origin now has nothing to steal and nothing to trigger.
 //
-// Tiles that have a `drilldown` key link out to the admin portal instead of
+// Metrics that have a `drilldown` key link out to the admin portal instead of
 // opening a list here. GET /api/drilldown/:key still exists for programmatic
 // use (Bearer, admin-only) and is removed in phase 3 (#13) once the website
 // carries equivalent dataset-health lists (phase 2: nemar-cli#1032 + website#195).
 //
-// The client script deliberately avoids template literals and innerHTML for
-// data (uses createElement/textContent) so it is safe inside this TS template
-// and free of injection from dataset ids / labels.
+// The page stores nothing in the browser. The theme toggle sets a data-theme
+// attribute for the current page view only; a reload follows the system theme.
+//
+// No external requests: fonts are the system stack, icons are inline SVG, and
+// the world map ships as path data from lib/world-map. Styles and the client
+// script live in ./dashboard, one module per concern.
 
 import {
   WORLD_COUNTRY_CODES_BY_NAME,
@@ -31,69 +34,191 @@ const WORLD_COUNTRY_MARKERS_JSON = JSON.stringify(WORLD_COUNTRY_MARKERS);
 const WORLD_COUNTRY_NAMES_JSON = JSON.stringify(WORLD_COUNTRY_NAMES);
 const WORLD_COUNTRY_CODES_BY_NAME_JSON = JSON.stringify(WORLD_COUNTRY_CODES_BY_NAME);
 
+const ADMIN_PORTAL = "https://app.nemar.org/admin";
+
+/** Anchor targets for the top bar, in page order. */
+export const DASHBOARD_SECTIONS = [
+  { id: "overview", label: "Overview" },
+  { id: "usage", label: "Usage" },
+  { id: "reach", label: "Reach" },
+  { id: "datasets", label: "Datasets" },
+  { id: "pipelines", label: "Pipelines" },
+] as const;
+
+const icon = (paths: string[], cls = "icon") =>
+  `<svg class="${cls}" viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false">${paths
+    .map((d) => `<path d="${d}"/>`)
+    .join("")}</svg>`;
+
+const ICON_SUN = icon(
+  [
+    "M8 5.25a2.75 2.75 0 1 0 0 5.5a2.75 2.75 0 1 0 0-5.5z",
+    "M8 1.5v1.25M8 13.25v1.25M1.5 8h1.25M13.25 8h1.25M3.4 3.4l.9.9M11.7 11.7l.9.9M3.4 12.6l.9-.9M11.7 4.3l.9-.9",
+  ],
+  "icon theme-sun",
+);
+const ICON_MOON = icon(
+  ["M13.5 9.6A5.75 5.75 0 0 1 6.4 2.5a5.75 5.75 0 1 0 7.1 7.1z"],
+  "icon theme-moon",
+);
+const ICON_CALENDAR = icon([
+  "M3 3.75h10a.75.75 0 0 1 .75.75v8.75H2.25V4.5A.75.75 0 0 1 3 3.75z",
+  "M2.25 6.75h11.5M5.5 2.25v2.5M10.5 2.25v2.5",
+]);
+const ICON_MENU = icon(["M2.75 4.5h10.5M2.75 8h10.5M2.75 11.5h10.5"]);
+const ICON_EXTERNAL = icon(["M6.5 3.5h6v6", "M12.5 3.5L4 12"]);
+const ICON_NEUTRAL = icon(["M8 1.75a6.25 6.25 0 1 0 0 12.5a6.25 6.25 0 1 0 0-12.5z", "M5.5 8h5"]);
+// An EEG-like trace: the archive's subject matter, drawn as the brand mark.
+const BRAND_MARK =
+  '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M3 13h3.2l1.6-4.5 2.6 9 2.7-11 2.2 8.2 1.3-1.7H21"/></svg>';
+
+const navLinks = DASHBOARD_SECTIONS.map(
+  (s) => `<a href="#${s.id}" data-nav-link>${s.label}</a>`,
+).join("");
+
+const skeletonCard = (extra = "") =>
+  `<div class="card skeleton-card"><div class="skeleton skeleton-title"></div>${extra}<div class="skeleton skeleton-line"></div><div class="skeleton skeleton-line short"></div></div>`;
+const KPI_SKELETONS = Array.from(
+  { length: 6 },
+  () =>
+    '<div class="card kpi" aria-hidden="true"><div class="skeleton skeleton-line short"></div><div class="skeleton skeleton-value"></div><div class="skeleton skeleton-line"></div></div>',
+).join("");
+const GRID_SKELETON = `<div class="skeleton-grid">${skeletonCard()}${skeletonCard()}${skeletonCard()}</div>`;
+const CHART_SKELETON =
+  '<div class="card skeleton-card"><div class="skeleton skeleton-title"></div><div class="skeleton skeleton-chart"></div></div>';
+const MAP_SKELETON =
+  '<div class="geo-layout"><div class="card skeleton-card"><div class="skeleton skeleton-map"></div></div><div class="card skeleton-card"><div class="skeleton skeleton-title"></div><div class="skeleton skeleton-value"></div><div class="skeleton skeleton-line"></div><div class="skeleton skeleton-line"></div><div class="skeleton skeleton-line short"></div></div></div>';
+
+const info = (label: string, text: string) =>
+  `<details class="popover info"><summary class="info-trigger" aria-label="${label}">${icon([
+    "M8 1.75a6.25 6.25 0 1 0 0 12.5a6.25 6.25 0 1 0 0-12.5z",
+    "M8 7.3v3.7",
+    "M8 5v.05",
+  ])}</summary><div class="popover-panel info-panel"><p>${text}</p></div></details>`;
+
 export function renderDashboardPage(): string {
   return `<!doctype html>
-<html lang="en">
+<html lang="en" data-theme="system">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
   <title>NEMAR Observability</title>
+  <meta name="description" content="What the NEMAR open data archive holds, how it is used, and whether its data pipelines are healthy.">
   <meta name="robots" content="noindex">
   <style>${STYLES}</style>
 </head>
 <body>
-  <header>
-    <h1>NEMAR Observability</h1>
-    <span class="sub">usage and latest dataset &amp; pipeline health</span>
-    <span class="spacer"></span>
-    <a class="portal" href="https://app.nemar.org/admin" target="_blank" rel="noopener">Admin portal &rarr;</a>
-  </header>
-  <main>
-    <section class="card usage-card">
-      <h2>How is NEMAR being used?</h2>
-      <p class="health-intro">Daily totals from each reporting source.</p>
-      <div class="series-controls">
-        <button type="button" data-range="7">Last 7 days</button>
-        <button type="button" data-range="30">Last 30 days</button>
-        <button type="button" data-range="90">Last 90 days</button>
-        <button type="button" data-range="365">Last 365 days</button>
-        <label>Start date (UTC)<input id="range-start" type="date"></label>
-        <label>End date (UTC)<input id="range-end" type="date"></label>
-        <label>View by<select id="grouping"><option value="day">Day</option><option value="week">Calendar week</option><option value="month">Calendar month</option></select></label>
-      </div>
-      <p id="range-note" class="range-note">UTC · complete days through yesterday</p>
-      <details class="range-help">
-        <summary>How to read these charts</summary>
-        <p>Counts and bytes can be grouped by week or month. Visitor and session totals are queried for the selected range and are not added across days.</p>
-      </details>
-      <div id="series" aria-live="polite"></div>
-    </section>
-    <section class="card">
-      <h2>What activity happens on the website?</h2>
-      <p class="health-intro">Website activity and Cloudflare requests for the selected dates.</p>
-      <div id="audience" aria-live="polite"><p class="muted">Loading audience metrics…</p></div>
-    </section>
-    <section class="card geography-card">
-      <div class="geography-heading">
-        <div>
-          <h2>Where are requests coming from?</h2>
-          <p class="health-intro">Cloudflare request counts by country for the selected dates. Website sessions are shown separately when available.</p>
-        </div>
-        <span class="geography-period">Selected period · UTC</span>
-        <details class="info-disclosure">
-          <summary class="info-icon" aria-label="About the location map">i</summary>
-          <span class="info-content">Cloudflare counts requests for individual pages, files, images, and API calls; one page view can create many requests, and automated traffic is included. Website sessions are a separate measure. S3 bucket downloads include internal reads and have no location data.</span>
+  <a class="skip-link" href="#main">Skip to content</a>
+  <header class="topbar">
+    <div class="topbar-row">
+      <a class="brand" href="#overview" aria-label="NEMAR Observability, back to the overview">
+        <span class="brand-mark">${BRAND_MARK}</span>
+        <span class="brand-name">NEMAR</span>
+        <span class="brand-product">Observability</span>
+      </a>
+      <nav class="topnav" aria-label="Page sections">${navLinks}</nav>
+      <div class="topbar-actions">
+        <a id="status-pill" class="status-pill" href="#pipelines" data-state="loading" aria-label="Checking pipeline status">${ICON_NEUTRAL}<span class="pill-text">Checking status</span></a>
+        <button id="theme-toggle" class="icon-button" type="button" aria-label="Switch theme">${ICON_SUN}${ICON_MOON}</button>
+        <a class="button portal-link" href="${ADMIN_PORTAL}" target="_blank" rel="noopener">Admin portal ${ICON_EXTERNAL}</a>
+        <details class="popover nav-menu">
+          <summary class="icon-button" aria-label="Open the section menu">${ICON_MENU}</summary>
+          <nav class="popover-panel nav-menu-panel" aria-label="Page sections">${navLinks}<hr><a href="${ADMIN_PORTAL}" target="_blank" rel="noopener">Admin portal</a></nav>
         </details>
       </div>
-      <div id="geography" aria-live="polite"><p class="muted">Loading country activity…</p></div>
+    </div>
+    <div class="filterbar">
+      <div class="segmented range-presets" role="group" aria-label="Date range presets">
+        <button type="button" data-range="7" aria-label="Last 7 days">7d</button>
+        <button type="button" data-range="30" aria-label="Last 30 days">30d</button>
+        <button type="button" data-range="90" aria-label="Last 90 days">90d</button>
+        <button type="button" data-range="365" aria-label="Last 365 days">1y</button>
+      </div>
+      <details class="popover range-custom" id="range-custom">
+        <summary aria-label="Choose custom dates">${ICON_CALENDAR}<span class="custom-label">Custom</span></summary>
+        <div class="popover-panel range-custom-panel">
+          <label class="field">Start date (UTC)<input id="range-start" type="date"></label>
+          <label class="field">End date (UTC)<input id="range-end" type="date"></label>
+          <p class="fine">Dates are whole UTC days. Ranges can span up to 3,660 days.</p>
+        </div>
+      </details>
+      <p id="range-summary" class="range-summary" aria-live="polite">Last 30 days</p>
+      <p class="filterbar-note">The date range applies to usage and reach. Catalog and pipeline figures come from the latest hourly snapshot.</p>
+    </div>
+  </header>
+  <main id="main">
+    <section id="overview" class="hero" aria-labelledby="overview-title">
+      <h1 id="overview-title" class="hero-title" aria-live="polite">NEMAR shares open neurophysiology data with researchers worldwide.</h1>
+      <p class="hero-lede">The Neuroelectromagnetic Data Archive and Tools Resource (NEMAR) hosts open electroencephalography (EEG), magnetoencephalography (MEG), and related recordings. This page shows what the archive holds, how it is used, and whether its data pipelines are healthy.</p>
+      <div id="kpis" class="kpi-grid" aria-busy="true">${KPI_SKELETONS}</div>
     </section>
-    <section class="card">
-      <h2>What is the latest state of datasets and pipelines?</h2>
-      <p class="health-intro">Latest snapshot.</p>
-      <p id="health-meta" class="health-meta" aria-live="polite">Loading latest-state snapshot…</p>
-      <div id="sections"></div>
+
+    <section id="usage" aria-labelledby="usage-title">
+      <div class="section-head">
+        <div>
+          <h2 id="usage-title">How is NEMAR being used?</h2>
+          <p class="section-lede">Daily totals from each reporting source for the selected dates.</p>
+        </div>
+        <div class="section-tools">
+          <label class="select-field">View by<select id="grouping"><option value="day">Day</option><option value="week">Calendar week</option><option value="month">Calendar month</option></select></label>
+          ${info("How to read these charts", "Counts and bytes can be grouped by calendar week or month; the first and last groups may be partial and are drawn dashed. Days without data are shaded and left as gaps, because unknown is not zero. Visitor and session totals are queried for the selected range and are not added across days.")}
+        </div>
+      </div>
+      <p id="range-note" class="range-note">All dates are UTC, with complete days through yesterday.</p>
+      <div id="series" class="series-grid" aria-live="polite">${CHART_SKELETON}</div>
+      <div class="subsection-head">
+        <h3>Totals for the selected dates</h3>
+        <p>Website activity and requests, each from its own source.</p>
+      </div>
+      <div id="audience" aria-live="polite">${GRID_SKELETON}</div>
+      <div class="subsection-head">
+        <h3>Rolling 30-day measures</h3>
+        <p>From the latest hourly snapshot; these do not follow the date range.</p>
+      </div>
+      <div id="usage-snapshot" class="stack" aria-live="polite">${GRID_SKELETON}</div>
+    </section>
+
+    <section id="reach" aria-labelledby="reach-title">
+      <div class="section-head">
+        <div>
+          <h2 id="reach-title">Where are requests coming from?</h2>
+          <p class="section-lede">Cloudflare request counts by country for the selected dates. Website sessions are shown separately when available.</p>
+        </div>
+        <div class="section-tools">
+          <span class="geography-period">Selected period (UTC)</span>
+          ${info("About the location map", "Cloudflare counts requests for individual pages, files, images, and API calls; one page view can create many requests, and automated traffic is included. Website sessions are a separate measure. S3 bucket downloads include internal reads and have no location data.")}
+        </div>
+      </div>
+      <div id="geography" aria-live="polite">${MAP_SKELETON}</div>
+    </section>
+
+    <section id="datasets" aria-labelledby="datasets-title">
+      <div class="section-head">
+        <div>
+          <h2 id="datasets-title">What does NEMAR hold?</h2>
+          <p class="section-lede">The public catalog by recording type, license, and size, from the latest hourly snapshot.</p>
+        </div>
+      </div>
+      <div id="catalog" aria-live="polite">${GRID_SKELETON}</div>
+    </section>
+
+    <section id="pipelines" aria-labelledby="pipelines-title">
+      <div class="section-head">
+        <div>
+          <h2 id="pipelines-title">What is the latest state of datasets and pipelines?</h2>
+          <p class="section-lede">Archive building, Zarr conversion for in-browser viewing, OpenNeuro imports, publication review, and accounts. Items that need action link to the admin portal.</p>
+        </div>
+      </div>
+      <p id="health-meta" class="health-meta" aria-live="polite">Loading the latest snapshot.</p>
+      <div id="health-summary" aria-live="polite"></div>
+      <div id="sections" class="health-grid">${GRID_SKELETON}</div>
     </section>
   </main>
+  <footer class="page-footer">
+    <p>NEMAR Observability is read-only. It stores nothing in your browser and makes no changes to NEMAR.</p>
+    <nav aria-label="Related links"><a href="/">All dashboards</a><a href="https://nemar.org">nemar.org</a><a href="https://docs.nemar.org">Documentation</a><a href="${ADMIN_PORTAL}" target="_blank" rel="noopener">Admin portal</a></nav>
+  </footer>
   <script>const WORLD_COUNTRY_PATHS = ${WORLD_COUNTRY_PATHS_JSON};const WORLD_COUNTRY_MARKERS = ${WORLD_COUNTRY_MARKERS_JSON};const WORLD_COUNTRY_NAMES = ${WORLD_COUNTRY_NAMES_JSON};const WORLD_COUNTRY_CODES_BY_NAME = ${WORLD_COUNTRY_CODES_BY_NAME_JSON};${CLIENT_JS}</script>
 </body>
 </html>`;
