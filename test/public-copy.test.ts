@@ -9,6 +9,7 @@ const SOURCES = [
   "../src/lib/access.ts",
   "../src/lib/cf-section.ts",
   "../scripts/push-s3-egress.ts",
+  "../scripts/push-s3-storage.ts",
 ];
 const JARGON =
   /Cloudflare|\bS3\b|CloudWatch|presigned|index\.json|nemar approve|archive-sweep|#\d{3}|source='|\b\d+d\b|—/;

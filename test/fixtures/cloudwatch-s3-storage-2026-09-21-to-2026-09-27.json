@@ -1,0 +1,233 @@
+{
+    "MetricDataResults": [
+        {
+            "Id": "bytes_StandardStorage",
+            "Label": "StandardStorage BucketSizeBytes",
+            "Timestamps": [
+                "2026-09-20T17:00:00-07:00",
+                "2026-09-21T17:00:00-07:00",
+                "2026-09-22T17:00:00-07:00",
+                "2026-09-23T17:00:00-07:00",
+                "2026-09-24T17:00:00-07:00",
+                "2026-09-25T17:00:00-07:00",
+                "2026-09-26T17:00:00-07:00"
+            ],
+            "Values": [
+                114717797339767.0,
+                115110962221842.0,
+                115583134706945.0,
+                117600978690709.0,
+                118148043007759.0,
+                120204239763467.0,
+                121308786888620.0
+            ],
+            "StatusCode": "Complete"
+        },
+        {
+            "Id": "bytes_StandardIAStorage",
+            "Label": "StandardIAStorage BucketSizeBytes",
+            "Timestamps": [],
+            "Values": [],
+            "StatusCode": "Complete"
+        },
+        {
+            "Id": "bytes_StandardIASizeOverhead",
+            "Label": "StandardIASizeOverhead BucketSizeBytes",
+            "Timestamps": [],
+            "Values": [],
+            "StatusCode": "Complete"
+        },
+        {
+            "Id": "bytes_StandardIAObjectOverhead",
+            "Label": "StandardIAObjectOverhead BucketSizeBytes",
+            "Timestamps": [],
+            "Values": [],
+            "StatusCode": "Complete"
+        },
+        {
+            "Id": "bytes_IntelligentTieringFAStorage",
+            "Label": "IntelligentTieringFAStorage BucketSizeBytes",
+            "Timestamps": [],
+            "Values": [],
+            "StatusCode": "Complete"
+        },
+        {
+            "Id": "bytes_IntelligentTieringIAStorage",
+            "Label": "IntelligentTieringIAStorage BucketSizeBytes",
+            "Timestamps": [],
+            "Values": [],
+            "StatusCode": "Complete"
+        },
+        {
+            "Id": "bytes_IntelligentTieringAAStorage",
+            "Label": "IntelligentTieringAAStorage BucketSizeBytes",
+            "Timestamps": [],
+            "Values": [],
+            "StatusCode": "Complete"
+        },
+        {
+            "Id": "bytes_IntelligentTieringAIAStorage",
+            "Label": "IntelligentTieringAIAStorage BucketSizeBytes",
+            "Timestamps": [],
+            "Values": [],
+            "StatusCode": "Complete"
+        },
+        {
+            "Id": "bytes_IntelligentTieringDAAStorage",
+            "Label": "IntelligentTieringDAAStorage BucketSizeBytes",
+            "Timestamps": [],
+            "Values": [],
+            "StatusCode": "Complete"
+        },
+        {
+            "Id": "bytes_IntAAObjectOverhead",
+            "Label": "IntAAObjectOverhead BucketSizeBytes",
+            "Timestamps": [],
+            "Values": [],
+            "StatusCode": "Complete"
+        },
+        {
+            "Id": "bytes_IntAAS3ObjectOverhead",
+            "Label": "IntAAS3ObjectOverhead BucketSizeBytes",
+            "Timestamps": [],
+            "Values": [],
+            "StatusCode": "Complete"
+        },
+        {
+            "Id": "bytes_IntDAAObjectOverhead",
+            "Label": "IntDAAObjectOverhead BucketSizeBytes",
+            "Timestamps": [],
+            "Values": [],
+            "StatusCode": "Complete"
+        },
+        {
+            "Id": "bytes_IntDAAS3ObjectOverhead",
+            "Label": "IntDAAS3ObjectOverhead BucketSizeBytes",
+            "Timestamps": [],
+            "Values": [],
+            "StatusCode": "Complete"
+        },
+        {
+            "Id": "bytes_OneZoneIAStorage",
+            "Label": "OneZoneIAStorage BucketSizeBytes",
+            "Timestamps": [],
+            "Values": [],
+            "StatusCode": "Complete"
+        },
+        {
+            "Id": "bytes_OneZoneIASizeOverhead",
+            "Label": "OneZoneIASizeOverhead BucketSizeBytes",
+            "Timestamps": [],
+            "Values": [],
+            "StatusCode": "Complete"
+        },
+        {
+            "Id": "bytes_ReducedRedundancyStorage",
+            "Label": "ReducedRedundancyStorage BucketSizeBytes",
+            "Timestamps": [],
+            "Values": [],
+            "StatusCode": "Complete"
+        },
+        {
+            "Id": "bytes_GlacierInstantRetrievalStorage",
+            "Label": "GlacierInstantRetrievalStorage BucketSizeBytes",
+            "Timestamps": [],
+            "Values": [],
+            "StatusCode": "Complete"
+        },
+        {
+            "Id": "bytes_GlacierIRSizeOverhead",
+            "Label": "GlacierIRSizeOverhead BucketSizeBytes",
+            "Timestamps": [],
+            "Values": [],
+            "StatusCode": "Complete"
+        },
+        {
+            "Id": "bytes_GlacierStorage",
+            "Label": "GlacierStorage BucketSizeBytes",
+            "Timestamps": [],
+            "Values": [],
+            "StatusCode": "Complete"
+        },
+        {
+            "Id": "bytes_GlacierStagingStorage",
+            "Label": "GlacierStagingStorage BucketSizeBytes",
+            "Timestamps": [],
+            "Values": [],
+            "StatusCode": "Complete"
+        },
+        {
+            "Id": "bytes_GlacierObjectOverhead",
+            "Label": "GlacierObjectOverhead BucketSizeBytes",
+            "Timestamps": [],
+            "Values": [],
+            "StatusCode": "Complete"
+        },
+        {
+            "Id": "bytes_GlacierS3ObjectOverhead",
+            "Label": "GlacierS3ObjectOverhead BucketSizeBytes",
+            "Timestamps": [],
+            "Values": [],
+            "StatusCode": "Complete"
+        },
+        {
+            "Id": "bytes_DeepArchiveStorage",
+            "Label": "DeepArchiveStorage BucketSizeBytes",
+            "Timestamps": [],
+            "Values": [],
+            "StatusCode": "Complete"
+        },
+        {
+            "Id": "bytes_DeepArchiveObjectOverhead",
+            "Label": "DeepArchiveObjectOverhead BucketSizeBytes",
+            "Timestamps": [],
+            "Values": [],
+            "StatusCode": "Complete"
+        },
+        {
+            "Id": "bytes_DeepArchiveS3ObjectOverhead",
+            "Label": "DeepArchiveS3ObjectOverhead BucketSizeBytes",
+            "Timestamps": [],
+            "Values": [],
+            "StatusCode": "Complete"
+        },
+        {
+            "Id": "bytes_DeepArchiveStagingStorage",
+            "Label": "DeepArchiveStagingStorage BucketSizeBytes",
+            "Timestamps": [],
+            "Values": [],
+            "StatusCode": "Complete"
+        },
+        {
+            "Id": "bytes_ExpressOneZoneStorage",
+            "Label": "ExpressOneZoneStorage BucketSizeBytes",
+            "Timestamps": [],
+            "Values": [],
+            "StatusCode": "Complete"
+        },
+        {
+            "Id": "objects_AllStorageTypes",
+            "Label": "AllStorageTypes NumberOfObjects",
+            "Timestamps": [
+                "2026-09-20T17:00:00-07:00",
+                "2026-09-21T17:00:00-07:00",
+                "2026-09-22T17:00:00-07:00",
+                "2026-09-23T17:00:00-07:00",
+                "2026-09-24T17:00:00-07:00",
+                "2026-09-25T17:00:00-07:00",
+                "2026-09-26T17:00:00-07:00"
+            ],
+            "Values": [
+                1206527450.0,
+                1208729661.0,
+                1211311440.0,
+                1222626268.0,
+                1234699216.0,
+                1245761331.0,
+                1264844371.0
+            ],
+            "StatusCode": "Complete"
+        }
+    ],
+    "Messages": []
+}
