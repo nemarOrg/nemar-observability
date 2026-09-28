@@ -178,7 +178,7 @@ export async function sizesSection(db: D1Database, now: string): Promise<Section
         unit: "datasets",
         severity: "info",
         breakdown: buildSizeHistogram(sized.map((r) => r.file_size)),
-        hint: `Log-scaled bins — sizes span seven orders of magnitude, so equal-width bins would put ~98% of the catalog in one bar. ${overCutoff} datasets (${pct}%) sit above the 100 GB archive cutoff and get no downloadable zip.`,
+        hint: `Bins are log-scaled because sizes span seven orders of magnitude; equal-width bins would put about 98% of the catalog in one bar. ${overCutoff} datasets (${pct}%) are above the 100 GB archive cutoff and have no downloadable zip.`,
       }),
       // Headline is the SHARE these ten hold, not the number ten. "10" restates
       // the row count and tells a reader nothing; the concentration does --
@@ -245,7 +245,7 @@ export async function archiveSection(db: D1Database, now: string): Promise<Secti
         value: c.ready ?? 0,
         total: eligible,
         severity: "ok",
-        hint: "Published datasets with a downloadable zip on S3, of those eligible for one",
+        hint: "Published datasets with a downloadable zip archive, of those eligible for one",
       }),
       metric({
         key: "archive.missing",
@@ -254,7 +254,7 @@ export async function archiveSection(db: D1Database, now: string): Promise<Secti
         total: eligible,
         severity: missing > 0 ? "warn" : "ok",
         drilldown: "archive.missing",
-        hint: "Eligible but no confirmed archive (run archive-sweep / generate). Excludes datasets skipped by the >100 GB policy.",
+        hint: "Eligible for an archive but without a confirmed one yet. Excludes datasets over the 100 GB archive limit.",
       }),
       metric({
         key: "archive.skipped",
@@ -263,7 +263,7 @@ export async function archiveSection(db: D1Database, now: string): Promise<Secti
         total: published,
         severity: "info",
         drilldown: "archive.skipped",
-        hint: "Too large to archive (>100 GB policy, nemar-cli #752). Working as designed, not a backlog.",
+        hint: "Over the 100 GB archive limit, so no zip is built. Working as designed, not a backlog.",
       }),
       metric({
         key: "archive.pending",
@@ -331,7 +331,7 @@ async function zarrSection(db: D1Database, now: string): Promise<Section> {
         value: c.stores ?? 0,
         unit: "count",
         severity: "info",
-        hint: "Total .zarr stores across ready datasets",
+        hint: "Zarr stores across datasets with a ready serving copy",
       }),
     ],
     now,
@@ -388,7 +388,7 @@ export async function autoImportSection(db: D1Database, now: string): Promise<Se
         value: failed,
         severity: failSeverity(failed),
         drilldown: "imports.failed",
-        hint: "Imports that errored after the auto-retry cap",
+        hint: "Imports that failed after automatic retries",
       }),
       metric({
         key: "imports.quarantined",
@@ -396,7 +396,7 @@ export async function autoImportSection(db: D1Database, now: string): Promise<Se
         value: quarantined,
         severity: failSeverity(quarantined),
         drilldown: "imports.quarantined",
-        hint: "Parked for admin review",
+        hint: "Set aside for an administrator to review",
       }),
       metric({
         key: "imports.upstream_inaccessible",
@@ -404,14 +404,14 @@ export async function autoImportSection(db: D1Database, now: string): Promise<Se
         value: c.upstream ?? 0,
         severity: "info",
         drilldown: "imports.upstream_inaccessible",
-        hint: "OpenNeuro-side problem (objects not anonymously readable, no signed login); report to OpenNeuro support. Subset of Quarantined.",
+        hint: "The source files on OpenNeuro could not be read anonymously, so these imports wait until OpenNeuro resolves it. Included in Quarantined.",
       }),
       metric({
         key: "imports.imported",
         label: "Imported",
         value: c.imported ?? 0,
         severity: "ok",
-        hint: "OpenNeuro datasets imported into NEMAR (source='openneuro' in datasets; legacy ds-numbered rows retired per nemar-cli#793)",
+        hint: "OpenNeuro datasets imported into NEMAR",
       }),
       metric({
         key: "imports.auto_24h",
@@ -419,7 +419,7 @@ export async function autoImportSection(db: D1Database, now: string): Promise<Se
         value: c.auto_24h ?? 0,
         unit: "count",
         severity: "info",
-        hint: "Auto-import dispatches in the last 24h (~16/day when active; 0 while dark)",
+        hint: "Automatic imports started in the last 24 hours (about 16 a day while running, 0 while paused)",
       }),
     ],
     now,
@@ -500,7 +500,7 @@ export async function usersSection(db: D1Database, now: string): Promise<Section
         value: verified,
         severity: pendingSeverity(verified),
         drilldown: "users.verified",
-        hint: "Email-verified users an admin can approve now (nemar approve)",
+        hint: "Users with a verified email whom an administrator can approve now",
       }),
       metric({
         key: "users.pending",
@@ -508,7 +508,7 @@ export async function usersSection(db: D1Database, now: string): Promise<Section
         value: pending,
         severity: "info",
         drilldown: "users.pending",
-        hint: "Signed up but not yet email-verified / web-onboarded — not one-click approvable",
+        hint: "Signed up but not yet through email verification and onboarding, so not ready for approval",
       }),
       metric({
         key: "users.approved",

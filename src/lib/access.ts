@@ -161,7 +161,7 @@ async function filterPublic(
 function spikeHint(base: string, report: SpikeReport): string {
   if (!report.isSpike || report.peak === null) return base;
   const share = Math.round(report.peakShare * 100);
-  return `${base} Distorted: ${report.peak.value.toLocaleString()} of these landed on ${report.peak.date} (${share}% of the window) — treat the total as one client, not demand.`;
+  return `${base} Distorted: ${report.peak.value.toLocaleString()} of these landed on ${report.peak.date} (${share}% of the window); read the total as one client, not demand.`;
 }
 
 /**
@@ -295,7 +295,7 @@ export async function computeAccessSection(env: Bindings, now: string): Promise<
         unit: "count",
         severity: archiveSpike.isSpike ? "warn" : "info",
         hint: spikeHint(
-          `Median day over ${WINDOW_DAYS}d (${archiveHits.toLocaleString()} total). Counts redirects ISSUED on /<id>/<version>.zip, not completed downloads.`,
+          `Median day over ${WINDOW_DAYS} days (${archiveHits.toLocaleString()} total). Counts archive download links handed out, not completed downloads.`,
           archiveSpike,
         ),
       }),
@@ -305,7 +305,7 @@ export async function computeAccessSection(env: Bindings, now: string): Promise<
         value: zarrIndexHits,
         unit: "count",
         severity: "info",
-        hint: "zarr.nemar.org index.json fetches — one per dataset a client starts browsing. Includes crawlers.",
+        hint: "Times a client started browsing a dataset in the viewer, one index read each. Includes crawlers.",
       }),
       metric({
         key: "access.zarr_chunks",
@@ -313,7 +313,7 @@ export async function computeAccessSection(env: Bindings, now: string): Promise<
         value: zarrChunkHits,
         unit: "count",
         severity: "info",
-        hint: `Zarr data-chunk requests (plus ${zarrMetadataHits.toLocaleString()} store-metadata reads). Small files by design, so a single viewer session produces many.`,
+        hint: `Reads of Zarr data chunks (plus ${zarrMetadataHits.toLocaleString()} metadata reads). Chunks are small by design, so one viewer session makes many.`,
       }),
       // The number that was missing entirely: how much science data NEMAR
       // actually served. Chunk bytes only -- folding index.json in here is what
@@ -325,7 +325,7 @@ export async function computeAccessSection(env: Bindings, now: string): Promise<
         value: zarrChunkBytes,
         unit: "bytes",
         severity: "info",
-        hint: "Zarr chunk bytes only. Archive bytes are excluded: those stream direct from S3 on a presigned URL and never cross the Worker.",
+        hint: "Bytes of Zarr data chunks only. Archive downloads go straight from storage and are not counted here.",
       }),
       metric({
         key: "access.catalog_bytes",
@@ -333,7 +333,7 @@ export async function computeAccessSection(env: Bindings, now: string): Promise<
         value: zarrIndexBytes,
         unit: "bytes",
         severity: "info",
-        hint: "Bytes spent on index.json rather than data. Large relative to science data means the store index is being crawled.",
+        hint: "Bytes spent on dataset index files rather than data. A large share means the index is being crawled.",
       }),
       metric({
         key: "access.top",
@@ -343,7 +343,7 @@ export async function computeAccessSection(env: Bindings, now: string): Promise<
         severity: "info",
         breakdown: topBreakdown,
         breakdown_unit: "bytes",
-        hint: "Ranked by Zarr chunk bytes, so index.json crawling cannot reach the top.",
+        hint: "Ranked by data-chunk bytes, so index crawling cannot push a dataset to the top.",
       }),
     ],
   };
