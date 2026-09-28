@@ -19,7 +19,7 @@ import {
   postSection,
   requiredAwsCredentials,
   requiredSecret,
-  runCollector,
+  runCollectorAndExit,
   utcDate,
 } from "./lib/s3-cloudwatch";
 
@@ -294,8 +294,9 @@ export function storageFailureStatus(now = new Date()) {
   };
 }
 
-async function main() {
-  const ingestToken = requiredSecret("OBS_STORAGE_INGEST_TOKEN");
+/** Collect once and push the section to `sectionsUrl` (production by default). */
+export async function collectStorage(sectionsUrl?: string) {
+  const ingestToken = requiredSecret(STORAGE_COLLECTOR.tokenVariable);
   const credentials = requiredAwsCredentials();
 
   const { startDate, endDate } = storageWindow(utcDate(new Date()));
@@ -307,18 +308,24 @@ async function main() {
   );
   const observation = latestStorageObservation(output, startDate, endDate);
   assertCurrentStorageDay(observation.date);
-  await postSection("storage", ingestToken, storageSection(observation));
+  await postSection(
+    STORAGE_COLLECTOR.sectionKey,
+    ingestToken,
+    storageSection(observation),
+    sectionsUrl,
+  );
   console.info(
-    `[s3-storage] posted ${observation.date} UTC: ${observation.bucketBytes} bytes, ${observation.objectCount} objects, ${observation.byClass.length} storage classes`,
+    `[${STORAGE_COLLECTOR.tag}] posted ${observation.date} UTC: ${observation.bucketBytes} bytes, ${observation.objectCount} objects, ${observation.byClass.length} storage classes`,
   );
 }
 
+export const STORAGE_COLLECTOR = {
+  tag: "s3-storage",
+  sectionKey: "storage",
+  tokenVariable: "OBS_STORAGE_INGEST_TOKEN",
+  failureStatus: () => storageFailureStatus(),
+} as const;
+
 if ((import.meta as ImportMeta & { main?: boolean }).main) {
-  runCollector({
-    tag: "s3-storage",
-    sectionKey: "storage",
-    tokenVariable: "OBS_STORAGE_INGEST_TOKEN",
-    collect: main,
-    failureStatus: () => storageFailureStatus(),
-  });
+  await runCollectorAndExit({ ...STORAGE_COLLECTOR, collect: () => collectStorage() });
 }

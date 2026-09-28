@@ -25,7 +25,8 @@ export const BUCKET_NAME = "nemar";
 export const PERIOD_SECONDS = 86_400;
 export const DAY_MS = PERIOD_SECONDS * 1_000;
 export const FRESHNESS_AFTER_HOURS = 36;
-const DASHBOARD_SECTIONS_URL = "https://dashboard.nemar.org/observability/api/sections";
+/** Production section-ingest base; tests pass a local Worker instead. */
+export const DASHBOARD_SECTIONS_URL = "https://dashboard.nemar.org/observability/api/sections";
 
 export type CloudWatchResult = {
   Id?: string;
@@ -305,10 +306,15 @@ async function awsErrorCode(stderr: ReadableStream<Uint8Array>): Promise<string 
   return extractAwsErrorCode(retained);
 }
 
-export async function postSection(sectionKey: string, token: string, payload: unknown) {
+export async function postSection(
+  sectionKey: string,
+  token: string,
+  payload: unknown,
+  sectionsUrl = DASHBOARD_SECTIONS_URL,
+) {
   let response: Response;
   try {
-    response = await fetch(`${DASHBOARD_SECTIONS_URL}/${sectionKey}`, {
+    response = await fetch(`${sectionsUrl}/${sectionKey}`, {
       method: "POST",
       headers: {
         Authorization: `Bearer ${token}`,
@@ -332,15 +338,22 @@ export async function postSection(sectionKey: string, token: string, payload: un
  * error-status metric so an unknown value never reads as a current one. The
  * failure detail goes only to the journal; the public status is generic.
  */
-export function runCollector(options: {
+export type CollectorOptions = {
   tag: string;
   sectionKey: string;
   tokenVariable: string;
   collect: () => Promise<void>;
   failureStatus: () => unknown;
-}): void {
-  const { tag, sectionKey, tokenVariable, collect, failureStatus } = options;
-  collect().catch(async (error: unknown) => {
+  sectionsUrl?: string;
+};
+
+/** Resolve to the process exit code: 0 on success, 1 on any failure. */
+export async function runCollector(options: CollectorOptions): Promise<number> {
+  const { tag, sectionKey, tokenVariable, collect, failureStatus, sectionsUrl } = options;
+  try {
+    await collect();
+    return 0;
+  } catch (error: unknown) {
     const message =
       error instanceof CollectionError || error instanceof IngestError
         ? error.message
@@ -349,14 +362,12 @@ export function runCollector(options: {
 
     // Once an ingest request has been sent, a timeout or server error can occur
     // after D1 committed it. A second error-status push could overwrite success.
-    if (!shouldPublishFailureStatus(error)) {
-      process.exit(1);
-    }
+    if (!shouldPublishFailureStatus(error)) return 1;
 
     const token = Bun.env[tokenVariable];
     if (token?.trim()) {
       try {
-        await postSection(sectionKey, token, failureStatus());
+        await postSection(sectionKey, token, failureStatus(), sectionsUrl);
         console.info(`[${tag}] published the collector failure status`);
       } catch {
         console.error(
@@ -364,6 +375,10 @@ export function runCollector(options: {
         );
       }
     }
-    process.exit(1);
-  });
+    return 1;
+  }
+}
+
+export async function runCollectorAndExit(options: CollectorOptions): Promise<never> {
+  process.exit(await runCollector(options));
 }

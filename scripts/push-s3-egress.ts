@@ -15,7 +15,7 @@ import {
   postSection,
   requiredAwsCredentials,
   requiredSecret,
-  runCollector,
+  runCollectorAndExit,
   utcDate,
 } from "./lib/s3-cloudwatch";
 
@@ -155,7 +155,7 @@ async function main() {
 }
 
 if ((import.meta as ImportMeta & { main?: boolean }).main) {
-  runCollector({
+  await runCollectorAndExit({
     tag: "s3-egress",
     sectionKey: "egress",
     tokenVariable: "OBS_EGRESS_INGEST_TOKEN",
