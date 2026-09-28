@@ -459,7 +459,8 @@ documented Wrangler Pages path. For that manual build, set
 `PUBLIC_UMAMI_WEBSITE_ID` from the production `[vars]` in `wrangler.toml`.
 Without these build-time values, Astro reported `commit: "dev"` and omitted
 the tracker ID from the compiled browser bundle. The corrected production
-deployment is `95078620`; `https://nemar.org/version.json` reports
+deployment is `95078620-37b9-4bf7-8eae-7c9cc16d2e17`;
+`https://nemar.org/version.json` reports
 `0.2.20+02ae7c9b`, the tracker bundle contains the site ID, and
 `https://analytics.nemar.org/nmr-analytics.js` returns HTTP 200. Cloudflare
 Pages settings now show the production Umami variable. Verify both the version

@@ -72,8 +72,10 @@ day of audience coverage, and the remaining Umami operations. S3 egress issue
   epic reconciliation is PR #78. See `.context/research.md` for exact routing
   and verification details.
 - S3 `BytesDownloaded` collection is the separate deferred follow-up in issue
-  #59; it does not block Umami integration. The collector and dashboard support
-  merged in PR #82 and are deployed; the historical read-only CloudWatch query
+  #59; it does not block Umami integration. The egress collector and daily
+  dashboard series merged in PRs #61 and #60. PR #82 extracted shared
+  CloudWatch collector code and added the separate storage-gauge section; its
+  Worker changes are deployed. The historical read-only CloudWatch query
   succeeded.
   The egress token/Worker secret, live section push, timer installation, and
   end-to-end chart acceptance remain outstanding. Keep the timer disabled
@@ -134,8 +136,8 @@ summed across buckets as unique people.
       real section, and pass API/chart coverage checks before its timer is
       enabled. See `.context/phase4-plan.md` and issue #59.
 - [ ] **S3 storage size section (`storage`):** collector
-      `scripts/push-s3-storage.ts`, units, and tests merged in PR #82 and are
-      deployed. It reuses the egress CloudWatch key from
+      `scripts/push-s3-storage.ts`, units, and tests merged in PR #82; host
+      installation is still pending. It reuses the egress CloudWatch key from
       `prod:/observability/egress` and pushes gauges only (no daily series;
       trend via `/snapshot/history`). Operator steps still open: add
       `OBS_STORAGE_INGEST_TOKEN` to that Infisical path, add the same value as
