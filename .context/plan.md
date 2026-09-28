@@ -39,9 +39,9 @@ dashboard implementation phases.
   Cloudflare's Free-plan rate limiter cannot scope by host or method, so no
   `/api/send` rate limit was added: it could affect the same path on other
   hosts. That endpoint remains unchallenged and without a dedicated rate
-  limit. The Managed Challenge has only been checked with non-browser HTTP
-  requests; a human browser pass remains unverified. The website tracker still
-  needs real-browser consent/event acceptance. See
+  limit. Chrome passed Cloudflare's Managed Challenge on both public hosts and
+  displayed the Umami and Infisical login pages; no credentials were entered.
+  The website tracker still needs real-browser consent/event acceptance. See
   those issues for the remaining owner gates and `.context/research.md` for the
   exact routing and verification results.
 - S3 `BytesDownloaded` collection is the separate deferred follow-up in issue

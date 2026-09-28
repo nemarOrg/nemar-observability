@@ -416,10 +416,12 @@ Read-only external route checks returned:
 | Request | Result | Meaning |
 |---|---|---|
 | `GET analytics.nemar.org/nmr-analytics.js` | 200, no `cf-mitigated` header | Tracker script route is reachable. |
-| `GET analytics.nemar.org/login` | 403, `cf-mitigated: challenge` | Non-browser request receives the configured challenge; an interactive browser pass remains unverified. |
+| `GET analytics.nemar.org/login` | 403, `cf-mitigated: challenge` | Non-browser HTTP request receives the configured challenge; Chrome passed it and rendered the login page. |
 | `GET analytics.nemar.org/api/send` | 405, no `cf-mitigated` header | The endpoint is reached without a Cloudflare challenge; GET is not its expected POST method. No event was sent. |
-| `GET infisical.nemar.org/` | 403, `cf-mitigated: challenge` | Non-browser request receives the configured challenge. |
+| `GET infisical.nemar.org/` | 403, `cf-mitigated: challenge` | Non-browser HTTP request receives the configured challenge; Chrome passed it and rendered the login page. |
 | `GET infisical.nemar.org/api/v1/auth/universal-auth/login` | 404 JSON, no `cf-mitigated` header | The API path reaches Infisical without a Cloudflare challenge; GET is not its login method. |
+| Chrome `https://analytics.nemar.org/login` | Managed Challenge completed automatically; Umami login page rendered | Browser route passed challenge; no Umami credentials were entered. |
+| Chrome `https://infisical.nemar.org/login` | Infisical login page rendered | Browser route passed challenge; no Infisical credentials were entered. |
 
 The Free-plan rate-limiting UI exposes only URI Path and Verified Bot match
 fields, not hostname or method, and this zone has one available rate-limit
@@ -428,6 +430,7 @@ would cover that path on every hostname in the zone. Consequently, Umami's
 public `POST /api/send` remains without a dedicated rate limit; confirm whether
 that cross-host scope is safe or choose a host-aware rate-limiting option
 before claiming ingestion hardening. Bot Fight Mode was left off because it is
-zone-wide. The interactive browser challenge, real consent-gated event flow,
-and website publisher ingestion remain acceptance gates in
+zone-wide. Chrome passed the Managed Challenge on both hosts and displayed
+their login pages without submitting credentials. The real consent-gated event
+flow and website publisher ingestion remain acceptance gates in
 `nemarOrg/nemar-umami#1` and `nemarOrg/website#345`.
