@@ -19,11 +19,13 @@
 
 import {
   WORLD_COUNTRY_CODES_BY_NAME,
+  WORLD_COUNTRY_MARKERS,
   WORLD_COUNTRY_NAMES,
   WORLD_COUNTRY_PATHS,
 } from "../lib/world-map";
 
 const WORLD_COUNTRY_PATHS_JSON = JSON.stringify(WORLD_COUNTRY_PATHS);
+const WORLD_COUNTRY_MARKERS_JSON = JSON.stringify(WORLD_COUNTRY_MARKERS);
 const WORLD_COUNTRY_NAMES_JSON = JSON.stringify(WORLD_COUNTRY_NAMES);
 const WORLD_COUNTRY_CODES_BY_NAME_JSON = JSON.stringify(WORLD_COUNTRY_CODES_BY_NAME);
 
@@ -288,9 +290,12 @@ function normalizeCountryLabel(label) {
 function countryCode(label) {
   if (typeof label !== "string") return null;
   const code = label.trim().toUpperCase();
-  if (/^[A-Z]{2}$/.test(code) && WORLD_COUNTRY_PATHS[code]) return code;
+  if (/^[A-Z]{2}$/.test(code) && (WORLD_COUNTRY_PATHS[code] || WORLD_COUNTRY_MARKERS[code])) return code;
   const mappedCode = WORLD_COUNTRY_CODES_BY_NAME[normalizeCountryLabel(label)];
-  return typeof mappedCode === "string" ? mappedCode : null;
+  return typeof mappedCode === "string"
+    && (WORLD_COUNTRY_PATHS[mappedCode] || WORLD_COUNTRY_MARKERS[mappedCode])
+    ? mappedCode
+    : null;
 }
 function countryName(label) {
   const code = countryCode(label);
@@ -340,11 +345,27 @@ function renderGeography(payload, date) {
   const coded = new Map();
   countries.forEach(function (row) {
     const code = countryCode(row && row.label);
-    if (code && WORLD_COUNTRY_PATHS[code] && typeof row.value === "number" && Number.isFinite(row.value) && row.value > 0) {
+    if (code && (WORLD_COUNTRY_PATHS[code] || WORLD_COUNTRY_MARKERS[code])
+      && typeof row.value === "number" && Number.isFinite(row.value) && row.value > 0) {
       coded.set(code, (coded.get(code) || 0) + row.value);
     }
   });
   const maximum = Math.max(1, ...coded.values());
+  function styleMapLocation(element, code, value) {
+    if (value === undefined) {
+      element.setAttribute("fill", "#27313d");
+      element.setAttribute("aria-hidden", "true");
+      return;
+    }
+    const strength = Math.log1p(value) / Math.log1p(maximum);
+    element.setAttribute("fill", "rgba(74, 163, 255, " + (0.22 + 0.78 * strength).toFixed(3) + ")");
+    element.setAttribute("tabindex", "0");
+    const detail = countryName(code) + ": " + audienceNumber(value) + " " + active.unit;
+    element.setAttribute("aria-label", detail);
+    const title = document.createElementNS(svg.namespaceURI, "title");
+    title.textContent = detail;
+    element.appendChild(title);
+  }
   const layout = el("div", "geography-layout");
   const mapFrame = el("div", "geography-map-frame");
   const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
@@ -356,21 +377,18 @@ function renderGeography(payload, date) {
     const path = document.createElementNS(svg.namespaceURI, "path");
     path.setAttribute("d", WORLD_COUNTRY_PATHS[code]);
     path.setAttribute("class", "map-country");
-    const value = coded.get(code);
-    if (value !== undefined) {
-      const strength = Math.log1p(value) / Math.log1p(maximum);
-      path.setAttribute("fill", "rgba(74, 163, 255, " + (0.22 + 0.78 * strength).toFixed(3) + ")");
-      path.setAttribute("tabindex", "0");
-      const detail = countryName(code) + ": " + audienceNumber(value) + " " + active.unit;
-      path.setAttribute("aria-label", detail);
-      const title = document.createElementNS(svg.namespaceURI, "title");
-      title.textContent = detail;
-      path.appendChild(title);
-    } else {
-      path.setAttribute("fill", "#27313d");
-      path.setAttribute("aria-hidden", "true");
-    }
+    styleMapLocation(path, code, coded.get(code));
     svg.appendChild(path);
+  });
+  Object.keys(WORLD_COUNTRY_MARKERS).forEach(function (code) {
+    const coordinates = WORLD_COUNTRY_MARKERS[code];
+    const marker = document.createElementNS(svg.namespaceURI, "circle");
+    marker.setAttribute("cx", String(coordinates[0]));
+    marker.setAttribute("cy", String(coordinates[1]));
+    marker.setAttribute("r", "4");
+    marker.setAttribute("class", "map-country-marker");
+    styleMapLocation(marker, code, coded.get(code));
+    svg.appendChild(marker);
   });
   mapFrame.appendChild(svg);
   layout.appendChild(mapFrame);
@@ -859,8 +877,9 @@ main { padding: 20px 24px 60px; max-width: 1680px; margin: 0 auto; }
 .geography-map-frame { min-width: 0; overflow: hidden; border: 1px solid var(--border); border-radius: 10px; background: #111820; }
 .geography-map { display: block; width: 100%; height: auto; }
 .map-country { stroke: #111820; stroke-width: 1; stroke-linejoin: round; }
-.map-country[tabindex="0"] { cursor: pointer; }
-.map-country[tabindex="0"]:hover, .map-country[tabindex="0"]:focus { stroke: var(--fg); stroke-width: 2; outline: none; }
+.map-country-marker { stroke: #111820; stroke-width: 1; }
+.map-country[tabindex="0"], .map-country-marker[tabindex="0"] { cursor: pointer; }
+.map-country[tabindex="0"]:hover, .map-country[tabindex="0"]:focus, .map-country-marker[tabindex="0"]:hover, .map-country-marker[tabindex="0"]:focus { stroke: var(--fg); stroke-width: 2; outline: none; }
 .geography-summary { display: grid; align-content: start; gap: 8px; min-width: 0; padding: 14px; border: 1px solid var(--border); border-radius: 10px; background: var(--panel-2); }
 .geography-summary-label, .geography-summary-date { color: var(--muted); font-size: 11px; }
 .geography-summary-value { font-size: 24px; font-variant-numeric: tabular-nums; }
@@ -940,7 +959,7 @@ export function renderDashboardPage(): string {
       <div id="sections"></div>
     </section>
   </main>
-  <script>const WORLD_COUNTRY_PATHS = ${WORLD_COUNTRY_PATHS_JSON};const WORLD_COUNTRY_NAMES = ${WORLD_COUNTRY_NAMES_JSON};const WORLD_COUNTRY_CODES_BY_NAME = ${WORLD_COUNTRY_CODES_BY_NAME_JSON};${CLIENT_JS}</script>
+  <script>const WORLD_COUNTRY_PATHS = ${WORLD_COUNTRY_PATHS_JSON};const WORLD_COUNTRY_MARKERS = ${WORLD_COUNTRY_MARKERS_JSON};const WORLD_COUNTRY_NAMES = ${WORLD_COUNTRY_NAMES_JSON};const WORLD_COUNTRY_CODES_BY_NAME = ${WORLD_COUNTRY_CODES_BY_NAME_JSON};${CLIENT_JS}</script>
 </body>
 </html>`;
 }
