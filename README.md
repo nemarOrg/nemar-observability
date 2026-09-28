@@ -222,7 +222,8 @@ S3 reports these values once per day, timestamped at 00:00 UTC, with roughly a o
 They cover the whole bucket, including archives, Zarr copies, and internal objects.
 Each run reads the last seven UTC days and reports the newest day on which both the object count and `StandardStorage` have a value, summing every storage class reported that day.
 S3 computes all storage classes in one daily job, so a class missing on that day held no data (for example, after a lifecycle move) and is omitted rather than counted as zero; a missing `StandardStorage` value or object count makes the day unknown, and the run falls back to an older day.
-A run fails, and publishes the error status the same way the egress collector does, when that day ended more than 36 hours ago or no such day exists.
+A run fails, and publishes the error status the same way the egress collector does, when no such day exists or the newest one is older than the previous UTC day: a value timestamped day D is accepted through the end of day D+1 UTC and rejected from D+2 00:00 UTC onward.
+This is tighter than the egress 36-hour rule, so a two-day-old value is never shown as current.
 
 These are gauges, not additive quantities, so the collector sends no `daily_series`: the week and month views would add them up.
 The trend comes from snapshot history instead, for example `GET /observability/api/snapshot/history?metric=storage.bucket_bytes`, which returns the value each hourly snapshot saw (about one week).

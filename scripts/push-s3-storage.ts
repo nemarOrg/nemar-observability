@@ -9,7 +9,6 @@
 import {
   type DailyPoint,
   addUtcDays,
-  assertFresh,
   bucketMetricQuery,
   completeResult,
   dailyPoints,
@@ -169,8 +168,21 @@ function byDate(points: DailyPoint[]): Map<string, number> {
   return new Map(points.map((point) => [point.date, point.value]));
 }
 
+/**
+ * Accept only a value timestamped today or yesterday (UTC). S3 stamps each
+ * daily value at 00:00 UTC and publishes it later that day, so yesterday's
+ * value is the newest a run can see until today's lands; anything older means
+ * a day was missed and is reported as a failure, never shown as current.
+ */
+export function assertCurrentStorageDay(date: string, now = new Date()): void {
+  const oldestAccepted = addUtcDays(utcDate(now), -1);
+  if (date < oldestAccepted) {
+    fail(`latest storage observation ${date} is older than the previous UTC day`);
+  }
+}
+
 const SCOPE_NOTE =
-  "Reported once per day, about one day behind. Covers the whole bucket, including archives, Zarr copies, and internal objects.";
+  "Reported once per day, about one day behind; a value older than the previous UTC day is shown as a failed collection instead. Covers the whole bucket, including archives, Zarr copies, and internal objects.";
 
 export function storageSection(observation: StorageObservation) {
   const { date } = observation;
@@ -250,7 +262,7 @@ async function main() {
     credentials,
   );
   const observation = latestStorageObservation(output, startDate, endDate);
-  assertFresh([observation]);
+  assertCurrentStorageDay(observation.date);
   await postSection("storage", ingestToken, storageSection(observation));
   console.info(
     `[s3-storage] posted ${observation.date} UTC: ${observation.bucketBytes} bytes, ${observation.objectCount} objects, ${observation.byClass.length} storage classes`,

@@ -1,8 +1,9 @@
 import { describe, expect, test } from "bun:test";
 import { readFile } from "node:fs/promises";
-import { type CloudWatchResult, assertFresh } from "../scripts/lib/s3-cloudwatch";
+import type { CloudWatchResult } from "../scripts/lib/s3-cloudwatch";
 import {
   STORAGE_TYPES,
+  assertCurrentStorageDay,
   latestStorageObservation,
   storageFailureStatus,
   storageQueries,
@@ -226,17 +227,29 @@ describe("storage CloudWatch response handling", () => {
 });
 
 describe("storage reporting lag", () => {
-  test("uses yesterday's value before today's lands, and fails once it is stale", () => {
+  test("uses yesterday's value before today's lands", () => {
     const observation = latestStorageObservation(previous, PREVIOUS.startDate, PREVIOUS.endDate);
     expect(observation.date).toBe("2026-09-27");
     expect(observation.bucketBytes).toBe(121_308_786_888_620);
     // The daily timer starts by 09:02 UTC; a run that does not see the
-    // 2026-09-28 value yet still reports 2026-09-27 as current.
-    expect(() => assertFresh([observation], Date.parse("2026-09-28T09:02:00Z"))).not.toThrow();
-    expect(() => assertFresh([observation], Date.parse("2026-09-29T12:00:00.000Z"))).not.toThrow();
-    expect(() => assertFresh([observation], Date.parse("2026-09-29T12:00:00.001Z"))).toThrow(
-      "older than 36 hours",
-    );
+    // 2026-09-28 value yet still reports 2026-09-27 as current, all day.
+    expect(() =>
+      assertCurrentStorageDay(observation.date, new Date("2026-09-28T09:02:00Z")),
+    ).not.toThrow();
+    expect(() =>
+      assertCurrentStorageDay(observation.date, new Date("2026-09-28T23:59:59.999Z")),
+    ).not.toThrow();
+  });
+
+  test("rejects a two-day-old value instead of accepting it as current", () => {
+    const observation = latestStorageObservation(previous, PREVIOUS.startDate, PREVIOUS.endDate);
+    expect(() =>
+      assertCurrentStorageDay(observation.date, new Date("2026-09-29T00:00:00Z")),
+    ).toThrow("latest storage observation 2026-09-27 is older than the previous UTC day");
+    // A run at the usual time two days later must not pass either.
+    expect(() =>
+      assertCurrentStorageDay(observation.date, new Date("2026-09-29T09:02:00Z")),
+    ).toThrow("older than the previous UTC day");
   });
 });
 
