@@ -113,9 +113,10 @@ were never displayed. A 12-month read-only service token scoped to that exact pa
 `/home/yahya/.config/infisical/nemar-observability-egress.token` (mode `0600`); the one-day
 read/write bootstrap token was revoked after the write and its local file removed. No temporary
 AWS key file or staging helper remains. The existing `nemar-automation` identity has Admin access
-at organization scope; do not reuse it. The host does not currently run an Umami container.
-The Umami Worker key has not been installed or verified in Infisical. The planned dedicated path
-is `/observability/website`; do not treat the AWS egress path as an Umami secret source.
+at organization scope; do not reuse it. Historical state at this 2026-09-26 audit: nemaring did
+not yet run the Umami container, and the Umami Worker key had not been installed. See the
+2026-09-28 production rollout below for the later state. Umami secrets use the dedicated
+`/observability/website` path; do not treat the AWS egress path as their source.
 
 On 2026-09-26, the read-only Infisical token loaded the stored AWS credential into a CloudWatch
 `GetMetricData` query for `AWS/S3:BytesDownloaded`, bucket `nemar`, filter `EntireBucket`, region
@@ -446,9 +447,40 @@ account Settings. A first-party preference cookie shares the choice between the 
 sites. If that cookie cannot be used, local/session storage is scoped to the site where the choice
 was made; if every storage option is blocked, the opt-out lasts only for the current page.
 
-Website PR `nemarOrg/website#365` merged into `staging` on 2026-09-28 as `b6a1489`. The staging
-deploy workflow run `36449749794` succeeded; `https://test.nemar.org/` returned HTTP 200 and
-rendered the updated notice. This does not verify the production tracker path: keep the production
-website ID unset until the Umami site is provisioned and real-browser default-on/opt-out, event,
-and test-host acceptance passes. Canonical policy PR `nemarOrg/docs#46` is still draft and targets
-`main`; hold it until production behavior ships, and update its effective date if rollout slips.
+Website PR `nemarOrg/website#365` merged into `staging` on 2026-09-28 as
+`b6a1489`; it implements the default-on anonymous tracker with an explicit
+opt-out. Website PR #367 added the production site ID in Wrangler configuration.
+The release commit `02ae7c9beeefa68037d3cc03cd7dec35d1d4115e` is version
+`0.2.20`. Cloudflare Pages had automatic deployments enabled but did not
+create a production deployment for that main commit, so the release was built
+from a detached worktree at that exact SHA and deployed using the repository's
+documented Wrangler Pages path. For that manual build, set
+`CF_PAGES_COMMIT_SHA` to the full source SHA and
+`PUBLIC_UMAMI_WEBSITE_ID` from the production `[vars]` in `wrangler.toml`.
+Without these build-time values, Astro reported `commit: "dev"` and omitted
+the tracker ID from the compiled browser bundle. The corrected production
+deployment is `95078620-37b9-4bf7-8eae-7c9cc16d2e17`;
+`https://nemar.org/version.json` reports
+`0.2.20+02ae7c9b`, the tracker bundle contains the site ID, and
+`https://analytics.nemar.org/nmr-analytics.js` returns HTTP 200. Cloudflare
+Pages settings now show the production Umami variable. Verify both the version
+and tracker bundle after future releases; do not mistake a successful build or
+staging preview for production activation.
+
+After reloading the live website in Chrome, the production
+`/observability/api/audience?start=2026-09-28&end=2026-09-28` response reported
+Umami status `partial` with 2 visitors, 2 visits, and 2 pageviews. This is a
+single observation for an in-progress UTC day; the aggregate does not attribute
+those records to one browser. Event metrics are still `unconfigured`, and
+country coverage is not available until a completed UTC day. Keep
+`UMAMI_EVENTS_COVERAGE_START` unset until a full UTC day of event collection
+has been verified. The production default-on path has a first nonzero signal,
+but the explicit opt-out, consent-gated custom events, completed-day audience
+and country checks, and Umami backup/retention operations remain open in
+`nemarOrg/website#345` and `nemarOrg/nemar-umami#1`.
+
+The staging branch has since moved to release `0.2.21`; open website PR #368
+now contains the separate admin portal redesign. Do not use its staging head
+for the Umami production release. The canonical policy PR
+`nemarOrg/docs#46` can now align its effective date with the 2026-09-28
+production behavior; review and merge it separately.
