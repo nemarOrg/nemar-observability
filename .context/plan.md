@@ -4,9 +4,10 @@ Epic: nemarOrg/nemar-cli#695. This repo covers Phases 2-7.
 
 ## NEMAR observability dashboard epic (#52)
 
-Last reconciled with GitHub on 2026-09-28. Core epic #52 is closed; the
-remaining Umami and website items are live owner-acceptance gates, not unfinished
-dashboard implementation phases.
+Last reconciled with GitHub on 2026-09-28. The dashboard implementation phases
+are complete. Epic #52 remains open for the direct Umami API connection and
+production browser-analytics acceptance. S3 egress issue #59 is a separate,
+non-blocking follow-up.
 
 - Issue #51 and daily-series/API work PR #60 are closed/merged. Per-section
   ingest authorization is deployed; each producer still needs its own token
@@ -27,35 +28,43 @@ dashboard implementation phases.
   per-day small-cell suppression; Umami country sessions remain one completed
   UTC day.
 - Umami issue `nemarOrg/nemar-umami#1` and website issue
-  `nemarOrg/website#345` remain open for owner-run configuration and
-  acceptance. On 2026-09-28, Umami and its public tunnel connector were started
+  `nemarOrg/website#345` remain open for production acceptance and operations.
+  On 2026-09-28, Umami and its public tunnel connector were started
   on nemaring; Cloudflare reports both `nemar-umami` and `nemar-infisical`
   tunnels healthy. The active zone rule `umami-infisical-browser-managed-challenge`
   challenges requests to non-API paths on both hosts, while leaving `/api` and
   `/api/*` unchallenged and exempting Umami's `/nmr-analytics.js` tracker. The
   Umami Access policy is now Bypass Everyone, removing Cloudflare's email gate;
-  Umami's own login remains. Infisical already had Bypass Everyone, and the
-  local Infisical CLI successfully queried the self-hosted instance.
+  Umami's own login remains. The `nemar-observability` Umami user has NEMAR-team
+  View Only access. Its API key, website ID, and the section-scoped ingest token
+  are stored under `nemar/prod:/observability/website`; the authenticated Umami
+  REST request succeeded, but the website currently reports no recorded date
+  range. The matching Umami key still needs to be installed as a production
+  Worker secret.
   Cloudflare's Free-plan rate limiter cannot scope by host or method, so no
   `/api/send` rate limit was added: it could affect the same path on other
   hosts. That endpoint remains unchallenged and without a dedicated rate
   limit. Chrome passed Cloudflare's Managed Challenge on both public hosts and
   displayed the Umami and Infisical login pages; no credentials were entered.
-  The website tracker still needs real-browser acceptance under the default-on
-  anonymous analytics policy in `nemarOrg/website#345`: no saved preference
+  The production homepage response did not contain the tracker URL; real-browser
+  network acceptance is still pending. The website tracker still needs
+  production promotion and acceptance under the default-on anonymous analytics
+  policy in `nemarOrg/website#345`: no saved preference
   enables tracking only on configured production hosts and allowlisted pages,
   including the signed-in upload flow; the saved opt-out disables it. The
   implementation PR `nemarOrg/website#365` merged into `staging` on 2026-09-28
   as `b6a1489`. The staging deploy workflow (#36449749794) succeeded, and
   `test.nemar.org` returned HTTP 200 with the updated notice. This is staging
-  only; production Umami property setup and real-browser acceptance remain
-  open in issue #345. The canonical policy update is draft
-  `nemarOrg/docs#46`, targeting `main`; hold it until the matching production
-  website behavior ships, and update its effective date if rollout slips. The
-  initial epic reconciliation is PR #78. See `.context/research.md` for exact
-  routing and verification details.
+  only; production tracking remains open in issue #345. The canonical policy
+  update is PR `nemarOrg/docs#46`, targeting `main`; align its effective date
+  with the production rollout. The direct Worker-to-Umami API is the selected
+  source for range-aware audience, country, and consented-event summaries. Keep
+  the separate D1 pusher unscheduled unless daily browser-activity series are
+  explicitly needed; do not duplicate these source totals in D1. The initial
+  epic reconciliation is PR #78. See `.context/research.md` for exact routing
+  and verification details.
 - S3 `BytesDownloaded` collection is the separate deferred follow-up in issue
-  #59; it does not block the closed core usage epic. Collector and dashboard
+  #59; it does not block Umami integration. Collector and dashboard
   support are merged, and the historical read-only CloudWatch query succeeded.
   The egress token/Worker secret, live section push, timer installation, and
   end-to-end chart acceptance remain outstanding. Keep the timer disabled

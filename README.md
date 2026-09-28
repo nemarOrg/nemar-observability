@@ -123,7 +123,7 @@ The **public snapshot and time-series API contain aggregate measures**; built-in
 
 The audience endpoint accepts strict UTC `YYYY-MM-DD` dates with an inclusive end and a maximum 3,660-day range. Umami and Cloudflare are queried independently, so a source can be unavailable while the other still returns data. Each source reports `available`, `partial`, `unconfigured`, or `unavailable`, its measured coverage dates, and an observation timestamp. The response's `country_breakdown_scope` describes Umami country eligibility for the requested range. For actual map data, use each source's `country_coverage`; it is the authoritative range for that source's country rows. A numeric zero is a successful measurement over covered dates; unavailable values are `null`.
 
-Configure the optional non-secret Worker variables `UMAMI_BASE_URL` and `UMAMI_WEBSITE_ID` for the self-hosted Umami instance. The matching `UMAMI_API_KEY` must be installed as a Cloudflare Worker secret, not as a dashboard/browser variable. The Infisical project/environment are `nemar`/`prod`; `/observability/website` is the planned dedicated path for this key, but its presence and value are not yet verified. The confirmed `/observability/egress` path contains AWS egress credentials and should not be assumed to contain an Umami key. The Umami API key is never returned by this Worker. Missing any Umami setting reports that source as `unconfigured`.
+The production Worker uses `UMAMI_BASE_URL` and `UMAMI_WEBSITE_ID` for the self-hosted Umami source. Its `UMAMI_API_KEY` belongs in a Cloudflare Worker secret and is never exposed to the dashboard or browser. The source of truth is Infisical project `nemar`, environment `prod`, path `/observability/website`, which also holds the site ID and the separate `OBS_WEBSITE_INGEST_TOKEN`. The `/observability/egress` path remains separate and contains AWS egress credentials. Missing any Umami setting reports that source as `unconfigured`.
 
 For a configured range, the Worker reads Umami `/api/websites/{id}/daterange` first and intersects the requested timestamps with Umami's reported data bounds. It reads `/stats` for visitors, visits, and page views; it queries `/metrics?type=country` only for a single completed UTC day. “Visitors” counts distinct anonymous sessions; Umami rotates the session hash monthly, so this is not an identified-person count. “Visits” is a separate distinct visit identifier. Country values may not sum to visitors because the same session can appear under different countries, and Umami omits sessions without a reported country.
 
@@ -131,13 +131,19 @@ The Umami card also reports the fixed consent-gated events `citation_click`, `vi
 
 Cloudflare uses daily `httpRequests1dGroups` country rows over the selected range's overlap with the latest 30 UTC dates. The country map and `country_requests` cover completed days only; the separate `requests` total can include the in-progress UTC day and is marked partial because those counts can still change. These are HTTP request counts, not unique visitors. Cloudflare country rows can cover multiple selected completed days: values below 10 are suppressed separately for each day before reportable country values are added. Umami country values remain available only for one fully covered, completed UTC day; distinct sessions are never summed across days. Future dates have no observations yet. Empty or unreported country labels are omitted without estimating their counts. Small daily rows are grouped as `Other / withheld` only when their combined value reaches 10; otherwise that day's small values are omitted and `suppressed_small_countries` is true. Day/week/month grouping applies to additive time series only; audience values are source-native selected-range totals.
 
-The Umami key can be installed in an authorized production deployment with the Cloudflare secret command (the secret value is entered through the CLI prompt and must not be placed in shell history or repository files):
+Install the Umami key from Infisical into the production Worker using the authenticated Cloudflare CLI. Pass the value through standard input; do not put it in shell arguments, history, logs, or repository files. `wrangler secret put` creates and deploys a new Worker version immediately.
 
 ```bash
-npx cfman wrangler --account sccn secret put UMAMI_API_KEY -c wrangler.toml
+set -o pipefail
+infisical --domain https://infisical.nemar.org run \
+  --projectId 817f7473-a318-4e99-9cf4-a89db057f5fc \
+  --env prod --path /observability/website --silent -- \
+  sh -c 'printf "%s" "$UMAMI_API_KEY"' |
+  env -u CLOUDFLARE_API_TOKEN npx cfman wrangler --account sccn \
+    secret put UMAMI_API_KEY -c wrangler.toml
 ```
 
-Install a separate secret for `--env dev` only if a development Umami source is configured. This repository change does not install or rotate the secret and does not establish live Umami or website-instrumentation acceptance.
+After installing the secret, verify `/observability/api/audience` reports the Umami source status and coverage. Keep `UMAMI_EVENTS_COVERAGE_START` unset until production browser event instrumentation has passed real-browser acceptance; unknown event values must not be displayed as zero.
 
 ## Daily S3 egress series
 
