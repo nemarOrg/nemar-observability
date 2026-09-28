@@ -9,6 +9,7 @@ const range = clientLogic([
   "isValidDay",
   "validRange",
   "rangeFor",
+  "inProgressNote",
   "presetFor",
   "priorRange",
   "seriesArchiveWindow",
@@ -58,6 +59,13 @@ describe("dashboard date ranges", () => {
     expect(range.rangeDays("2016-09-21", "2026-09-28")).toBe(3660);
     expect(range.validRange("2016-09-21", "2026-09-28")).toBe(true);
     expect(range.validRange("2016-09-20", "2026-09-28")).toBe(false);
+  });
+
+  test("a range that reaches today says today is still in progress", () => {
+    const today = "2026-09-28";
+    expect(range.inProgressNote("2026-09-28", today)).toBe("Today (UTC) is still in progress.");
+    expect(range.inProgressNote("2026-10-02", today)).toBe("Today (UTC) is still in progress.");
+    expect(range.inProgressNote("2026-09-27", today)).toBe("");
   });
 
   test("the prior period has the same length and ends the day before", () => {

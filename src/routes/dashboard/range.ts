@@ -41,6 +41,8 @@ function presetFor(start, end, today) {
   }
   return null;
 }
+// Said on every card whose range reaches today (UTC), which is not over yet.
+function inProgressNote(end, today) { return end >= (today || todayUtc()) ? "Today (UTC) is still in progress." : ""; }
 // The equal-length period that ends the day before the range starts.
 function priorRange(start, end) {
   const days = rangeDays(start, end);

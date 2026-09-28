@@ -81,8 +81,6 @@ function selectedSeries() {
   const range = selectedRange();
   return seriesFor(range.start, range.end);
 }
-// Said on every card whose range reaches today, which is not over yet.
-function inProgressNote(end) { return end >= todayUtc() ? "Today (UTC) is still in progress." : ""; }
 
 // ---------- comparisons ----------
 function audienceComparison(compute) {
