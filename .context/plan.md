@@ -4,7 +4,7 @@ Epic: nemarOrg/nemar-cli#695. This repo covers Phases 2-7.
 
 ## NEMAR observability dashboard epic (#52)
 
-Last reconciled with GitHub on 2026-09-27. Core epic #52 is closed; the
+Last reconciled with GitHub on 2026-09-28. Core epic #52 is closed; the
 remaining Umami and website items are live owner-acceptance gates, not unfinished
 dashboard implementation phases.
 
@@ -27,13 +27,23 @@ dashboard implementation phases.
   per-day small-cell suppression; Umami country sessions remain one completed
   UTC day.
 - Umami issue `nemarOrg/nemar-umami#1` and website issue
-  `nemarOrg/website#345` remain open for owner-run service, configuration,
-  privacy, and live-browser acceptance. Their implementation PRs are merged,
-  but Umami is not yet running and the website tracker has not passed real-
-  browser acceptance. Keep the public tunnel connector stopped until the exact
-  `POST analytics.nemar.org/api/send` rate limit is verified; the available
-  Cloudflare API token currently receives 403 for that rule. See those issues
-  for the owner gates.
+  `nemarOrg/website#345` remain open for owner-run configuration and
+  acceptance. On 2026-09-28, Umami and its public tunnel connector were started
+  on nemaring; Cloudflare reports both `nemar-umami` and `nemar-infisical`
+  tunnels healthy. The active zone rule `umami-infisical-browser-managed-challenge`
+  challenges requests to non-API paths on both hosts, while leaving `/api` and
+  `/api/*` unchallenged and exempting Umami's `/nmr-analytics.js` tracker. The
+  Umami Access policy is now Bypass Everyone, removing Cloudflare's email gate;
+  Umami's own login remains. Infisical already had Bypass Everyone, and the
+  local Infisical CLI successfully queried the self-hosted instance.
+  Cloudflare's Free-plan rate limiter cannot scope by host or method, so no
+  `/api/send` rate limit was added: it could affect the same path on other
+  hosts. That endpoint remains unchallenged and without a dedicated rate
+  limit. The Managed Challenge has only been checked with non-browser HTTP
+  requests; a human browser pass remains unverified. The website tracker still
+  needs real-browser consent/event acceptance. See
+  those issues for the remaining owner gates and `.context/research.md` for the
+  exact routing and verification results.
 - S3 `BytesDownloaded` collection is the separate deferred follow-up in issue
   #59; it does not block the closed core usage epic. Collector and dashboard
   support are merged, and the historical read-only CloudWatch query succeeded.
@@ -69,14 +79,18 @@ summed across buckets as unique people.
 
 ## Active follow-ups
 
-- [ ] **Live Umami and website acceptance** — complete the owner-run service,
-      privacy, backup, and credential setup in `nemarOrg/nemar-umami#1`, then
-      run the real-browser consent and event checks in `nemarOrg/website#345`.
-      The website tracker implementation is merged, but production website
-      configuration and live acceptance remain open. Keep visitor/session,
-      page-view, and event measures separate from requests and response bytes.
-      Set event coverage to the first complete UTC day after production
-      instrumentation is verified.
+- [ ] **Live Umami and website acceptance** — Umami and both Cloudflare tunnel
+      connectors are running; `analytics.nemar.org` and `infisical.nemar.org`
+      have host-scoped Managed Challenge on non-API paths. Umami's
+      Cloudflare Access policy is Bypass Everyone, with Umami's own login still
+      required. Complete initial-admin/signup setup, website provisioning,
+      backup/retention schedules, and the real-browser consent/event checks in
+      `nemarOrg/nemar-umami#1` and `nemarOrg/website#345`. `/api/send` remains
+      unchallenged and has no dedicated rate limit: the Free-plan rate limiter
+      lacks host and method fields, and a zone-wide path rule has not been
+      verified safe. Keep visitor/session, page-view, and event measures
+      separate from requests and response bytes. Set event coverage to the
+      first complete UTC day after production instrumentation is verified.
 - [ ] **S3 response-byte collection (issue #59)** — after the core browser
       analytics gates, install and enable the existing collector. Query
       `AWS/S3:BytesDownloaded`, `Stat=Sum`, `Period=86400`, dimensions
