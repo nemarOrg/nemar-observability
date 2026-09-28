@@ -103,11 +103,20 @@ export type StorageObservation = {
   byClass: { storageType: string; bytes: number }[];
 };
 
+/** The class that holds the bucket's data; its absence means the day is unknown. */
+export const PRIMARY_STORAGE_TYPE = "StandardStorage";
+
 /**
- * The newest UTC day on which the object count and every storage class that
- * reported in the window all have a value. A class or count that has not
- * landed for a newer day makes that day's total unknown, so the collector
- * falls back to the newest complete day instead of summing a partial set.
+ * The newest UTC day on which both the object count and the primary storage
+ * class have a value, with bytes summed over every class reported that day.
+ *
+ * S3 computes all storage types for a day in one daily job, so a secondary
+ * class missing on a day the primary class reported means that class held no
+ * data (for example, a lifecycle rule moved its objects on). Requiring every
+ * class seen earlier in the window would instead make each newer day look
+ * incomplete until the emptied class aged out. A missing primary value or
+ * object count still means that day's total is unknown, so the collector falls
+ * back to an older day rather than publish a partial or zero total.
  */
 export function latestStorageObservation(
   output: string,
@@ -121,8 +130,11 @@ export function latestStorageObservation(
     const points = dailyPoints(result, startDate, endDate);
     if (points.length > 0) classes.set(storageType, byDate(points));
   }
-  if (classes.size === 0) {
-    fail("CloudWatch returned no bucket size observations; refusing to publish zero storage");
+  const primary = classes.get(PRIMARY_STORAGE_TYPE);
+  if (!primary) {
+    fail(
+      `CloudWatch returned no ${PRIMARY_STORAGE_TYPE} bucket size observations; refusing to publish zero storage`,
+    );
   }
   const objects = dailyPoints(
     completeResult(results, OBJECTS_QUERY_ID, "object count"),
@@ -135,13 +147,12 @@ export function latestStorageObservation(
 
   for (let index = objects.length - 1; index >= 0; index -= 1) {
     const { date, value: objectCount } = objects[index];
+    if (!primary.has(date)) continue;
     const byClass: { storageType: string; bytes: number }[] = [];
     for (const [storageType, values] of classes) {
       const bytes = values.get(date);
-      if (bytes === undefined) break;
-      byClass.push({ storageType, bytes });
+      if (bytes !== undefined) byClass.push({ storageType, bytes });
     }
-    if (byClass.length !== classes.size) continue;
     const bucketBytes = byClass.reduce((total, item) => total + item.bytes, 0);
     if (!Number.isSafeInteger(bucketBytes)) {
       fail("CloudWatch bucket size total is not a safe integer; no section was published");
@@ -150,7 +161,7 @@ export function latestStorageObservation(
     return { date, bucketBytes, objectCount, byClass };
   }
   fail(
-    "no UTC day in the window has both the object count and every reporting storage class; refusing to publish a partial total",
+    `no UTC day in the window has both the object count and the ${PRIMARY_STORAGE_TYPE} size; refusing to publish a partial total`,
   );
 }
 

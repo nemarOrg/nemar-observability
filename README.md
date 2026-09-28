@@ -220,8 +220,9 @@ These storage metrics need no bucket metrics configuration, and the existing rea
 
 S3 reports these values once per day, timestamped at 00:00 UTC, with roughly a one-day lag.
 They cover the whole bucket, including archives, Zarr copies, and internal objects.
-Each run reads the last seven UTC days and reports the newest day on which the object count and every reporting storage class all have a value; a class with no datapoints is omitted, never counted as zero.
-A run fails, and publishes the error status the same way the egress collector does, when that day ended more than 36 hours ago or no complete day exists.
+Each run reads the last seven UTC days and reports the newest day on which both the object count and `StandardStorage` have a value, summing every storage class reported that day.
+S3 computes all storage classes in one daily job, so a class missing on that day held no data (for example, after a lifecycle move) and is omitted rather than counted as zero; a missing `StandardStorage` value or object count makes the day unknown, and the run falls back to an older day.
+A run fails, and publishes the error status the same way the egress collector does, when that day ended more than 36 hours ago or no such day exists.
 
 These are gauges, not additive quantities, so the collector sends no `daily_series`: the week and month views would add them up.
 The trend comes from snapshot history instead, for example `GET /observability/api/snapshot/history?metric=storage.bucket_bytes`, which returns the value each hourly snapshot saw (about one week).

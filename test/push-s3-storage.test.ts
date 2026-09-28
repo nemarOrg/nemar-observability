@@ -25,6 +25,18 @@ const previous = await readFile(
   new URL("./fixtures/cloudwatch-s3-storage-2026-09-21-to-2026-09-27.json", import.meta.url),
   "utf8",
 );
+// Bucket `nemar` stores only StandardStorage, so no real capture has two
+// classes. This fixture is derived from `current`: every Id, label, status,
+// timestamp, the StandardStorage values, and the object counts are real; three
+// secondary classes carry illustrative values, and GlacierStorage omits the
+// newest day to model a class that stops reporting (see its `_derivation`).
+const multiclass = await readFile(
+  new URL(
+    "./fixtures/cloudwatch-s3-storage-multiclass-derived-2026-09-22-to-2026-09-28.json",
+    import.meta.url,
+  ),
+  "utf8",
+);
 const CURRENT = storageWindow("2026-09-28");
 const PREVIOUS = storageWindow("2026-09-27");
 
@@ -84,7 +96,7 @@ describe("storage CloudWatch query", () => {
 });
 
 describe("storage CloudWatch response handling", () => {
-  test("sums the reporting classes of a multi-class response and omits empty ones", () => {
+  test("reports the one class bucket nemar uses and omits the 26 empty classes", () => {
     const response = JSON.parse(current) as { MetricDataResults: CloudWatchResult[] };
     expect(response.MetricDataResults).toHaveLength(STORAGE_TYPES.length + 1);
     expect(response.MetricDataResults.filter((r) => (r.Values ?? []).length === 0)).toHaveLength(
@@ -99,7 +111,43 @@ describe("storage CloudWatch response handling", () => {
     });
   });
 
-  test("falls back to the newest day every series reported instead of summing a partial day", () => {
+  test("sums several classes and lists them largest first", () => {
+    const observation = latestStorageObservation(multiclass, CURRENT.startDate, CURRENT.endDate);
+    expect(observation.date).toBe("2026-09-28");
+    expect(observation.byClass).toEqual([
+      { storageType: "StandardStorage", bytes: 121_650_377_907_484 },
+      { storageType: "StandardIAStorage", bytes: 3_500_000_000_000 },
+      { storageType: "StandardIASizeOverhead", bytes: 12_000_000 },
+    ]);
+    expect(observation.bucketBytes).toBe(121_650_377_907_484 + 3_500_000_000_000 + 12_000_000);
+
+    // One day earlier, the class that later stops reporting is still counted.
+    const dayEarlier = latestStorageObservation(
+      withResult(multiclass, "bytes_StandardStorage", withoutNewestPoint),
+      CURRENT.startDate,
+      CURRENT.endDate,
+    );
+    expect(dayEarlier.date).toBe("2026-09-27");
+    expect(dayEarlier.byClass.map((item) => item.storageType)).toEqual([
+      "StandardStorage",
+      "StandardIAStorage",
+      "GlacierStorage",
+      "StandardIASizeOverhead",
+    ]);
+    expect(dayEarlier.bucketBytes).toBe(
+      121_308_786_888_620 + 3_500_000_000_000 + 800_000_000_000 + 12_000_000,
+    );
+  });
+
+  test("a class that stops reporting does not hold the total back on older days", () => {
+    // GlacierStorage reported every earlier day of the window but not the
+    // newest; the newest day is still current and excludes it.
+    const observation = latestStorageObservation(multiclass, CURRENT.startDate, CURRENT.endDate);
+    expect(observation.date).toBe("2026-09-28");
+    expect(observation.byClass.map((item) => item.storageType)).not.toContain("GlacierStorage");
+  });
+
+  test("falls back a day when the primary class or the object count is late", () => {
     const bytesLate = withResult(current, "bytes_StandardStorage", withoutNewestPoint);
     expect(latestStorageObservation(bytesLate, CURRENT.startDate, CURRENT.endDate)).toMatchObject({
       date: "2026-09-27",
@@ -113,7 +161,7 @@ describe("storage CloudWatch response handling", () => {
     );
   });
 
-  test("fails when no day has both the object count and every storage class", () => {
+  test("fails when no day has both the object count and the primary class", () => {
     const bytesLate = withResult(current, "bytes_StandardStorage", withoutNewestPoint);
     const disjoint = withResult(bytesLate, "objects_AllStorageTypes", (result) => ({
       ...result,
@@ -141,7 +189,17 @@ describe("storage CloudWatch response handling", () => {
       Values: [],
     }));
     expect(() => latestStorageObservation(noBytes, CURRENT.startDate, CURRENT.endDate)).toThrow(
-      "no bucket size observations",
+      "no StandardStorage bucket size observations",
+    );
+
+    // Secondary classes alone never stand in for a missing primary class.
+    const noPrimary = withResult(multiclass, "bytes_StandardStorage", (result) => ({
+      ...result,
+      Timestamps: [],
+      Values: [],
+    }));
+    expect(() => latestStorageObservation(noPrimary, CURRENT.startDate, CURRENT.endDate)).toThrow(
+      "no StandardStorage bucket size observations",
     );
   });
 
