@@ -431,6 +431,22 @@ public `POST /api/send` remains without a dedicated rate limit; confirm whether
 that cross-host scope is safe or choose a host-aware rate-limiting option
 before claiming ingestion hardening. Bot Fight Mode was left off because it is
 zone-wide. Chrome passed the Managed Challenge on both hosts and displayed
-their login pages without submitting credentials. The real consent-gated event
+their login pages without submitting credentials. The real browser analytics
 flow and website publisher ingestion remain acceptance gates in
 `nemarOrg/nemar-umami#1` and `nemarOrg/website#345`.
+
+## 2026-09-28 website analytics preference update
+
+The product owner selected anonymous browser analytics enabled by default, with a clear opt-out.
+Website issue `nemarOrg/website#345` now records that contract: a missing preference or saved
+`accepted` value enables tracking only on configured production hosts and allowlisted public
+pages plus the signed-in upload flow; the existing saved `strict` value remains the opt-out.
+Visitors can change it in the first-visit notice, the public footer's Privacy settings control, or
+account Settings. A first-party preference cookie shares the choice between the main and account
+sites. If that cookie cannot be used, local/session storage is scoped to the site where the choice
+was made; if every storage option is blocked, the opt-out lasts only for the current page.
+
+The website implementation and canonical docs policy are being prepared on separate branches.
+Keep the production website ID unset until the Umami site is provisioned and real-browser
+default-on/opt-out, event, and test-host acceptance passes. The privacy policy change should be
+promoted alongside the production website behavior.
