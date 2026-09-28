@@ -226,7 +226,10 @@ A run fails, and publishes the error status the same way the egress collector do
 This is tighter than the egress 36-hour rule, so a two-day-old value is never shown as current.
 
 These are gauges, not additive quantities, so the collector sends no `daily_series`: the week and month views would add them up.
-The trend comes from snapshot history instead, for example `GET /observability/api/snapshot/history?metric=storage.bucket_bytes`, which returns the value each hourly snapshot saw (about one week).
+The trend comes from snapshot history instead, for example `GET /observability/api/snapshot/history?metric=storage.bucket_bytes`.
+That endpoint reads the newest 168 stored snapshots, one per hourly cron run, so about seven days (the Worker retains 850, about five weeks, but the endpoint reads only the newest 168).
+It returns the value from each of those snapshots that contains the metric; a snapshot taken while the section held only a failure status is skipped, leaving a gap rather than a zero.
+Because the source changes once per day, consecutive points repeat the same daily value.
 
 ## Installing the collectors on nemaring
 

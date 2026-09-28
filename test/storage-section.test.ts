@@ -13,7 +13,7 @@ import {
 } from "../scripts/push-s3-storage";
 import worker from "../src/index";
 import { BUILTIN_SECTION_KEYS, type MetricSnapshot } from "../src/lib/schema";
-import { loadDailySeries, loadPushedSections } from "../src/lib/store";
+import { loadDailySeries, loadPushedSections, saveSnapshot } from "../src/lib/store";
 import type { Bindings } from "../src/types";
 import { asD1 } from "./helpers/d1";
 
@@ -140,6 +140,33 @@ describe("storage section ingest and snapshot", () => {
       "/snapshot/history?metric=storage.bucket_bytes",
     );
     expect(history.points.map((point) => point.value)).toEqual([121_650_377_907_484]);
+  });
+
+  test("history reads the newest 168 snapshots and skips failure-only ones", async () => {
+    // 170 hourly snapshots; the newest holds only the failure status.
+    const start = Date.parse("2026-09-21T00:17:00.000Z");
+    for (let hour = 0; hour < 170; hour += 1) {
+      const at = new Date(start + hour * 3_600_000).toISOString();
+      const section =
+        hour === 169
+          ? { ...storageFailureStatus(), updated_at: at }
+          : {
+              ...payload,
+              updated_at: at,
+              metrics: payload.metrics.map((metric) =>
+                metric.key === "storage.bucket_bytes" ? { ...metric, value: hour } : metric,
+              ),
+            };
+      await saveSnapshot(db, { schema_version: "1.0", generated_at: at, sections: [section] });
+    }
+
+    const history = await getJson<{ points: { value: number }[] }>(
+      "/snapshot/history?metric=storage.bucket_bytes",
+    );
+    // Rows 2..169 are the newest 168; row 169 has no amount, so 2..168 remain.
+    expect(history.points.map((point) => point.value)).toEqual(
+      Array.from({ length: 167 }, (_, index) => index + 2),
+    );
   });
 
   test("a failure status replaces the stored amount, so it reads as unknown", async () => {
