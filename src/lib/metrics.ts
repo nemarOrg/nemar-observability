@@ -541,7 +541,19 @@ export async function buildSnapshot(env: Bindings): Promise<MetricSnapshot> {
   const now = new Date().toISOString();
   const db = env.NEMAR_DB;
 
-  const labels = ["datasets", "archive", "zarr", "imports", "publication", "access", "cf", "users"];
+  // One key per builder below, in the same order, so a failed section is
+  // reported under its own key.
+  const labels = [
+    "datasets",
+    "sizes",
+    "archive",
+    "zarr",
+    "imports",
+    "publication",
+    "access",
+    "cf",
+    "users",
+  ];
   const builtins = await Promise.allSettled([
     datasetsSection(db, now),
     sizesSection(db, now),
