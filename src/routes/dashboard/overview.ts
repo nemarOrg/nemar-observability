@@ -99,18 +99,8 @@ function selectedSeries() {
 }
 
 // ---------- comparisons ----------
-function fullyMeasured(source, start, end, coverageKey) {
-  const coverage = source && source[coverageKey];
-  return Boolean(source && source.status === "available" && coverage && coverage.start === start && coverage.end === end);
-}
-// The change against the prior period, from compute(priorPayload, prior), or
-// the plain statement that there is none. Null while the prior period loads.
 function audienceComparison(compute) {
-  const current = state.audience; const prior = state.audiencePrior;
-  if (!current || state.audienceLoading || !prior || prior.loading) return null;
-  const expected = priorRange(current.start, current.end);
-  if (prior.start !== expected.start || prior.end !== expected.end || !prior.payload) return NO_COMPARISON;
-  return compute(prior.payload, expected) || NO_COMPARISON;
+  return comparisonFor(state.audience, state.audienceLoading, state.audiencePrior, compute);
 }
 
 // ---------- KPI cards ----------

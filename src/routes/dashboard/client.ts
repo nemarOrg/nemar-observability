@@ -11,11 +11,15 @@
 
 import { CHARTS_JS } from "./charts";
 import { CORE_JS } from "./core";
+import { FORMAT_JS } from "./format";
+import { MODEL_JS } from "./model";
 import { OVERVIEW_JS } from "./overview";
 import { RANGE_JS } from "./range";
 import { REACH_JS } from "./reach";
 import { SCALE_JS } from "./scale";
+import { SERIES_JS } from "./series";
 import { SNAPSHOT_JS } from "./snapshot";
+import { THEME_JS } from "./theme";
 import { USAGE_JS } from "./usage";
 
 const BOOT_JS = String.raw`
@@ -33,7 +37,11 @@ loadSelectedRange();
 `;
 
 export const CLIENT_JS = [
+  FORMAT_JS,
   RANGE_JS,
+  THEME_JS,
+  SERIES_JS,
+  MODEL_JS,
   SCALE_JS,
   CORE_JS,
   CHARTS_JS,

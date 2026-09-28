@@ -178,15 +178,6 @@ function loadAudience() {
       stateMessage(document.getElementById("geography"), "error", "Could not load country activity", "Locations for these dates are unknown right now.", loadAudience);
     });
 }
-// The period before the selected one is requested only when it could be fully
-// measured: Cloudflare keeps 30 days, and a partly covered current period has
-// nothing like-for-like to compare against.
-function priorAudienceWanted(payload, prior) {
-  const oldestKept = shiftDay(isoDay(new Date()), 1 - CLOUDFLARE_RETENTION_DAYS);
-  const cloudflare = payload.cloudflare && payload.cloudflare.status === "available" && prior.start >= oldestKept;
-  const umami = payload.umami && payload.umami.status === "available";
-  return Boolean(cloudflare || umami);
-}
 function loadPriorAudience(start, end, payload, requestId) {
   const prior = priorRange(start, end);
   if (!priorAudienceWanted(payload, prior)) {
@@ -216,18 +207,8 @@ function loadPriorAudience(start, end, payload, requestId) {
 // Answers arriving out of order cannot show the wrong dates: each one only
 // triggers a render of the range selected at that moment, from whichever loaded
 // window covers it.
-const SERIES_CACHE_MS = 15 * 60000;
 const seriesWindows = [];
 const seriesPending = [];
-function coveringWindow(list, start, end) {
-  return list.find(function (w) { return w.start <= start && w.end >= end && (!w.at || Date.now() - w.at < SERIES_CACHE_MS); }) || null;
-}
-function seriesWindowFor(start, end) {
-  const archive = seriesArchiveWindow(isoDay(new Date()));
-  if (start >= archive.start && end <= archive.end) return archive;
-  const prior = priorRange(start, end);
-  return rangeDays(prior.start, end) <= MAX_RANGE_DAYS ? { start: prior.start, end: end } : { start: start, end: end };
-}
 function loadSeries() {
   const range = selectedRange();
   const root = document.getElementById("series");
@@ -376,51 +357,6 @@ function seriesPlane(series) {
 }
 function seriesDisplayLabel(series) {
   return String(series.section || "").toLowerCase() === "egress" ? "NEMAR downloads" : series.label;
-}
-function seriesBuckets(series, start, end, grouping) {
-  const values = new Map(series.points.map(function (p) { return [p.date, p.value]; }));
-  const buckets = []; let cursor = start;
-  while (cursor <= end) {
-    let calendarStart = cursor;
-    let calendarEnd = cursor;
-    if (grouping === "week") {
-      const dow = new Date(cursor + "T00:00:00Z").getUTCDay();
-      calendarStart = shiftDay(cursor, -((dow + 6) % 7));
-      calendarEnd = shiftDay(calendarStart, 6);
-    }
-    if (grouping === "month") {
-      const d = new Date(cursor + "T00:00:00Z");
-      calendarStart = isoDay(new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), 1)));
-      calendarEnd = isoDay(new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 0)));
-    }
-    const bucketStart = cursor > calendarStart ? cursor : calendarStart;
-    const bucketEnd = end < calendarEnd ? end : calendarEnd;
-    const partial = bucketStart !== calendarStart || bucketEnd !== calendarEnd;
-    let sum = 0; let complete = true;
-    for (let d = bucketStart; d <= bucketEnd; d = shiftDay(d, 1)) {
-      if (d < series.coverage_start || d > series.coverage_end || !values.has(d)) complete = false;
-      else sum += values.get(d);
-    }
-    const label = partial
-      ? "Partial " + (grouping === "week" ? "week" : grouping === "month" ? "month" : "period") + " (" + bucketStart + (bucketStart === bucketEnd ? "" : " to " + bucketEnd) + ")"
-      : grouping === "month"
-        ? new Date(bucketStart + "T00:00:00Z").toLocaleString("en-US", { month: "long", year: "numeric", timeZone: "UTC" })
-        : grouping === "week" ? "Week " + bucketStart + " to " + bucketEnd
-          : bucketStart;
-    buckets.push({ start: bucketStart, end: bucketEnd, label: label, value: complete ? sum : null, partial: partial });
-    cursor = shiftDay(bucketEnd, 1);
-  }
-  return buckets;
-}
-function seriesValue(value, unit) {
-  if (value === null) return "Unknown";
-  if (unit === "bytes") return humanBytes(value);
-  return Number(value).toLocaleString("en-US");
-}
-function exactSeriesValue(value, unit) {
-  if (value === null) return "Unknown";
-  if (unit === "bytes") return Number(value).toLocaleString("en-US") + " B";
-  return Number(value).toLocaleString("en-US");
 }
 function valuesTable(series, buckets) {
   const details = disclosure("Show exact values (" + buckets.length + " periods)", "values");

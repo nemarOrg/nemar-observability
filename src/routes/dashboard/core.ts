@@ -1,6 +1,7 @@
-// Client foundation: constants, shared state, formatting, DOM and icon helpers,
-// loading and empty states, popovers, the theme toggle, section navigation,
-// and the range preset controls. Date arithmetic lives in range.ts.
+// Client foundation: constants, shared state, DOM and icon helpers, loading and
+// empty states, popovers, the theme toggle, section navigation, and the range
+// preset controls. Formatting, date arithmetic, and theme order live in the
+// DOM-free modules (format.ts, range.ts, theme.ts) so the tests can run them.
 //
 // Part of the inlined client script (see client.ts): a String.raw template, so
 // no backticks and no dollar-brace sequences.
@@ -15,7 +16,6 @@ const SVG_NS = "http://www.w3.org/2000/svg";
 // misrepresents the distribution rather than merely abbreviating it.
 const BREAKDOWN_MAX = 24;
 const BREAKDOWN_VISIBLE = 10;
-const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 const state = {
   snapshot: null,
   snapshotFailed: false,
@@ -32,54 +32,6 @@ const state = {
   archiveFailed: false,
   history: {}
 };
-
-// ---------- formatting ----------
-function humanBytes(n) {
-  if (!n || n < 1) return "0 B";
-  const u = ["B","kB","MB","GB","TB","PB"]; let i = 0; let x = n;
-  while (x >= 1000 && i < u.length - 1) { x /= 1000; i++; }
-  return (i === 0 ? x : x.toFixed(1)) + " " + u[i];
-}
-function num(n) { return Number(n).toLocaleString("en-US"); }
-const compactFormatter = new Intl.NumberFormat("en-US", { notation: "compact", maximumFractionDigits: 1 });
-function compact(n) {
-  if (!Number.isFinite(n)) return "Unknown";
-  return Math.abs(n) < 10000 ? Math.round(n).toLocaleString("en-US") : compactFormatter.format(n);
-}
-function fmt(metric) {
-  if (metric.unit === "bytes") return humanBytes(metric.value);
-  if (metric.unit === "percent") return num(metric.value) + "%";
-  return num(metric.value);
-}
-function pct(value, total) {
-  if (!total) return null;
-  return Math.round((value / total) * 1000) / 10;
-}
-function parseDay(day) { return new Date(day + "T00:00:00Z"); }
-function shortDay(day) { const d = parseDay(day); return MONTHS[d.getUTCMonth()] + " " + d.getUTCDate(); }
-function longDay(day) { const d = parseDay(day); return MONTHS[d.getUTCMonth()] + " " + d.getUTCDate() + ", " + d.getUTCFullYear(); }
-function rangeText(start, end) {
-  if (start === end) return longDay(start);
-  if (start.slice(0, 4) === end.slice(0, 4)) return shortDay(start) + " to " + longDay(end);
-  return longDay(start) + " to " + longDay(end);
-}
-function formatDateTime(iso) {
-  const d = new Date(iso);
-  if (!Number.isFinite(d.getTime())) return "an unknown time";
-  return d.toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit", timeZone: "UTC" }) + " UTC";
-}
-function relativeTime(iso) {
-  const ms = Date.now() - Date.parse(iso);
-  if (!Number.isFinite(ms)) return "at an unknown time";
-  const minutes = Math.round(ms / 60000);
-  if (minutes < 1) return "just now";
-  if (minutes < 60) return minutes + (minutes === 1 ? " minute ago" : " minutes ago");
-  const hours = Math.round(minutes / 60);
-  if (hours < 48) return hours + (hours === 1 ? " hour ago" : " hours ago");
-  const days = Math.round(hours / 24);
-  return days + " days ago";
-}
-function plural(count, one, many) { return num(count) + " " + (count === 1 ? one : many); }
 
 // ---------- DOM helpers ----------
 function el(tag, cls, text) {
@@ -252,19 +204,12 @@ document.addEventListener("keydown", function (event) {
 // root element (an embedding viewer) is respected as the starting choice.
 const themeQuery = window.matchMedia ? window.matchMedia("(prefers-color-scheme: dark)") : null;
 function systemTheme() { return themeQuery && themeQuery.matches ? "dark" : "light"; }
-function themeOrder() { return systemTheme() === "dark" ? ["system", "light", "dark"] : ["system", "dark", "light"]; }
-function themeChoice() {
-  const chosen = document.documentElement.getAttribute("data-theme");
-  return chosen === "light" || chosen === "dark" ? chosen : "system";
-}
+function themeChoice() { return normalizeThemeChoice(document.documentElement.getAttribute("data-theme")); }
 function effectiveTheme() {
   const chosen = themeChoice();
   return chosen === "system" ? systemTheme() : chosen;
 }
-function nextTheme() {
-  const order = themeOrder();
-  return order[(order.indexOf(themeChoice()) + 1) % order.length];
-}
+function nextTheme() { return nextThemeFor(themeChoice(), systemTheme()); }
 function syncThemeToggle() {
   const button = document.getElementById("theme-toggle");
   if (!button) return;
