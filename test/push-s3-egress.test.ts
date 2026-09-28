@@ -4,11 +4,9 @@ import {
   IngestError,
   assertFresh,
   extractAwsErrorCode,
-  lookbackDays,
-  parsePoints,
   shouldPublishFailureStatus,
-  startDateForWindow,
-} from "../scripts/push-s3-egress";
+} from "../scripts/lib/s3-cloudwatch";
+import { lookbackDays, parsePoints, startDateForWindow } from "../scripts/push-s3-egress";
 
 const cloudWatchResponse = await readFile(
   new URL("./fixtures/cloudwatch-s3-2026-09-25.json", import.meta.url),
