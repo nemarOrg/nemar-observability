@@ -44,12 +44,38 @@ describe("dashboard shell", () => {
     }
   });
 
-  test("the overview has a headline and a KPI container that starts busy", () => {
+  test("the overview has a headline and range KPIs that start busy", () => {
     expect(html).toContain('<h1 id="overview-title"');
     expect(html).toContain('id="kpis" class="kpi-grid" aria-busy="true"');
-    // Six placeholder cards hold the layout until data arrives.
+    // Four placeholder cards hold the layout until the range data arrives.
     const kpiBlock = html.slice(html.indexOf('id="kpis"'), html.indexOf("</section>"));
-    expect(kpiBlock.match(/class="card kpi"/g)?.length).toBe(6);
+    expect(kpiBlock.match(/class="card kpi"/g)?.length).toBe(4);
+  });
+
+  test("range-driven blocks name their dates, and snapshot blocks say Current state", () => {
+    const section = (id: string) =>
+      html.slice(
+        html.indexOf(`<section id="${id}"`),
+        html.indexOf("</section>", html.indexOf(`<section id="${id}"`)),
+      );
+    // The overview cards and the usage section follow the range control.
+    expect(section("overview")).toContain("data-range-chip");
+    expect(section("usage").slice(0, section("usage").indexOf("Rolling 30 days"))).toContain(
+      "data-range-chip",
+    );
+    // Figures from the latest snapshot are labeled as such, never as a range.
+    for (const id of ["datasets", "pipelines"]) {
+      expect(section(id)).toContain('<span class="scope-chip scope-current">Current state</span>');
+      expect(section(id)).not.toContain("data-range-chip");
+    }
+    const rolling = section("usage").slice(section("usage").indexOf("Rolling 30 days"));
+    expect(rolling).toContain("Current state");
+    expect(rolling).toContain('id="rolling-window"');
+    expect(html).not.toContain("Rolling 30-day measures");
+    // The client fills every chip from the one range control, and keeps the
+    // fixed-window copies of range-driven metrics out of the rolling group.
+    expect(CLIENT_JS).toContain('querySelectorAll("[data-range-chip]")');
+    expect(CLIENT_JS).toContain('const RANGE_DRIVEN_METRICS = ["cf.requests", "cf.by_country"];');
   });
 
   test("theme follows the system by default and the toggle overrides it per page view", () => {
@@ -189,7 +215,6 @@ describe("dashboard shell", () => {
     expect(fetches.sort()).toEqual([
       'fetch(API + "/audience',
       'fetch(API + "/snapshot',
-      'fetch(API + "/snapshot/history',
       'fetch(API + "/timeseries',
     ]);
   });

@@ -1,6 +1,7 @@
 // Latest-snapshot sections: the pipeline state cards, the catalog cards, and
-// the fixed 30-day tiles. None of these follow the date range, and the page
-// never renders a global health verdict: admins see status in their portal.
+// the rolling 30-day tiles. None of these follow the date range, so each group
+// is labeled Current state, and the page never renders a global health
+// verdict: admins see status in their portal.
 //
 // Part of the inlined client script (see client.ts): a String.raw template, so
 // no backticks and no dollar-brace sequences.
@@ -8,6 +9,10 @@
 export const SNAPSHOT_JS = String.raw`
 const CATALOG_SECTIONS = ["datasets", "sizes"];
 const USAGE_SECTIONS = ["access", "cf"];
+// Their range-driven versions are the Requests card and the Reach map, so a
+// fixed 30-day copy beside them would only disagree with the chosen dates.
+const RANGE_DRIVEN_METRICS = ["cf.requests", "cf.by_country"];
+const ROLLING_WINDOW_DAYS = 30;
 // ---------- generic stat tiles (rolling 30-day measures, pushed sections) ----------
 function tile(metric) {
   const hasBreakdown = Boolean(metric.breakdown && metric.breakdown.length);
@@ -73,13 +78,20 @@ function sourceLine(section) {
 function renderSnapshot(snap) {
   const sections = Array.isArray(snap.sections) ? snap.sections : [];
   const catalog = sections.filter(function (s) { return CATALOG_SECTIONS.indexOf(s.key) >= 0; });
-  const usage = sections.filter(function (s) { return USAGE_SECTIONS.indexOf(s.key) >= 0; });
+  const usage = sections.filter(function (s) { return USAGE_SECTIONS.indexOf(s.key) >= 0; }).map(function (s) {
+    return Object.assign({}, s, { metrics: (s.metrics || []).filter(function (m) { return RANGE_DRIVEN_METRICS.indexOf(m.key) < 0; }) });
+  }).filter(function (s) { return s.metrics.length; });
   const health = sections.filter(function (s) { return CATALOG_SECTIONS.indexOf(s.key) < 0 && USAGE_SECTIONS.indexOf(s.key) < 0; });
   renderCatalog(catalog);
   renderUsageSnapshot(usage);
   renderHealth(health);
-  renderKpis();
   renderHeadline();
+  const generated = new Date(snap.generated_at);
+  const windowNote = document.getElementById("rolling-window");
+  if (windowNote && Number.isFinite(generated.getTime())) {
+    const endDay = isoDay(generated);
+    windowNote.textContent = "The " + ROLLING_WINDOW_DAYS + " days up to the latest snapshot, " + rangeText(shiftDay(endDay, 1 - ROLLING_WINDOW_DAYS), endDay) + " (UTC). These do not follow the date range.";
+  }
   const meta = document.getElementById("health-meta");
   const missing = (snap.section_errors || []).map(function (e) { return e.key; });
   meta.textContent = "Latest snapshot generated " + formatDateTime(snap.generated_at) + " (" + relativeTime(snap.generated_at) + "). It refreshes every hour."
@@ -93,14 +105,12 @@ function renderSnapshotError() {
       root.appendChild(gridSkeleton());
     });
     state.snapshotFailed = false;
-    renderKpis();
     load();
   };
   document.getElementById("health-meta").textContent = "Could not load the latest snapshot.";
   stateMessage(document.getElementById("sections"), "error", "Could not load the latest snapshot", "The current state of the pipelines is unknown until it loads.", retry);
   stateMessage(document.getElementById("catalog"), "error", "Could not load catalog figures", "The latest snapshot did not load.", retry);
   stateMessage(document.getElementById("usage-snapshot"), "error", "Could not load the rolling 30-day measures", "The latest snapshot did not load.", retry);
-  renderKpis();
 }
 function ring(percent) {
   const size = 64; const stroke = 6; const r = (size - stroke) / 2; const c = 2 * Math.PI * r;

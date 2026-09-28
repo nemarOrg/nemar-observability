@@ -1,6 +1,6 @@
 // Client foundation: constants, shared state, formatting, DOM and icon helpers,
 // loading and empty states, popovers, the theme toggle, section navigation,
-// UTC date-range helpers, and the range preset controls.
+// and the range preset controls. Date arithmetic lives in range.ts.
 //
 // Part of the inlined client script (see client.ts): a String.raw template, so
 // no backticks and no dollar-brace sequences.
@@ -23,7 +23,10 @@ const state = {
   audienceLoading: true,
   audienceFailed: false,
   audienceInvalid: false,
+  // The equal-length period before the selected one, for comparisons.
+  audiencePrior: null,
   series: null,
+  seriesFailed: false,
   history: {}
 };
 
@@ -303,20 +306,10 @@ if ("IntersectionObserver" in window) {
   document.querySelectorAll("main > section[id]").forEach(function (section) { navObserver.observe(section); });
 }
 
-// ---------- date range ----------
-function isoDay(date) { return date.toISOString().slice(0, 10); }
-function shiftDay(day, offset) { const d = new Date(day + "T00:00:00.000Z"); d.setUTCDate(d.getUTCDate() + offset); return isoDay(d); }
-function rangeFor(days) { const end = shiftDay(isoDay(new Date()), -1); return { start: shiftDay(end, 1 - days), end: end }; }
-function presetFor(start, end) {
-  const presets = [7, 30, 90, 365];
-  for (let i = 0; i < presets.length; i++) {
-    const r = rangeFor(presets[i]);
-    if (r.start === start && r.end === end) return presets[i];
-  }
-  return null;
-}
-
 // ---------- range controls ----------
+function selectedRange() {
+  return { start: document.getElementById("range-start").value, end: document.getElementById("range-end").value };
+}
 function syncRangePresets() {
   const start = document.getElementById("range-start").value;
   const end = document.getElementById("range-end").value;
@@ -329,8 +322,11 @@ function syncRangePresets() {
   });
   const custom = document.getElementById("range-custom");
   if (custom) custom.classList.toggle("is-active", !matched);
+  const text = validRange(start, end) ? rangeText(start, end) : "";
   const summary = document.getElementById("range-summary");
-  if (summary) summary.textContent = start && end && start <= end ? rangeText(start, end) + " (UTC)" : "Choose a valid date range";
+  if (summary) summary.textContent = text ? text + " (UTC)" : "Choose a valid date range";
+  // Every range-driven block names the dates it shows.
+  document.querySelectorAll("[data-range-chip]").forEach(function (chip) { chip.textContent = text || "No valid range"; });
 }
 function loadSelectedRange() { syncRangePresets(); loadSeries(); loadAudience(); }
 `;

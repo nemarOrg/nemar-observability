@@ -166,10 +166,14 @@ const navLinks = DASHBOARD_SECTIONS.map(
 const skeletonCard = (extra = "") =>
   `<div class="card skeleton-card"><div class="skeleton skeleton-title"></div>${extra}<div class="skeleton skeleton-line"></div><div class="skeleton skeleton-line short"></div></div>`;
 const KPI_SKELETONS = Array.from(
-  { length: 6 },
+  { length: 4 },
   () =>
     '<div class="card kpi" aria-hidden="true"><div class="skeleton skeleton-line short"></div><div class="skeleton skeleton-value"></div><div class="skeleton skeleton-line"></div></div>',
 ).join("");
+// Marks a block that shows the latest snapshot rather than the chosen dates.
+const CURRENT_STATE = '<span class="scope-chip scope-current">Current state</span>';
+// Marks a block that follows the range control; the client fills in the dates.
+const RANGE_CHIP = '<span class="scope-chip scope-range" data-range-chip>Last 30 days</span>';
 const GRID_SKELETON = `<div class="skeleton-grid">${skeletonCard()}${skeletonCard()}${skeletonCard()}</div>`;
 const CHART_SKELETON =
   '<div class="card skeleton-card"><div class="skeleton skeleton-title"></div><div class="skeleton skeleton-chart"></div></div>';
@@ -191,7 +195,7 @@ export function renderDashboardPage(): string {
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="color-scheme" content="light dark">
   <title>NEMAR Observability</title>
-  <meta name="description" content="What the NEMAR open data archive holds, how it is used, and whether its data pipelines are healthy.">
+  <meta name="description" content="What the NEMAR open data archive holds, how it is used, and the current state of its data pipelines.">
   <meta name="robots" content="noindex">
   <style>${STYLES}</style>
 </head>
@@ -231,13 +235,14 @@ export function renderDashboardPage(): string {
         </div>
       </details>
       <p id="range-summary" class="range-summary" aria-live="polite">Last 30 days</p>
-      <p class="filterbar-note">The date range applies to usage and reach. Catalog and pipeline figures come from the latest hourly snapshot.</p>
+      <p class="filterbar-note">The dates drive the overview cards, usage, and reach. Blocks marked Current state show the latest hourly snapshot.</p>
     </div>
   </header>
   <main id="main">
     <section id="overview" class="hero" aria-labelledby="overview-title">
       <h1 id="overview-title" class="hero-title" aria-live="polite">NEMAR shares open neurophysiology data with researchers worldwide.</h1>
-      <p class="hero-lede">The Neuroelectromagnetic Data Archive and Tools Resource (NEMAR) hosts open electroencephalography (EEG), magnetoencephalography (MEG), and related recordings. This page shows what the archive holds, how it is used, and whether its data pipelines are healthy.</p>
+      <p class="hero-lede">The Neuroelectromagnetic Data Archive and Tools Resource (NEMAR) hosts open electroencephalography (EEG), magnetoencephalography (MEG), and related recordings. This page shows what the archive holds, how it is used, and the current state of its data pipelines.</p>
+      <p class="kpi-scope">For the selected dates ${RANGE_CHIP}</p>
       <div id="kpis" class="kpi-grid" aria-busy="true">${KPI_SKELETONS}</div>
     </section>
 
@@ -248,6 +253,7 @@ export function renderDashboardPage(): string {
           <p class="section-lede">Daily totals from each reporting source for the selected dates.</p>
         </div>
         <div class="section-tools">
+          ${RANGE_CHIP}
           <label class="select-field">View by<select id="grouping"><option value="day">Day</option><option value="week">Calendar week</option><option value="month">Calendar month</option></select></label>
           ${info("How to read these charts", "Counts and bytes can be grouped by calendar week or month; the first and last groups may be partial and are drawn dashed. Days without data are shaded and left as gaps, because unknown is not zero. Visitor and session totals are queried for the selected range and are not added across days.")}
         </div>
@@ -260,8 +266,9 @@ export function renderDashboardPage(): string {
       </div>
       <div id="audience" aria-live="polite">${GRID_SKELETON}</div>
       <div class="subsection-head">
-        <h3>Rolling 30-day measures</h3>
-        <p>From the latest hourly snapshot; these do not follow the date range.</p>
+        <h3>Rolling 30 days</h3>
+        ${CURRENT_STATE}
+        <p id="rolling-window">The 30 days up to the latest hourly snapshot. These do not follow the date range.</p>
       </div>
       <div id="usage-snapshot" class="stack" aria-live="polite">${GRID_SKELETON}</div>
     </section>
@@ -273,7 +280,7 @@ export function renderDashboardPage(): string {
           <p class="section-lede">Cloudflare request counts by country for the selected dates. Website sessions are shown separately when available.</p>
         </div>
         <div class="section-tools">
-          <span class="geography-period">Selected period (UTC)</span>
+          <span class="scope-chip scope-range geography-period">Selected period (UTC)</span>
           ${info("About the location map", "Cloudflare counts requests for individual pages, files, images, and API calls; one page view can create many requests, and automated traffic is included. Website sessions are a separate measure. S3 bucket downloads include internal reads and have no location data.")}
         </div>
       </div>
@@ -286,6 +293,7 @@ export function renderDashboardPage(): string {
           <h2 id="datasets-title">What does NEMAR hold?</h2>
           <p class="section-lede">The public catalog by recording type, license, and size, from the latest hourly snapshot.</p>
         </div>
+        <div class="section-tools">${CURRENT_STATE}</div>
       </div>
       <div id="catalog" aria-live="polite">${GRID_SKELETON}</div>
     </section>
@@ -296,6 +304,7 @@ export function renderDashboardPage(): string {
           <h2 id="pipelines-title">What is the latest state of datasets and pipelines?</h2>
           <p class="section-lede">Counts for archive building, Zarr conversion for in-browser viewing, OpenNeuro imports, publication review, and accounts. Admins manage these in the admin portal.</p>
         </div>
+        <div class="section-tools">${CURRENT_STATE}</div>
       </div>
       <p id="health-meta" class="health-meta" aria-live="polite">Loading the latest snapshot.</p>
       <div id="sections" class="health-grid">${GRID_SKELETON}</div>

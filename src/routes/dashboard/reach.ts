@@ -83,6 +83,11 @@ function renderGeography(payload, start, end) {
     sourceTabs.appendChild(button);
   });
   toolbar.appendChild(sourceTabs);
+  // Umami reports countries for one completed UTC day at a time; say so once,
+  // plainly, whenever the chosen dates are anything else.
+  if (payload.country_breakdown_scope && payload.country_breakdown_scope !== "single_completed_day") {
+    toolbar.appendChild(el("span", "scope-chip scope-note", "Website sessions map one completed UTC day only"));
+  }
   root.appendChild(toolbar);
 
   const countries = Array.isArray(active.source.countries) ? active.source.countries : [];

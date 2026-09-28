@@ -1,5 +1,5 @@
 // Usage section: selected-range audience cards and the per-source daily
-// series, with their race-guarded loaders and calendar bucketing.
+// series, with their shared, race-safe loaders and calendar bucketing.
 //
 // Part of the inlined client script (see client.ts): a String.raw template, so
 // no backticks and no dollar-brace sequences.
@@ -118,24 +118,39 @@ function renderAudience(payload) {
   root.appendChild(details);
 }
 
+// One request per date range, shared: a range asked for again (a preset
+// clicked twice, or the prior period of one range being another range) reuses
+// the answer for a few minutes instead of querying again.
+const AUDIENCE_CACHE_MS = 5 * 60000;
+const audienceCache = new Map();
+function fetchAudience(start, end) {
+  const key = start + "|" + end;
+  const hit = audienceCache.get(key);
+  if (hit && Date.now() - hit.at < AUDIENCE_CACHE_MS) return hit.promise;
+  const promise = fetch(API + "/audience?start=" + encodeURIComponent(start) + "&end=" + encodeURIComponent(end))
+    .then(function (response) {
+      if (!response.ok) throw new Error("Could not load audience metrics.");
+      return response.json();
+    });
+  audienceCache.set(key, { at: Date.now(), promise: promise });
+  promise.catch(function () { if (audienceCache.get(key) && audienceCache.get(key).promise === promise) audienceCache.delete(key); });
+  return promise;
+}
+function isSelected(start, end) {
+  const range = selectedRange();
+  return range.start === start && range.end === end;
+}
 function loadAudience() {
-  const start = document.getElementById("range-start").value;
-  const end = document.getElementById("range-end").value;
+  const range = selectedRange();
+  const start = range.start; const end = range.end;
   const root = document.getElementById("audience");
   const geography = document.getElementById("geography");
   const requestId = ++audienceRequestId;
-  if (!start || !end || start > end) {
+  state.audiencePrior = null;
+  if (!validRange(start, end)) {
     state.audience = null; state.audienceLoading = false; state.audienceFailed = false; state.audienceInvalid = true;
     renderKpis();
-    stateMessage(root, "info", "Choose a valid UTC date range.", "The start date must be on or before the end date.");
-    stateMessage(geography, "info", "Choose a valid UTC date range to view country activity.");
-    return;
-  }
-  const days = (Date.parse(end + "T00:00:00Z") - Date.parse(start + "T00:00:00Z")) / 86400000 + 1;
-  if (!Number.isFinite(days) || days > 3660) {
-    state.audience = null; state.audienceLoading = false; state.audienceFailed = false; state.audienceInvalid = true;
-    renderKpis();
-    stateMessage(root, "info", "Choose a valid UTC date range of 3,660 days or fewer.");
+    stateMessage(root, "info", "Choose a valid UTC date range.", "The start date must be on or before the end date, and a range can span up to 3,660 days.");
     stateMessage(geography, "info", "Choose a valid UTC date range to view country activity.");
     return;
   }
@@ -143,18 +158,14 @@ function loadAudience() {
   renderKpis();
   markRefreshing(root, gridSkeleton);
   markRefreshing(geography, geoSkeleton);
-  fetch(API + "/audience?start=" + encodeURIComponent(start) + "&end=" + encodeURIComponent(end))
-    .then(function (response) {
-      if (!response.ok) throw new Error("Could not load audience metrics.");
-      return response.json();
-    })
+  fetchAudience(start, end)
     .then(function (payload) {
-      if (requestId !== audienceRequestId) return;
-      if (document.getElementById("range-start").value !== start || document.getElementById("range-end").value !== end) return;
+      if (requestId !== audienceRequestId || !isSelected(start, end)) return;
       state.audience = { start: start, end: end, payload: payload };
       state.audienceLoading = false;
       renderAudience(payload);
       renderGeography(payload, start, end);
+      loadPriorAudience(start, end, payload, requestId);
       renderKpis();
       renderHeadline();
     })
@@ -167,30 +178,81 @@ function loadAudience() {
       stateMessage(document.getElementById("geography"), "error", "Could not load country activity", "Locations for these dates are unknown right now.", loadAudience);
     });
 }
+// The period before the selected one is requested only when it could be fully
+// measured: Cloudflare keeps 30 days, and a partly covered current period has
+// nothing like-for-like to compare against.
+function priorAudienceWanted(payload, prior) {
+  const oldestKept = shiftDay(isoDay(new Date()), 1 - CLOUDFLARE_RETENTION_DAYS);
+  const cloudflare = payload.cloudflare && payload.cloudflare.status === "available" && prior.start >= oldestKept;
+  const umami = payload.umami && payload.umami.status === "available";
+  return Boolean(cloudflare || umami);
+}
+function loadPriorAudience(start, end, payload, requestId) {
+  const prior = priorRange(start, end);
+  if (!priorAudienceWanted(payload, prior)) {
+    state.audiencePrior = { start: prior.start, end: prior.end, payload: null, loading: false };
+    return;
+  }
+  state.audiencePrior = { start: prior.start, end: prior.end, payload: null, loading: true };
+  fetchAudience(prior.start, prior.end)
+    .then(function (priorPayload) {
+      if (requestId !== audienceRequestId || !isSelected(start, end)) return;
+      state.audiencePrior = { start: prior.start, end: prior.end, payload: priorPayload, loading: false };
+      renderKpis();
+    })
+    .catch(function (err) {
+      if (requestId !== audienceRequestId) return;
+      console.error("[ui] prior-period audience load failed:", err);
+      state.audiencePrior = { start: prior.start, end: prior.end, payload: null, loading: false };
+      renderKpis();
+    });
+}
 
 // ---------- series loading ----------
-let seriesRequestId = 0;
-let pendingSeriesRange = null;
-let cachedSeriesRange = null;
+// One request for the archive window covers every preset, most custom ranges,
+// and the period before each, so changing the range or the grouping re-renders
+// from memory. A range outside it (an end after today, or a start more than
+// 3,660 days back) gets its own request, with its prior period when that fits.
+// Answers arriving out of order cannot show the wrong dates: each one only
+// triggers a render of the range selected at that moment, from whichever loaded
+// window covers it.
+const SERIES_CACHE_MS = 15 * 60000;
+const seriesWindows = [];
+const seriesPending = [];
+function coveringWindow(list, start, end) {
+  return list.find(function (w) { return w.start <= start && w.end >= end && (!w.at || Date.now() - w.at < SERIES_CACHE_MS); }) || null;
+}
+function seriesWindowFor(start, end) {
+  const archive = seriesArchiveWindow(isoDay(new Date()));
+  if (start >= archive.start && end <= archive.end) return archive;
+  const prior = priorRange(start, end);
+  return rangeDays(prior.start, end) <= MAX_RANGE_DAYS ? { start: prior.start, end: end } : { start: start, end: end };
+}
 function loadSeries() {
-  const start = document.getElementById("range-start").value;
-  const end = document.getElementById("range-end").value;
+  const range = selectedRange();
   const root = document.getElementById("series");
-  const requestId = ++seriesRequestId;
-  pendingSeriesRange = null;
-  if (!start || !end || start > end) { stateMessage(root, "info", "Choose a valid UTC date range.", "The start date must be on or before the end date."); return; }
-  const days = (Date.parse(end + "T00:00:00Z") - Date.parse(start + "T00:00:00Z")) / 86400000 + 1;
-  if (!Number.isFinite(days) || days > 3660) {
-    stateMessage(root, "info", "Choose a valid UTC date range of 3,660 days or fewer.");
+  if (!validRange(range.start, range.end)) {
+    stateMessage(root, "info", "Choose a valid UTC date range.", "The start date must be on or before the end date, and a range can span up to 3,660 days.");
+    renderKpis();
     return;
   }
-  if (cachedSeriesRange && cachedSeriesRange.start === start && cachedSeriesRange.end === end) {
-    renderSeries(cachedSeriesRange.payload, start, end);
-    return;
-  }
+  const ready = coveringWindow(seriesWindows, range.start, range.end);
+  if (ready) { renderSeries(ready.payload, range.start, range.end); return; }
+  state.seriesFailed = false;
   markRefreshing(root, chartSkeleton);
-  pendingSeriesRange = { start: start, end: end, requestId: requestId };
-  fetch(API + "/timeseries?start=" + encodeURIComponent(start) + "&end=" + encodeURIComponent(end))
+  renderKpis();
+  if (!coveringWindow(seriesPending, range.start, range.end)) fetchSeriesWindow(seriesWindowFor(range.start, range.end));
+}
+function renderSelectedSeries() {
+  const range = selectedRange();
+  if (!validRange(range.start, range.end)) return;
+  const ready = coveringWindow(seriesWindows, range.start, range.end);
+  if (ready) renderSeries(ready.payload, range.start, range.end);
+}
+function fetchSeriesWindow(win) {
+  const pending = { start: win.start, end: win.end };
+  seriesPending.push(pending);
+  fetch(API + "/timeseries?start=" + encodeURIComponent(win.start) + "&end=" + encodeURIComponent(win.end))
     .then(function (r) {
       if (r.ok) return r.json();
       return r.json().catch(function () { return null; }).then(function (body) {
@@ -198,35 +260,36 @@ function loadSeries() {
       });
     })
     .then(function (payload) {
-      if (requestId !== seriesRequestId) return;
-      if (document.getElementById("range-start").value !== start || document.getElementById("range-end").value !== end) return;
-      cachedSeriesRange = { start: start, end: end, payload: payload };
-      renderSeries(payload, start, end);
+      for (let i = seriesWindows.length - 1; i >= 0; i--) {
+        if (Date.now() - seriesWindows[i].at >= SERIES_CACHE_MS) seriesWindows.splice(i, 1);
+      }
+      seriesWindows.push({ start: win.start, end: win.end, payload: payload, at: Date.now() });
+      // Render whatever is selected now; a newer request that covers it wins.
+      renderSelectedSeries();
     })
     .catch(function (err) {
-      if (requestId !== seriesRequestId) return;
-      console.error("[ui] daily series render failed:", err);
-      stateMessage(root, "error", "Could not load daily usage", (err && err.message ? err.message.replace(/\.?$/, ". ") : "") + "Daily usage for these dates is unknown right now, which is not the same as zero.", loadSeries);
+      console.error("[ui] daily series load failed:", err);
+      // Speak only for the current selection, and only when no other answer
+      // for it is loaded or still on its way.
+      const range = selectedRange();
+      if (!(win.start <= range.start && win.end >= range.end)) return;
+      if (coveringWindow(seriesWindows, range.start, range.end)) return;
+      if (seriesPending.some(function (p) { return p !== pending && p.start <= range.start && p.end >= range.end; })) return;
+      state.seriesFailed = true;
+      stateMessage(document.getElementById("series"), "error", "Could not load daily usage", (err && err.message ? err.message.replace(/\.?$/, ". ") : "") + "Daily usage for these dates is unknown right now, which is not the same as zero.", loadSeries);
+      renderKpis();
     })
     .finally(function () {
-      if (pendingSeriesRange && pendingSeriesRange.requestId === requestId) pendingSeriesRange = null;
+      const index = seriesPending.indexOf(pending);
+      if (index >= 0) seriesPending.splice(index, 1);
     });
-}
-function regroupSeries() {
-  const start = document.getElementById("range-start").value;
-  const end = document.getElementById("range-end").value;
-  if (cachedSeriesRange && cachedSeriesRange.start === start && cachedSeriesRange.end === end) {
-    renderSeries(cachedSeriesRange.payload, start, end);
-    return;
-  }
-  if (pendingSeriesRange && pendingSeriesRange.start === start && pendingSeriesRange.end === end) return;
-  loadSeries();
 }
 
 // ---------- series ----------
 function renderSeries(payload, start, end) {
   const root = document.getElementById("series");
   state.series = { start: start, end: end, payload: payload };
+  state.seriesFailed = false;
   const today = isoDay(new Date());
   const rangeNote = document.getElementById("range-note");
   rangeNote.textContent = end === today
