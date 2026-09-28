@@ -19,3 +19,6 @@ dist/
 
 # macOS
 .DS_Store
+
+# Local epic workflow state
+.claude/*.local.md
