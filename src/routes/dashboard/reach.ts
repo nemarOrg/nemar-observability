@@ -99,72 +99,139 @@ function renderGeography(payload, start, end) {
     }
   });
   const scale = mapScale(Array.from(coded.values()));
+  const ranked = Array.from(coded.entries()).sort(function (a, b) { return b[1] - a[1]; });
+  const total = typeof active.total === "number" && active.total > 0 ? active.total : 0;
+  function shareText(value) {
+    if (!total || !(value > 0)) return "";
+    const share = (value / total) * 100;
+    return (share < 1 ? "under 1" : String(Math.round(share))) + "% of the total";
+  }
+  function describe(code) {
+    const value = coded.get(code);
+    const share = shareText(value);
+    return countryName(code) + ": " + audienceNumber(value) + " " + active.unit + (share ? " (" + share + ")" : "") + ", " + periodText + " (UTC)";
+  }
   const layout = el("div", "geo-layout");
   const mapCard = el("div", "card geo-map-card");
   const mapFrame = el("div", "geography-map-frame");
+  // The floating tooltip is a visual aid for pointers only; the readout under
+  // the map carries the same words for touch, keyboard, and screen readers.
   const tooltip = el("div", "geography-tooltip");
-  tooltip.setAttribute("role", "tooltip");
   tooltip.setAttribute("aria-hidden", "true");
   mapFrame.appendChild(tooltip);
   function hideMapTooltip() {
     tooltip.textContent = "";
     tooltip.classList.remove("visible");
-    tooltip.setAttribute("aria-hidden", "true");
   }
-  function showMapTooltip(content, clientX, clientY) {
-    fillTooltip(tooltip, content);
+  function showMapTooltip(code, clientX, clientY) {
+    const share = shareText(coded.get(code));
+    fillTooltip(tooltip, { title: countryName(code), value: audienceNumber(coded.get(code)) + " " + active.unit, notes: [share, periodText + " (UTC)"] });
     tooltip.classList.add("visible");
-    tooltip.setAttribute("aria-hidden", "false");
     positionFloatingTooltip(tooltip, mapFrame, clientX, clientY);
   }
-  function attachMapTooltip(element, content) {
-    element.setAttribute("aria-describedby", "geography-country-tooltip");
-    tooltip.id = "geography-country-tooltip";
-    element.addEventListener("pointerenter", function (event) {
-      showMapTooltip(content, event.clientX, event.clientY);
-    });
-    element.addEventListener("pointermove", function (event) {
-      showMapTooltip(content, event.clientX, event.clientY);
-    });
-    element.addEventListener("pointerleave", hideMapTooltip);
-    element.addEventListener("focus", function () {
-      const rect = element.getBoundingClientRect();
-      showMapTooltip(content, rect.left + rect.width / 2, rect.top + rect.height / 2);
-    });
-    element.addEventListener("blur", hideMapTooltip);
-  }
-  const svg = svgEl("svg", { viewBox: "0 0 1000 500", role: "group", class: "geography-map" });
-  svg.setAttribute("aria-label", active.label + " by country from " + period + " UTC");
-  function styleMapLocation(element, code, value) {
-    if (value === undefined) {
-      element.setAttribute("aria-hidden", "true");
-      return;
+  const readout = el("p", "map-readout");
+  readout.id = "geography-readout";
+  readout.setAttribute("aria-live", "polite");
+  const readoutHint = ranked.length
+    ? "Tap or hover a country for its count, or focus the map and use the arrow keys."
+    : "No country has a reported value for these dates.";
+  readout.textContent = readoutHint;
+  const shapes = new Map();
+  let selected = null;
+  function select(code, fromKeyboard) {
+    if (selected) (shapes.get(selected) || []).forEach(function (shape) { shape.classList.remove("is-selected"); });
+    selected = code;
+    if (!code) { readout.textContent = readoutHint; hideMapTooltip(); return; }
+    const group = shapes.get(code) || [];
+    group.forEach(function (shape) { shape.classList.add("is-selected"); });
+    readout.textContent = describe(code);
+    if (fromKeyboard && group[0] && group[0].getBoundingClientRect) {
+      const rect = group[0].getBoundingClientRect();
+      showMapTooltip(code, rect.left + rect.width / 2, rect.top + rect.height / 2);
     }
+  }
+  const topThree = ranked.slice(0, 3).map(function (entry) {
+    const share = shareText(entry[1]);
+    return countryName(entry[0]) + (share ? " (" + share.replace(" of the total", "") + ")" : "");
+  });
+  // One image with a summary for assistive technology, and one tab stop: the
+  // arrow keys step through reporting countries in ranked order. The table
+  // below is the full accessible version.
+  const svg = svgEl("svg", { viewBox: "0 0 1000 500", role: "img", class: "geography-map", tabindex: "0", "aria-describedby": readout.id });
+  svg.setAttribute("aria-label", "Map of " + active.label.toLowerCase() + " by country, " + periodText + " (UTC): "
+    + (ranked.length ? plural(ranked.length, "country or territory", "countries and territories") + " reported; most from " + topThree.join(", ") + ". Use the arrow keys to step through countries; the table below lists every value." : "no country values reported."));
+  const defs = svgEl("defs");
+  const hatch = svgEl("pattern", { id: "map-nodata", patternUnits: "userSpaceOnUse", width: 6, height: 6, patternTransform: "rotate(45)" });
+  hatch.appendChild(svgEl("rect", { width: 6, height: 6, class: "map-nodata-bg" }));
+  hatch.appendChild(svgEl("line", { x1: 0, y1: 0, x2: 0, y2: 6, class: "map-nodata-line" }));
+  defs.appendChild(hatch);
+  svg.appendChild(defs);
+  function styleMapLocation(element, code, value) {
+    element.setAttribute("aria-hidden", "true");
+    if (value === undefined) return;
     // A smooth mix along the ramp, not a step: see scale.ts.
     const mix = mapMix(scale.position(value));
     element.classList.add("map-" + mix.half);
     element.style.setProperty("--m", mix.percent + "%");
-    element.setAttribute("tabindex", "0");
-    const detail = countryName(code) + ": " + audienceNumber(value) + " " + active.unit + ", " + period + " UTC";
-    element.setAttribute("aria-label", detail);
-    const title = document.createElementNS(SVG_NS, "title");
-    title.textContent = detail;
-    element.appendChild(title);
-    attachMapTooltip(element, { title: countryName(code), value: audienceNumber(value) + " " + active.unit, notes: [periodText + " (UTC)"] });
+    element.dataset.code = code;
+    if (!shapes.has(code)) shapes.set(code, []);
+    shapes.get(code).push(element);
+    element.addEventListener("pointermove", function (event) { if (event.pointerType === "mouse") showMapTooltip(code, event.clientX, event.clientY); });
+    element.addEventListener("pointerleave", function (event) { if (event.pointerType === "mouse") hideMapTooltip(); });
   }
   Object.keys(WORLD_COUNTRY_PATHS).forEach(function (code) {
     const path = svgEl("path", { d: WORLD_COUNTRY_PATHS[code], class: "map-country" });
     styleMapLocation(path, code, coded.get(code));
     svg.appendChild(path);
   });
+  const markerCodes = [];
   Object.keys(WORLD_COUNTRY_MARKERS).forEach(function (code) {
     const coordinates = WORLD_COUNTRY_MARKERS[code];
     const marker = svgEl("circle", { cx: coordinates[0], cy: coordinates[1], r: 4, class: "map-country-marker" });
     styleMapLocation(marker, code, coded.get(code));
+    if (coded.has(code)) markerCodes.push(code);
     svg.appendChild(marker);
   });
+  // A tap selects the country under it. Small countries drawn as dots are too
+  // small to hit on a phone, so a tap on open sea selects the nearest dot
+  // within a finger's reach instead, without covering any larger country.
+  const TAP_REACH = 40;
+  function nearestMarker(event) {
+    if (!svg.getScreenCTM || !svg.createSVGPoint) return null;
+    const ctm = svg.getScreenCTM();
+    if (!ctm) return null;
+    const point = svg.createSVGPoint();
+    point.x = event.clientX; point.y = event.clientY;
+    const local = point.matrixTransform(ctm.inverse());
+    let best = null; let bestDistance = TAP_REACH;
+    markerCodes.forEach(function (code) {
+      const c = WORLD_COUNTRY_MARKERS[code];
+      const distance = Math.hypot(c[0] - local.x, c[1] - local.y);
+      if (distance <= bestDistance) { best = code; bestDistance = distance; }
+    });
+    return best;
+  }
+  svg.addEventListener("click", function (event) {
+    const code = event.target && event.target.dataset ? event.target.dataset.code : null;
+    select(code || nearestMarker(event) || null, false);
+  });
+  svg.addEventListener("keydown", function (event) {
+    if (!ranked.length) return;
+    const index = selected ? ranked.findIndex(function (entry) { return entry[0] === selected; }) : -1;
+    let next = null;
+    if (event.key === "ArrowRight" || event.key === "ArrowDown") next = index < 0 ? 0 : Math.min(ranked.length - 1, index + 1);
+    else if (event.key === "ArrowLeft" || event.key === "ArrowUp") next = index < 0 ? 0 : Math.max(0, index - 1);
+    else if (event.key === "Home") next = 0;
+    else if (event.key === "End") next = ranked.length - 1;
+    else if (event.key === "Escape") { select(null, true); return; }
+    else return;
+    event.preventDefault();
+    select(ranked[next][0], true);
+  });
+  svg.addEventListener("blur", hideMapTooltip);
   mapFrame.appendChild(svg);
   mapCard.appendChild(mapFrame);
+  mapCard.appendChild(readout);
   const legend = el("div", "map-legend");
   if (scale.count) {
     const bar = el("div", "map-scale");
@@ -204,9 +271,9 @@ function renderGeography(payload, start, end) {
   const hasWithheldValues = active.source.suppressed_small_countries === true;
   if (coded.size) {
     summary.appendChild(el("p", "geo-list-title", "Top countries and territories"));
-    const ranked = Array.from(coded.entries()).sort(function (a, b) { return b[1] - a[1]; }).map(function (entry) { return { label: entry[0], value: entry[1] }; });
+    const top = ranked.slice(0, 10).map(function (entry) { return { label: entry[0], value: entry[1] }; });
     const pseudoMetric = { key: "cf.by_country", unit: "count" };
-    summary.appendChild(hbars(pseudoMetric, ranked.slice(0, 10), { visible: 10, shareOf: typeof active.total === "number" ? active.total : 0 }));
+    summary.appendChild(hbars(pseudoMetric, top, { visible: 10, shareOf: total }));
   }
   const hint = el("p", "fine", coded.size
     ? "Showing reported values for " + coded.size + " countries. Small or unreported values may be omitted."
@@ -225,13 +292,13 @@ function renderGeography(payload, start, end) {
     const table = el("table", "data-table");
     const head = el("thead");
     const header = el("tr");
-    header.appendChild(el("th", null, "Country"));
-    header.appendChild(el("th", "num", active.unit.charAt(0).toUpperCase() + active.unit.slice(1)));
+    header.appendChild(scoped(el("th", null, "Country"), "col"));
+    header.appendChild(scoped(el("th", "num", active.unit.charAt(0).toUpperCase() + active.unit.slice(1)), "col"));
     head.appendChild(header); table.appendChild(head);
     const body = el("tbody");
     countries.forEach(function (row) {
       const tr = el("tr");
-      tr.appendChild(el("th", null, countryName(row.label)));
+      tr.appendChild(scoped(el("th", null, countryName(row.label)), "row"));
       tr.appendChild(el("td", "num", audienceNumber(row.value)));
       body.appendChild(tr);
     });

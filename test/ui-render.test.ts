@@ -207,6 +207,37 @@ describe("dashboard shell", () => {
     );
   });
 
+  test("accessibility: names, live regions, focus, and forced colors", () => {
+    // Preset buttons say what they do, with no accessible name that differs
+    // from the visible one (WCAG 2.5.3).
+    const presets = [...html.matchAll(/<button type="button" data-range="(\d+)"([^>]*)>([^<]+)</g)];
+    expect(presets.map((m) => m[3])).toEqual(["7 days", "30 days", "90 days", "1 year"]);
+    for (const m of presets) expect(m[2]).not.toContain("aria-label");
+    // Only the range summary, one announcer, and the snapshot line are live;
+    // the headline and the big containers are not.
+    const live = [...html.matchAll(/<(\w+)[^>]*id="([^"]+)"[^>]*aria-live=/g)].map((m) => m[2]);
+    expect(live.sort()).toEqual(["health-meta", "range-announcer", "range-summary"]);
+    expect(html).toContain('<h1 id="overview-title" class="hero-title">');
+    // Anchors and focused elements stop below the sticky header.
+    const css = html.slice(html.indexOf("<style>"), html.indexOf("</style>"));
+    expect(css).toMatch(/html \{[^}]*scroll-padding-top: calc\(var\(--topbar-h\) \+ 16px\)/);
+    // The pressed preset is marked by more than color, and in forced colors.
+    expect(css).toMatch(
+      /\.segmented button\[aria-pressed="true"\] \{[^}]*inset 0 -2px 0 var\(--accent\)/,
+    );
+    expect(css).toMatch(
+      /@media \(forced-colors: active\) \{\s*\.segmented button\[aria-pressed="true"\], \.section-nav a\[aria-current="true"\]/,
+    );
+    // Exact values are read to screen readers, not hidden in title tooltips.
+    expect(CLIENT_JS).not.toContain('setAttribute("title", spec.exact)');
+    expect(CLIENT_JS).toContain("function figure(tag, cls, visible, exact)");
+    // The map is one image with a summary and a readout, and tables mark
+    // their header cells.
+    expect(CLIENT_JS).toContain('role: "img", class: "geography-map", tabindex: "0"');
+    expect(CLIENT_JS).toContain('readout.setAttribute("aria-live", "polite")');
+    expect(CLIENT_JS).toContain('scoped(el("th", null, it.label), "row")');
+  });
+
   test("the page names sources in plain words, not vendor names", () => {
     // Visible text says "network edge", "website analytics", and "storage";
     // the footer's data-sources note and partner links are where vendors are

@@ -66,14 +66,14 @@ function audienceEvents(parent, report) {
   const table = el("table", "data-table");
   const headRow = el("tr");
   ["Interaction", "Events", "Anonymous sessions"].forEach(function (label, i) {
-    headRow.appendChild(el("th", i ? "num" : null, label));
+    headRow.appendChild(scoped(el("th", i ? "num" : null, label), "col"));
   });
   const thead = el("thead"); thead.appendChild(headRow); table.appendChild(thead);
   const body = el("tbody");
   rows.forEach(function (metric) {
     if (!metric || !Object.prototype.hasOwnProperty.call(labels, metric.name)) return;
     const row = el("tr");
-    row.appendChild(el("th", null, labels[metric.name]));
+    row.appendChild(scoped(el("th", null, labels[metric.name]), "row"));
     row.appendChild(el("td", "num", audienceNumber(metric.events)));
     row.appendChild(el("td", "num", audienceNumber(metric.visitors)));
     body.appendChild(row);
@@ -138,6 +138,7 @@ function showAudienceFailure(title, detail, geoTitle, geoDetail) {
   renderHeadline();
   stateMessage(document.getElementById("audience"), "error", title, detail, loadAudience);
   stateMessage(document.getElementById("geography"), "error", geoTitle, geoDetail, loadAudience);
+  announceFailure();
 }
 function loadAudience() {
   const range = selectedRange();
@@ -179,6 +180,7 @@ function loadAudience() {
     loadPriorAudience(start, end, payload, token);
     renderKpis();
     renderHeadline();
+    announceRange();
   }, function (err) {
     if (!audienceGuard.isCurrent(token)) return;
     console.error("[ui] audience load failed:", err);
@@ -229,6 +231,7 @@ function showSeriesDisplayFailure(err) {
   state.seriesFailed = true;
   stateMessage(document.getElementById("series"), "error", "Could not display daily usage", "It loaded, but this page could not show it. Try again, or reload the page.", loadSeries);
   renderKpis();
+  announceFailure();
 }
 // Draws a loaded window for the range. On a drawing failure the window is
 // dropped, so a retry requests it again instead of redrawing the same answer.
@@ -301,6 +304,7 @@ function fetchSeriesWindow(win) {
       state.seriesFailed = true;
       stateMessage(document.getElementById("series"), "error", "Could not load daily usage", failureDetail(err, "Daily usage for these dates is unknown right now, which is not the same as zero."), loadSeries);
       renderKpis();
+      announceFailure();
     });
 }
 
@@ -317,6 +321,7 @@ function renderSeries(payload, start, end) {
   if (!payload.series.length) {
     stateMessage(root, "info", "No reporting series cover this range", "Coverage is unavailable here; this does not mean usage was zero.");
     renderKpis();
+    announceRange();
     return;
   }
   settle(root);
@@ -379,6 +384,7 @@ function renderSeries(payload, start, end) {
     root.appendChild(card);
   });
   renderKpis();
+  announceRange();
 }
 function seriesPlane(series) {
   const key = String(series.section || "").toLowerCase();
@@ -396,13 +402,13 @@ function valuesTable(series, buckets) {
   const details = disclosure("Show exact values (" + buckets.length + " periods)", "values");
   const table = el("table", "data-table");
   const head = el("thead", null); const heading = el("tr", null);
-  heading.appendChild(el("th", null, "UTC period"));
-  heading.appendChild(el("th", "num", "Value (" + series.unit + ")"));
+  heading.appendChild(scoped(el("th", null, "UTC period"), "col"));
+  heading.appendChild(scoped(el("th", "num", "Value (" + series.unit + ")"), "col"));
   head.appendChild(heading); table.appendChild(head);
   const body = el("tbody", null);
   buckets.forEach(function (bucket) {
     const row = el("tr", null);
-    row.appendChild(el("td", null, bucket.label));
+    row.appendChild(scoped(el("th", null, bucket.label), "row"));
     row.appendChild(el("td", "num", exactSeriesValue(bucket.value, series.unit)));
     body.appendChild(row);
   });

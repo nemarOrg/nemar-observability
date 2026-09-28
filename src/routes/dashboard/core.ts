@@ -121,6 +121,18 @@ function disclosure(summaryText, cls) {
   return details;
 }
 function srOnly(text) { return el("span", "sr-only", text); }
+function scoped(cell, scope) { cell.setAttribute("scope", scope); return cell; }
+// A rounded figure on screen with its exact value for screen readers, rather
+// than in a title tooltip that touch and keyboard users never see.
+function figure(tag, cls, visible, exact) {
+  const node = el(tag, cls);
+  if (!exact || exact === visible) { node.textContent = visible; return node; }
+  const shown = el("span", null, visible);
+  shown.setAttribute("aria-hidden", "true");
+  node.appendChild(shown);
+  node.appendChild(srOnly(exact));
+  return node;
+}
 function skeletonBlock(cls) { return el("div", "skeleton " + (cls || "")); }
 function markRefreshing(root, skeletonFactory) {
   if (root.dataset.ready === "true") {
@@ -300,4 +312,27 @@ function syncRangePresets() {
   document.querySelectorAll("[data-range-chip]").forEach(function (chip) { chip.textContent = text || "No valid range"; });
 }
 function loadSelectedRange() { syncRangePresets(); loadSeries(); loadAudience(); }
+// One polite announcement per range once its figures have drawn, instead of
+// every container reading itself out. The first load is not announced; the
+// page is already being read from the top.
+let announcedRange = null;
+function announce(text) {
+  const node = document.getElementById("range-announcer");
+  if (node) node.textContent = text;
+}
+function announceRange() {
+  const range = selectedRange();
+  if (!validRange(range.start, range.end)) return;
+  const key = range.start + "|" + range.end;
+  const audienceReady = state.audience && !state.audienceLoading && state.audience.start === range.start && state.audience.end === range.end;
+  const seriesReady = state.series && state.series.start === range.start && state.series.end === range.end;
+  if (!audienceReady || !seriesReady || announcedRange === key) return;
+  const first = announcedRange === null;
+  announcedRange = key;
+  if (!first) announce("Updated for " + rangeText(range.start, range.end) + ".");
+}
+function announceFailure() {
+  const range = selectedRange();
+  if (validRange(range.start, range.end)) announce("Some figures for " + rangeText(range.start, range.end) + " could not be shown.");
+}
 `;

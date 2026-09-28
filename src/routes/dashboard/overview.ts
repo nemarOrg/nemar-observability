@@ -102,9 +102,7 @@ function kpiCard(spec) {
     card.appendChild(skeletonBlock("skeleton-line short"));
     return card;
   }
-  const value = el("p", "kpi-value" + (spec.muted ? " is-muted" : ""), spec.value);
-  if (spec.exact) value.setAttribute("title", spec.exact);
-  card.appendChild(value);
+  card.appendChild(figure("p", "kpi-value" + (spec.muted ? " is-muted" : ""), spec.value, spec.exact));
   if (spec.delta) {
     const delta = el("p", "kpi-delta delta-" + spec.delta.direction);
     if (spec.delta.direction !== "none") delta.appendChild(icon(spec.delta.direction));
@@ -256,9 +254,7 @@ function allTimeItem(parent, spec) {
     value.appendChild(skeletonBlock("skeleton-line short"));
     item.appendChild(value);
   } else {
-    const value = el("dd", "alltime-value" + (spec.muted ? " is-muted" : ""), spec.value);
-    if (spec.exact) value.setAttribute("title", spec.exact);
-    item.appendChild(value);
+    item.appendChild(figure("dd", "alltime-value" + (spec.muted ? " is-muted" : ""), spec.value, spec.exact));
     if (spec.note) item.appendChild(el("dd", "alltime-note", spec.note));
   }
   parent.appendChild(item);

@@ -226,10 +226,10 @@ export function renderDashboardPage(): string {
     </div>
     <div class="container filterbar">
       <div class="segmented range-presets" role="group" aria-label="Date range presets">
-        <button type="button" data-range="7" aria-label="Last 7 days">7d</button>
-        <button type="button" data-range="30" aria-label="Last 30 days">30d</button>
-        <button type="button" data-range="90" aria-label="Last 90 days">90d</button>
-        <button type="button" data-range="365" aria-label="Last 365 days">1y</button>
+        <button type="button" data-range="7">7 days</button>
+        <button type="button" data-range="30">30 days</button>
+        <button type="button" data-range="90">90 days</button>
+        <button type="button" data-range="365">1 year</button>
       </div>
       <details class="popover range-custom" id="range-custom">
         <summary aria-label="Choose custom dates">${ICON_CALENDAR}<span class="custom-label">Custom</span></summary>
@@ -240,12 +240,13 @@ export function renderDashboardPage(): string {
         </div>
       </details>
       <p id="range-summary" class="range-summary" aria-live="polite">Last 30 days</p>
+      <p id="range-announcer" class="sr-only" aria-live="polite"></p>
       <p class="filterbar-note">The dates drive the overview cards, usage, and reach. Blocks marked Current state show the latest hourly snapshot.</p>
     </div>
   </header>
   <main id="main">
     <section id="overview" class="hero" aria-labelledby="overview-title">
-      <h1 id="overview-title" class="hero-title" aria-live="polite">NEMAR shares open neurophysiology data with researchers worldwide.</h1>
+      <h1 id="overview-title" class="hero-title">NEMAR shares open neurophysiology data with researchers worldwide.</h1>
       <p class="hero-lede">The Neuroelectromagnetic Data Archive and Tools Resource (NEMAR) hosts open electroencephalography (EEG), magnetoencephalography (MEG), and related recordings. This page shows what the archive holds, how it is used, and the current state of its data pipelines.</p>
       <p class="kpi-scope">For the selected dates ${RANGE_CHIP}</p>
       <div id="kpis" class="kpi-grid" aria-busy="true">${KPI_SKELETONS}</div>
@@ -271,18 +272,18 @@ export function renderDashboardPage(): string {
         </div>
       </div>
       <p id="range-note" class="range-note">All dates are UTC, with complete days through yesterday.</p>
-      <div id="series" class="series-grid" aria-live="polite">${CHART_SKELETON}</div>
+      <div id="series" class="series-grid">${CHART_SKELETON}</div>
       <div class="subsection-head">
         <h3>Totals for the selected dates</h3>
         <p>Website activity and requests, each from its own source.</p>
       </div>
-      <div id="audience" aria-live="polite">${GRID_SKELETON}</div>
+      <div id="audience">${GRID_SKELETON}</div>
       <div class="subsection-head">
         <h3>Rolling 30 days</h3>
         ${CURRENT_STATE}
         <p id="rolling-window">The 30 days up to the latest hourly snapshot. These do not follow the date range.</p>
       </div>
-      <div id="usage-snapshot" class="stack" aria-live="polite">${GRID_SKELETON}</div>
+      <div id="usage-snapshot" class="stack">${GRID_SKELETON}</div>
     </section>
 
     <section id="reach" aria-labelledby="reach-title">
@@ -296,7 +297,7 @@ export function renderDashboardPage(): string {
           ${info("About the location map", "The network edge counts requests for individual pages, files, images, and API calls; one page view can create many requests, and automated traffic is included. Website sessions are a separate measure. Data served from storage includes internal processing and has no location data.")}
         </div>
       </div>
-      <div id="geography" aria-live="polite">${MAP_SKELETON}</div>
+      <div id="geography">${MAP_SKELETON}</div>
     </section>
 
     <section id="datasets" aria-labelledby="datasets-title">
@@ -307,7 +308,7 @@ export function renderDashboardPage(): string {
         </div>
         <div class="section-tools">${CURRENT_STATE}</div>
       </div>
-      <div id="catalog" aria-live="polite">${GRID_SKELETON}</div>
+      <div id="catalog">${GRID_SKELETON}</div>
     </section>
 
     <section id="pipelines" aria-labelledby="pipelines-title">

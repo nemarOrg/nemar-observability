@@ -265,12 +265,12 @@ function histogramTable(metric) {
   const details = disclosure("Show exact values (" + metric.breakdown.length + " bins)", "values");
   const table = el("table", "data-table");
   const head = el("thead"); const hr = el("tr");
-  hr.appendChild(el("th", null, "Size bin")); hr.appendChild(el("th", "num", "Datasets"));
+  hr.appendChild(scoped(el("th", null, "Size bin"), "col")); hr.appendChild(scoped(el("th", "num", "Datasets"), "col"));
   head.appendChild(hr); table.appendChild(head);
   const body = el("tbody");
   metric.breakdown.forEach(function (it) {
     const tr = el("tr");
-    tr.appendChild(el("td", null, it.label));
+    tr.appendChild(scoped(el("th", null, it.label), "row"));
     tr.appendChild(el("td", "num", num(it.value)));
     body.appendChild(tr);
   });

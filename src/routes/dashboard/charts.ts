@@ -85,7 +85,7 @@ function chartFrame(ariaLabel, description) {
   const canvas = el("div", "chart-canvas");
   const tooltip = el("div", "chart-tooltip");
   tooltip.setAttribute("aria-hidden", "true");
-  const desc = el("p", "sr-only", (description ? description + " " : "") + "Use the left and right arrow keys to read each value; the table below lists them all.");
+  const desc = el("p", "sr-only", (description ? description + " " : "") + "Use the left and right arrow keys to read each value, or expand Show exact values below to read them all as a table.");
   desc.id = "chart-desc-" + id;
   wrap.setAttribute("aria-describedby", desc.id);
   const live = el("p", "sr-only");
@@ -392,9 +392,11 @@ function hbars(metric, items, options) {
   const visible = options && options.visible ? options.visible : BREAKDOWN_VISIBLE;
   function rows(target, list) {
     list.forEach(function (it) {
-      const row = el("div", "hbar");
-      const label = el("span", "hbar-label", breakdownLabel(metric, it.label));
-      label.title = it.label;
+      const row = el("li", "hbar");
+      const name = breakdownLabel(metric, it.label);
+      const label = el("span", "hbar-label", name);
+      // The full name, for a label cut short by the column width.
+      label.title = name;
       row.appendChild(label);
       const track = el("span", "hbar-track");
       const fill = el("span", "hbar-fill");
@@ -409,12 +411,12 @@ function hbars(metric, items, options) {
     });
   }
   const wrap = el("div", "hbars-wrap");
-  const list = el("div", "hbars");
+  const list = el("ul", "hbars");
   rows(list, items.slice(0, visible));
   wrap.appendChild(list);
   if (items.length > visible) {
     const more = disclosure("Show all " + items.length);
-    const rest = el("div", "hbars");
+    const rest = el("ul", "hbars");
     rows(rest, items.slice(visible, BREAKDOWN_MAX));
     more.appendChild(rest);
     if (items.length > BREAKDOWN_MAX) more.appendChild(el("p", "fine", "+" + (items.length - BREAKDOWN_MAX) + " more not shown"));
