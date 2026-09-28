@@ -97,16 +97,14 @@ const ICONS = {
   external: ["M6.5 3.5h6v6", "M12.5 3.5L4 12"],
   up: ["M8 12.5v-9", "M4.5 7L8 3.5 11.5 7"],
   down: ["M8 3.5v9", "M4.5 9L8 12.5 11.5 9"],
-  flat: ["M3.5 8h9"]
+  flat: ["M3.5 8h9"],
+  check: ["M3.75 8.4l2.9 2.85 5.6-6"],
+  dot: ["M8 5.25a2.75 2.75 0 1 0 0 5.5a2.75 2.75 0 1 0 0-5.5z"]
 };
 function icon(name, cls) {
   const s = svgEl("svg", { viewBox: "0 0 16 16", width: 16, height: 16, "aria-hidden": "true", focusable: "false", class: "icon" + (cls ? " " + cls : "") });
   (ICONS[name] || ICONS.neutral).forEach(function (d) { s.appendChild(svgEl("path", { d: d })); });
   return s;
-}
-const SEVERITY_TEXT = { ok: "Healthy", warn: "Warning", error: "Error", info: "Info" };
-function severityIcon(severity) {
-  return icon(severity === "ok" ? "ok" : severity === "warn" ? "warn" : severity === "error" ? "error" : "neutral", "sev-icon sev-" + (severity || "info"));
 }
 function badge(tone, text, iconName) {
   const b = el("span", "badge badge-" + tone);

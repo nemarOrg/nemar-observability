@@ -72,7 +72,6 @@ const ICON_CALENDAR = icon([
 ]);
 const ICON_MENU = icon(["M2.75 4.5h10.5M2.75 8h10.5M2.75 11.5h10.5"]);
 const ICON_EXTERNAL = icon(["M6.5 3.5h6v6", "M12.5 3.5L4 12"]);
-const ICON_NEUTRAL = icon(["M8 1.75a6.25 6.25 0 1 0 0 12.5a6.25 6.25 0 1 0 0-12.5z", "M5.5 8h5"]);
 // An EEG-like trace: the archive's subject matter, drawn as the brand mark.
 const BRAND_MARK =
   '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M3 13h3.2l1.6-4.5 2.6 9 2.7-11 2.2 8.2 1.3-1.7H21"/></svg>';
@@ -124,7 +123,6 @@ export function renderDashboardPage(): string {
       </a>
       <nav class="topnav" aria-label="Page sections">${navLinks}</nav>
       <div class="topbar-actions">
-        <a id="status-pill" class="status-pill" href="#pipelines" data-state="loading" aria-label="Checking pipeline status">${ICON_NEUTRAL}<span class="pill-text">Checking status</span></a>
         <button id="theme-toggle" class="icon-button theme-toggle" type="button" data-mode="system" aria-label="Theme: system. Switch to dark.">${THEME_ICONS}</button>
         <a class="button portal-link" href="${ADMIN_PORTAL}" target="_blank" rel="noopener">Admin portal ${ICON_EXTERNAL}</a>
         <details class="popover nav-menu">
@@ -212,11 +210,10 @@ export function renderDashboardPage(): string {
       <div class="section-head">
         <div>
           <h2 id="pipelines-title">What is the latest state of datasets and pipelines?</h2>
-          <p class="section-lede">Archive building, Zarr conversion for in-browser viewing, OpenNeuro imports, publication review, and accounts. Items that need action link to the admin portal.</p>
+          <p class="section-lede">Counts for archive building, Zarr conversion for in-browser viewing, OpenNeuro imports, publication review, and accounts. Admins manage these in the admin portal.</p>
         </div>
       </div>
       <p id="health-meta" class="health-meta" aria-live="polite">Loading the latest snapshot.</p>
-      <div id="health-summary" aria-live="polite"></div>
       <div id="sections" class="health-grid">${GRID_SKELETON}</div>
     </section>
   </main>

@@ -70,15 +70,40 @@ describe("dashboard shell", () => {
     expect(CLIENT_JS).toContain('removeAttribute("data-theme")');
   });
 
-  test("the status pill links to pipeline health and starts in a loading state", () => {
-    expect(html).toMatch(/<a id="status-pill"[^>]*href="#pipelines"[^>]*data-state="loading"/);
-    expect(html).toContain('id="health-summary"');
+  test("the public page renders no global health verdict", () => {
+    // Pipeline cards show current state; status belongs to the admin portal.
+    for (const text of [
+      "status-pill",
+      "need attention",
+      "health-summary",
+      "Everything is healthy",
+    ]) {
+      expect(html).not.toContain(text);
+    }
+    expect(CLIENT_JS).not.toMatch(/badge\("(warn|error)"/);
+    expect(html).toContain('id="sections"');
   });
 
   test("loading states are skeletons, and motion respects the reduced-motion setting", () => {
     expect(html).not.toContain("Loading…");
     expect(html).toContain('class="skeleton skeleton-chart"');
     expect(html).toContain("@media (prefers-reduced-motion: reduce)");
+  });
+
+  test("the stylesheet is well formed", () => {
+    // A cut rule silently drops every rule after it, so check the braces balance
+    // and that no selector list ends in a dangling comma.
+    const css = html.slice(html.indexOf("<style>") + 7, html.indexOf("</style>"));
+    let depth = 0;
+    let lowest = 0;
+    for (const ch of css) {
+      if (ch === "{") depth++;
+      if (ch === "}") depth--;
+      lowest = Math.min(lowest, depth);
+    }
+    expect(lowest).toBe(0);
+    expect(depth).toBe(0);
+    expect(css).not.toMatch(/,\s*\}/);
   });
 
   test("the page makes no external requests", () => {

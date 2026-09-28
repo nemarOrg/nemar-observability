@@ -1,34 +1,29 @@
-// Latest-snapshot sections: pipeline health cards and the attention summary,
-// the top-bar status pill, the catalog cards, and the rolling 30-day tiles.
+// Latest-snapshot sections: the pipeline state cards, the catalog cards, and
+// the fixed 30-day tiles. None of these follow the date range, and the page
+// never renders a global health verdict: admins see status in their portal.
 //
 // Part of the inlined client script (see client.ts): a String.raw template, so
 // no backticks and no dollar-brace sequences.
 
 export const SNAPSHOT_JS = String.raw`
-const SNAPSHOT_STALE_MS = 2 * 60 * 60 * 1000;
 const CATALOG_SECTIONS = ["datasets", "sizes"];
 const USAGE_SECTIONS = ["access", "cf"];
 // ---------- generic stat tiles (rolling 30-day measures, pushed sections) ----------
 function tile(metric) {
   const hasBreakdown = Boolean(metric.breakdown && metric.breakdown.length);
-  const t = el("div", "tile" + (hasBreakdown ? " tile-list" : "") + (metric.severity === "warn" || metric.severity === "error" ? " tile-" + metric.severity : ""));
+  const t = el("div", "tile" + (hasBreakdown ? " tile-list" : ""));
   const heading = el("div", "tile-head");
   heading.appendChild(el("span", "tile-label", metric.label));
   if (metric.hint) heading.appendChild(infoDisclosure("About " + metric.label, metric.hint));
   t.appendChild(heading);
   const valRow = el("div", "tile-value");
   valRow.appendChild(el("span", "v", fmt(metric)));
-  if (metric.severity === "warn" || metric.severity === "error") {
-    const status = badge(metric.severity, SEVERITY_TEXT[metric.severity]);
-    status.setAttribute("role", "status");
-    valRow.appendChild(status);
-  }
   const p = pct(metric.value, metric.total);
   if (p != null) valRow.appendChild(el("span", "tile-pct", p + "% of " + (metric.unit === "bytes" ? humanBytes(metric.total) : num(metric.total))));
   t.appendChild(valRow);
   if (metric.total != null && metric.unit !== "bytes") {
     const barWrap = el("div", "meter");
-    const fill = el("div", "meter-fill sev-" + (metric.severity || "info"));
+    const fill = el("div", "meter-fill");
     fill.style.width = Math.min(100, p || 0) + "%";
     barWrap.appendChild(fill);
     t.appendChild(barWrap);
@@ -83,11 +78,12 @@ function renderSnapshot(snap) {
   renderCatalog(catalog);
   renderUsageSnapshot(usage);
   renderHealth(health);
-  renderStatus(snap, sections);
   renderKpis();
   renderHeadline();
   const meta = document.getElementById("health-meta");
-  meta.textContent = "Latest snapshot generated " + formatDateTime(snap.generated_at) + " (" + relativeTime(snap.generated_at) + "). It refreshes every hour.";
+  const missing = (snap.section_errors || []).map(function (e) { return e.key; });
+  meta.textContent = "Latest snapshot generated " + formatDateTime(snap.generated_at) + " (" + relativeTime(snap.generated_at) + "). It refreshes every hour."
+    + (missing.length ? " Not in this snapshot: " + missing.join(", ") + "." : "");
 }
 function renderSnapshotError() {
   const retry = function () {
@@ -101,104 +97,34 @@ function renderSnapshotError() {
     load();
   };
   document.getElementById("health-meta").textContent = "Could not load the latest snapshot.";
-  stateMessage(document.getElementById("sections"), "error", "Could not load the latest snapshot", "Pipeline health is unknown until it loads. This is not the same as healthy.", retry);
+  stateMessage(document.getElementById("sections"), "error", "Could not load the latest snapshot", "The current state of the pipelines is unknown until it loads.", retry);
   stateMessage(document.getElementById("catalog"), "error", "Could not load catalog figures", "The latest snapshot did not load.", retry);
   stateMessage(document.getElementById("usage-snapshot"), "error", "Could not load the rolling 30-day measures", "The latest snapshot did not load.", retry);
-  const summary = document.getElementById("health-summary");
-  summary.textContent = "";
-  setPill("unknown", "Status unavailable", "Pipeline status is unavailable because the latest snapshot did not load.");
   renderKpis();
 }
-function attentionItems(snap, sections) {
-  const items = [];
-  (snap.section_errors || []).forEach(function (error) {
-    items.push({ severity: "error", label: "Section failed to compute", value: error.key, section: "Snapshot", anchor: "pipelines" });
-  });
-  const generated = Date.parse(snap.generated_at);
-  if (!Number.isFinite(generated) || Date.now() - generated > SNAPSHOT_STALE_MS) {
-    items.push({ severity: "warn", label: "Snapshot is out of date", value: relativeTime(snap.generated_at), section: "Snapshot", anchor: "pipelines" });
-  }
-  sections.forEach(function (section) {
-    (section.metrics || []).forEach(function (metric) {
-      if (metric.severity === "warn" || metric.severity === "error") {
-        // Catalog cards are keyed by metric, not section, so point at the section.
-        const anchor = CATALOG_SECTIONS.indexOf(section.key) >= 0 ? "datasets" : cardId(section.key);
-        items.push({ severity: metric.severity, label: metric.label, value: fmt(metric), section: section.label, anchor: anchor });
-      }
-    });
-  });
-  items.sort(function (a, b) { return (a.severity === "error" ? 0 : 1) - (b.severity === "error" ? 0 : 1); });
-  return items;
-}
-function setPill(tone, text, label, count) {
-  const pill = document.getElementById("status-pill");
-  pill.setAttribute("data-state", tone);
-  pill.setAttribute("aria-label", label);
-  pill.textContent = "";
-  pill.appendChild(icon(tone === "ok" ? "ok" : tone === "warn" ? "warn" : tone === "error" ? "error" : "neutral"));
-  if (count != null) pill.appendChild(el("span", "pill-count", num(count)));
-  pill.appendChild(el("span", "pill-text", text));
-}
-function renderStatus(snap, sections) {
-  const items = attentionItems(snap, sections);
-  const errors = items.filter(function (i) { return i.severity === "error"; }).length;
-  const warnings = items.length - errors;
-  let checks = 0;
-  sections.forEach(function (s) { (s.metrics || []).forEach(function (m) { if (m.severity === "ok" || m.severity === "warn" || m.severity === "error") checks++; }); });
-  const tone = errors ? "error" : warnings ? "warn" : "ok";
-  const breakdown = [errors ? plural(errors, "error", "errors") : "", warnings ? plural(warnings, "warning", "warnings") : ""].filter(Boolean).join(" and ");
-  if (items.length) setPill(tone, "need attention", items.length + " items need attention: " + breakdown + ". Go to pipeline health.", items.length);
-  else setPill("ok", "All healthy", "All monitored checks are healthy. Go to pipeline health.");
-  const root = document.getElementById("health-summary");
-  root.textContent = "";
-  const banner = el("div", "summary-banner tone-" + tone);
-  const head = el("div", "summary-head");
-  head.appendChild(icon(tone === "ok" ? "ok" : tone === "warn" ? "warn" : "error", "summary-icon"));
-  const copy = el("div", "summary-copy");
-  copy.appendChild(el("p", "summary-title", items.length ? plural(items.length, "item needs attention", "items need attention") : "Everything is healthy"));
-  copy.appendChild(el("p", "summary-body", items.length
-    ? breakdown.charAt(0).toUpperCase() + breakdown.slice(1) + " in the latest snapshot. Warnings are worth a look; errors need action in the admin portal."
-    : "All " + plural(checks, "monitored check is", "monitored checks are") + " passing in the latest snapshot."));
-  head.appendChild(copy);
-  if (items.length) head.appendChild(portalLink("Open admin portal"));
-  banner.appendChild(head);
-  if (snap.section_errors && snap.section_errors.length) {
-    banner.appendChild(el("p", "summary-body", "Some sections failed to compute, so the figures below may be incomplete."));
-  }
-  if (items.length) {
-    const list = el("ul", "attention-list");
-    items.forEach(function (item) {
-      const li = el("li");
-      const link = el("a", "attention-item sev-" + item.severity);
-      link.href = "#" + item.anchor;
-      link.appendChild(severityIcon(item.severity));
-      link.appendChild(srOnly(SEVERITY_TEXT[item.severity] + ": "));
-      const text = el("span", "attention-text");
-      text.appendChild(el("span", "attention-label", item.label));
-      text.appendChild(el("span", "attention-section", item.section));
-      link.appendChild(text);
-      link.appendChild(el("span", "attention-value", item.value));
-      li.appendChild(link);
-      list.appendChild(li);
-    });
-    banner.appendChild(list);
-  }
-  root.appendChild(banner);
-}
-function worstSeverity(metrics) {
-  let errors = 0; let warnings = 0; let ok = 0;
-  metrics.forEach(function (m) { if (m.severity === "error") errors++; else if (m.severity === "warn") warnings++; else if (m.severity === "ok") ok++; });
-  return { errors: errors, warnings: warnings, ok: ok };
-}
-function ring(percent, severity) {
+function ring(percent) {
   const size = 64; const stroke = 6; const r = (size - stroke) / 2; const c = 2 * Math.PI * r;
   const wrap = el("div", "ring");
   const s = svgEl("svg", { viewBox: "0 0 " + size + " " + size, width: size, height: size, "aria-hidden": "true", focusable: "false" });
   s.appendChild(svgEl("circle", { cx: size / 2, cy: size / 2, r: r, class: "ring-track", "stroke-width": stroke }));
   const value = Math.max(0, Math.min(100, percent));
-  s.appendChild(svgEl("circle", { cx: size / 2, cy: size / 2, r: r, class: "ring-fill sev-" + severity, "stroke-width": stroke, "stroke-dasharray": (c * value / 100) + " " + c, transform: "rotate(-90 " + size / 2 + " " + size / 2 + ")" }));
+  s.appendChild(svgEl("circle", { cx: size / 2, cy: size / 2, r: r, class: "ring-fill", "stroke-width": stroke, "stroke-dasharray": (c * value / 100) + " " + c, transform: "rotate(-90 " + size / 2 + " " + size / 2 + ")" }));
   wrap.appendChild(s);
   wrap.appendChild(el("span", "ring-label", (Math.round(value * 10) / 10) + "%"));
+  return wrap;
+}
+// A calm per-row cue, never a verdict: a check for normal, a dot for items an
+// admin may want to review, nothing for plain counts. Shape carries it, and the
+// same words are there for screen readers.
+function stateMark(severity) {
+  const wrap = el("span", "state-mark");
+  if (severity === "ok") {
+    wrap.appendChild(icon("check", "mark-ok"));
+    wrap.appendChild(srOnly("Normal: "));
+  } else if (severity === "warn" || severity === "error") {
+    wrap.appendChild(icon("dot", "mark-review"));
+    wrap.appendChild(srOnly("May need review: "));
+  }
   return wrap;
 }
 function healthCard(section) {
@@ -210,14 +136,11 @@ function healthCard(section) {
   titles.appendChild(el("h3", "card-title", section.label));
   titles.appendChild(el("p", "card-sub", sourceLine(section)));
   head.appendChild(titles);
-  const counts = worstSeverity(metrics);
-  const parts = [counts.errors ? plural(counts.errors, "error", "errors") : "", counts.warnings ? plural(counts.warnings, "warning", "warnings") : ""].filter(Boolean);
-  head.appendChild(counts.errors ? badge("error", parts.join(", ")) : counts.warnings ? badge("warn", parts.join(", ")) : counts.ok ? badge("ok", "Healthy") : badge("neutral", "Informational"));
   card.appendChild(head);
   const coverage = metrics.find(function (m) { return m.severity === "ok" && m.total && m.unit !== "bytes" && m.unit !== "percent"; });
   if (coverage) {
     const block = el("div", "coverage");
-    block.appendChild(ring(pct(coverage.value, coverage.total) || 0, coverage.severity));
+    block.appendChild(ring(pct(coverage.value, coverage.total) || 0));
     const text = el("div", "coverage-text");
     const label = el("div", "coverage-label");
     label.appendChild(el("span", null, coverage.label));
@@ -230,10 +153,9 @@ function healthCard(section) {
   const list = el("ul", "health-rows");
   metrics.forEach(function (metric) {
     if (metric === coverage) return;
-    const row = el("li", "health-row sev-" + (metric.severity || "info"));
-    row.appendChild(severityIcon(metric.severity));
+    const row = el("li", "health-row");
+    row.appendChild(stateMark(metric.severity));
     const label = el("span", "health-label");
-    label.appendChild(srOnly(SEVERITY_TEXT[metric.severity || "info"] + ": "));
     label.appendChild(el("span", null, metric.label));
     if (metric.hint) label.appendChild(infoDisclosure("About " + metric.label, metric.hint));
     row.appendChild(label);
@@ -261,7 +183,7 @@ function renderHealth(sections) {
   const root = document.getElementById("sections");
   settle(root);
   if (!sections.length) {
-    stateMessage(root, "info", "No pipeline sections in this snapshot", "Pipeline health is unknown until a pipeline reports.");
+    stateMessage(root, "info", "No pipeline sections in this snapshot", "Their current state is unknown until a pipeline reports.");
     return;
   }
   sections.forEach(function (section) { root.appendChild(healthCard(section)); });
