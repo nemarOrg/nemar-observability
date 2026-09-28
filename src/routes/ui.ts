@@ -36,7 +36,8 @@ const WORLD_COUNTRY_MARKERS_JSON = JSON.stringify(WORLD_COUNTRY_MARKERS);
 const WORLD_COUNTRY_NAMES_JSON = JSON.stringify(WORLD_COUNTRY_NAMES);
 const WORLD_COUNTRY_CODES_BY_NAME_JSON = JSON.stringify(WORLD_COUNTRY_CODES_BY_NAME);
 
-const ADMIN_PORTAL = "https://app.nemar.org/admin";
+// Where every admin action lives (#8); the client script reads the same value.
+export const ADMIN_PORTAL = "https://app.nemar.org/admin";
 
 interface ChromeLink {
   label: string;
@@ -349,7 +350,7 @@ export function renderDashboardPage(): string {
       </div>
     </div>
   </footer>
-  <script>const WORLD_COUNTRY_PATHS = ${WORLD_COUNTRY_PATHS_JSON};const WORLD_COUNTRY_MARKERS = ${WORLD_COUNTRY_MARKERS_JSON};const WORLD_COUNTRY_NAMES = ${WORLD_COUNTRY_NAMES_JSON};const WORLD_COUNTRY_CODES_BY_NAME = ${WORLD_COUNTRY_CODES_BY_NAME_JSON};${CLIENT_JS}</script>
+  <script>const ADMIN_PORTAL = ${JSON.stringify(ADMIN_PORTAL)};const WORLD_COUNTRY_PATHS = ${WORLD_COUNTRY_PATHS_JSON};const WORLD_COUNTRY_MARKERS = ${WORLD_COUNTRY_MARKERS_JSON};const WORLD_COUNTRY_NAMES = ${WORLD_COUNTRY_NAMES_JSON};const WORLD_COUNTRY_CODES_BY_NAME = ${WORLD_COUNTRY_CODES_BY_NAME_JSON};${CLIENT_JS}</script>
 </body>
 </html>`;
 }

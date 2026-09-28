@@ -45,10 +45,8 @@ const DARK_TOKENS = `
   --ok-soft: rgba(74, 222, 128, 0.14);
   --warn: #fab219;
   --warn-text: #fbbf24;
-  --warn-soft: rgba(251, 191, 36, 0.13);
   --error: #e5534b;
   --error-text: #fca5a5;
-  --error-soft: rgba(229, 83, 75, 0.15);
   --neutral-soft: rgba(148, 163, 184, 0.14);
   --map-lo: #2263b5;
   --map-mid: #5598e7;
@@ -109,10 +107,8 @@ export const STYLES = String.raw`
   --ok-soft: rgba(21, 128, 61, 0.1);
   --warn: #fab219;
   --warn-text: #a14906;
-  --warn-soft: rgba(250, 178, 25, 0.16);
   --error: #d03b3b;
   --error-text: #b91c1c;
-  --error-soft: rgba(208, 59, 59, 0.09);
   --neutral-soft: rgba(100, 116, 139, 0.1);
   --map-lo: #6fa6ea;
   --map-mid: #3987e5;
@@ -247,8 +243,6 @@ main > section { scroll-margin-top: calc(var(--topbar-h) + 16px); padding-top: v
 .badge { display: inline-flex; align-items: center; gap: 5px; flex: none; height: 24px; padding: 0 9px 0 7px; border-radius: var(--radius-pill); font-size: var(--fs-xs); font-weight: 600; white-space: nowrap; background: var(--neutral-soft); color: var(--text-2); }
 .badge .icon { width: 14px; height: 14px; }
 .badge-ok { background: var(--ok-soft); color: var(--ok-text); }
-.badge-warn { background: var(--warn-soft); color: var(--warn-text); }
-.badge-error { background: var(--error-soft); color: var(--error-text); }
 .is-refreshing { opacity: 0.55; transition: opacity 160ms var(--ease); }
 
 /* ---------- disclosures and tables ---------- */

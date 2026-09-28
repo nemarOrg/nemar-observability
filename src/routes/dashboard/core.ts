@@ -8,9 +8,8 @@
 
 export const CORE_JS = String.raw`
 const API = "/observability/api";
-// Where every admin action lives now (#8). Items with a drilldown key link here
-// instead of opening an in-page list.
-const ADMIN_PORTAL = "https://app.nemar.org/admin";
+// ADMIN_PORTAL, where every admin action lives (#8), is defined by ui.ts
+// before this script so the page and the script share one URL.
 const SVG_NS = "http://www.w3.org/2000/svg";
 // Enough rows for the full size histogram (23 log bins). Truncating a histogram
 // misrepresents the distribution rather than merely abbreviating it.
@@ -77,7 +76,6 @@ function svgEl(tag, attrs) {
 }
 const ICONS = {
   ok: ["M8 1.75a6.25 6.25 0 1 0 0 12.5a6.25 6.25 0 1 0 0-12.5z", "M5.4 8.2l1.8 1.8 3.5-3.9"],
-  warn: ["M7.13 2.6a1 1 0 0 1 1.74 0l5.5 9.7a1 1 0 0 1-.87 1.5H2.5a1 1 0 0 1-.87-1.5z", "M8 6.2v3.1", "M8 11.5v.05"],
   error: ["M8 1.75a6.25 6.25 0 1 0 0 12.5a6.25 6.25 0 1 0 0-12.5z", "M5.9 5.9l4.2 4.2", "M10.1 5.9l-4.2 4.2"],
   neutral: ["M8 1.75a6.25 6.25 0 1 0 0 12.5a6.25 6.25 0 1 0 0-12.5z", "M5.5 8h5"],
   partial: ["M8 1.75a6.25 6.25 0 1 0 0 12.5a6.25 6.25 0 1 0 0-12.5z", "M8 4.5v7"],
@@ -94,9 +92,10 @@ function icon(name, cls) {
   (ICONS[name] || ICONS.neutral).forEach(function (d) { s.appendChild(svgEl("path", { d: d })); });
   return s;
 }
+// Badges are "ok" or "neutral": the public page states facts, never alarms.
 function badge(tone, text, iconName) {
   const b = el("span", "badge badge-" + tone);
-  b.appendChild(icon(iconName || (tone === "ok" ? "ok" : tone === "warn" ? "warn" : tone === "error" ? "error" : "neutral")));
+  b.appendChild(icon(iconName || (tone === "ok" ? "ok" : "neutral")));
   b.appendChild(el("span", null, text));
   return b;
 }
@@ -232,11 +231,10 @@ document.addEventListener("keydown", function (event) {
   });
 });
 
-// Theme: no data-theme attribute means follow the system, live. The toggle
-// cycles system and the two explicit themes, opposite of the system first so
-// the first click always changes something, and lasts for this page view only:
-// the page stores nothing in the browser. A host that sets data-theme on the
-// root element (an embedding viewer) is respected as the starting choice.
+// Theme wiring (the cycle order is in theme.ts). A choice lasts for this page
+// view only: the page stores nothing in the browser. A host that sets
+// data-theme on the root element (an embedding viewer) is respected as the
+// starting choice.
 const themeQuery = window.matchMedia ? window.matchMedia("(prefers-color-scheme: dark)") : null;
 function systemTheme() { return themeQuery && themeQuery.matches ? "dark" : "light"; }
 function themeChoice() { return normalizeThemeChoice(document.documentElement.getAttribute("data-theme")); }

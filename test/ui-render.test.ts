@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { CLIENT_JS } from "../src/routes/dashboard/client";
 import {
+  ADMIN_PORTAL,
   DASHBOARD_SECTIONS,
   FOOTER_COLUMNS,
   NEMAR_LINKS,
@@ -236,6 +237,13 @@ describe("dashboard shell", () => {
     expect(CLIENT_JS).toContain('role: "img", class: "geography-map", tabindex: "0"');
     expect(CLIENT_JS).toContain('readout.setAttribute("aria-live", "polite")');
     expect(CLIENT_JS).toContain('scoped(el("th", null, it.label), "row")');
+  });
+
+  test("the admin portal URL is written once and shared with the script", () => {
+    expect(ADMIN_PORTAL).toBe("https://app.nemar.org/admin");
+    expect(html).toContain(`<script>const ADMIN_PORTAL = ${JSON.stringify(ADMIN_PORTAL)};`);
+    expect(html).toContain(`href="${ADMIN_PORTAL}"`);
+    expect(CLIENT_JS).not.toContain("https://app.nemar.org");
   });
 
   test("the page names sources in plain words, not vendor names", () => {

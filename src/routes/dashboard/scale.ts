@@ -64,7 +64,7 @@ function mapScale(values) {
     kept.push(last);
     return kept;
   }
-  return { min: min, max: max, count: count, rank: rank, position: position, ticks: ticks };
+  return { min: min, max: max, count: count, position: position, ticks: ticks };
 }
 // The fill for a position: the lower half mixes the light and middle ramp
 // colors, the upper half the middle and dark ones, as a percentage.
