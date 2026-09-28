@@ -27,6 +27,9 @@ const state = {
   audiencePrior: null,
   series: null,
   seriesFailed: false,
+  // Every reported day of every daily series, for the all-time strip.
+  archive: null,
+  archiveFailed: false,
   history: {}
 };
 

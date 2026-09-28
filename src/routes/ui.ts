@@ -170,6 +170,11 @@ const KPI_SKELETONS = Array.from(
   () =>
     '<div class="card kpi" aria-hidden="true"><div class="skeleton skeleton-line short"></div><div class="skeleton skeleton-value"></div><div class="skeleton skeleton-line"></div></div>',
 ).join("");
+const ALL_TIME_SKELETONS = Array.from(
+  { length: 5 },
+  () =>
+    '<div class="alltime-item" aria-hidden="true"><div class="skeleton skeleton-line short"></div><div class="skeleton skeleton-line"></div></div>',
+).join("");
 // Marks a block that shows the latest snapshot rather than the chosen dates.
 const CURRENT_STATE = '<span class="scope-chip scope-current">Current state</span>';
 // Marks a block that follows the range control; the client fills in the dates.
@@ -244,6 +249,13 @@ export function renderDashboardPage(): string {
       <p class="hero-lede">The Neuroelectromagnetic Data Archive and Tools Resource (NEMAR) hosts open electroencephalography (EEG), magnetoencephalography (MEG), and related recordings. This page shows what the archive holds, how it is used, and the current state of its data pipelines.</p>
       <p class="kpi-scope">For the selected dates ${RANGE_CHIP}</p>
       <div id="kpis" class="kpi-grid" aria-busy="true">${KPI_SKELETONS}</div>
+      <section class="alltime" aria-labelledby="alltime-title">
+        <div class="alltime-head">
+          <h2 id="alltime-title">All time</h2>
+          <p>The catalog as it is now, and usage added up over every day a source has reported. These do not follow the date range.</p>
+        </div>
+        <dl id="all-time" class="alltime-grid" aria-busy="true">${ALL_TIME_SKELETONS}</dl>
+      </section>
     </section>
 
     <section id="usage" aria-labelledby="usage-title">

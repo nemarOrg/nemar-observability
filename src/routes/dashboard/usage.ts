@@ -252,6 +252,8 @@ function renderSelectedSeries() {
 function fetchSeriesWindow(win) {
   const pending = { start: win.start, end: win.end };
   seriesPending.push(pending);
+  const archive = seriesArchiveWindow(isoDay(new Date()));
+  const isArchive = win.start === archive.start && win.end === archive.end;
   fetch(API + "/timeseries?start=" + encodeURIComponent(win.start) + "&end=" + encodeURIComponent(win.end))
     .then(function (r) {
       if (r.ok) return r.json();
@@ -264,11 +266,13 @@ function fetchSeriesWindow(win) {
         if (Date.now() - seriesWindows[i].at >= SERIES_CACHE_MS) seriesWindows.splice(i, 1);
       }
       seriesWindows.push({ start: win.start, end: win.end, payload: payload, at: Date.now() });
+      if (isArchive) { state.archive = payload; state.archiveFailed = false; renderAllTime(); }
       // Render whatever is selected now; a newer request that covers it wins.
       renderSelectedSeries();
     })
     .catch(function (err) {
       console.error("[ui] daily series load failed:", err);
+      if (isArchive) { state.archiveFailed = true; renderAllTime(); }
       // Speak only for the current selection, and only when no other answer
       // for it is loaded or still on its way.
       const range = selectedRange();

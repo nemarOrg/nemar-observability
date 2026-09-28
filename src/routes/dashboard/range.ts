@@ -79,6 +79,24 @@ function matchedChange(series, start, end) {
   }
   return { current: current, previous: previous, matched: matched, days: days };
 }
+// Everything a series has reported, from its first covered day.
+function seriesToDate(series) {
+  const values = pointValues(series);
+  let total = 0; let first = null; let last = null;
+  values.forEach(function (value, day) {
+    total += value;
+    if (first === null || day < first) first = day;
+    if (last === null || day > last) last = day;
+  });
+  const since = series && typeof series.coverage_start === "string" ? series.coverage_start : first;
+  return {
+    total: total,
+    reported: values.size,
+    since: since,
+    through: last,
+    days: since && last ? rangeDays(since, last) : 0
+  };
+}
 
 // ---------- change labels ----------
 function comparisonLabel(days) { return "previous " + (days === 1 ? "day" : days.toLocaleString("en-US") + " days"); }

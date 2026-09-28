@@ -1,14 +1,17 @@
-// Overview: the plain-language headline and the KPI cards for the selected
-// dates.
+// Overview: the plain-language headline, the KPI cards for the selected dates,
+// and the all-time strip.
 //
 // Every KPI card follows the range control. A card compares with the
 // equal-length period before the range only where both periods were measured
-// (see range.ts).
+// (see range.ts). The all-time strip holds the figures that do not follow the
+// range: the catalog as it is now, and usage summed over every reported day,
+// labeled with the day each source started reporting.
 //
 // Part of the inlined client script (see client.ts): a String.raw template, so
 // no backticks and no dollar-brace sequences.
 
 export const OVERVIEW_JS = String.raw`
+const HISTORY_KEYS = ["datasets.public", "datasets.bytes"];
 // ---------- overview ----------
 function countriesIn(payload) {
   const source = payload && payload.cloudflare;
@@ -56,6 +59,17 @@ function renderHeadline() {
     words(" " + rangePhrase(reach.start, reach.end));
   }
   words(".");
+}
+function historyDelta(key, formatter) {
+  const points = state.history[key];
+  if (!points || points.length < 2) return null;
+  const first = points[0]; const last = points[points.length - 1];
+  const diff = last.value - first.value;
+  const hours = (Date.parse(last.at) - Date.parse(first.at)) / 3600000;
+  if (!Number.isFinite(hours) || hours <= 0) return null;
+  const span = hours < 36 ? " in " + plural(Math.round(hours), "hour", "hours") : " in " + plural(Math.round(hours / 24), "day", "days");
+  if (diff === 0) return "No change" + span;
+  return (diff > 0 ? "+" : "−") + formatter(Math.abs(diff)) + span;
 }
 
 // ---------- daily series lookups ----------
@@ -227,6 +241,116 @@ function renderKpis() {
     };
   }));
   root.setAttribute("aria-busy", String((!state.audience && !state.audienceFailed && !state.audienceInvalid) || (!selectedSeries() && !state.seriesFailed)));
+}
+
+// ---------- all-time strip ----------
+function allTimeItem(parent, spec) {
+  const item = el("div", "alltime-item");
+  const term = el("dt", null);
+  term.appendChild(el("span", null, spec.label));
+  if (spec.info) term.appendChild(infoDisclosure("About " + spec.label, spec.info));
+  item.appendChild(term);
+  if (spec.loading) {
+    const value = el("dd", "alltime-value");
+    value.appendChild(skeletonBlock("skeleton-line short"));
+    item.appendChild(value);
+  } else {
+    const value = el("dd", "alltime-value" + (spec.muted ? " is-muted" : ""), spec.value);
+    if (spec.exact) value.setAttribute("title", spec.exact);
+    item.appendChild(value);
+    if (spec.note) item.appendChild(el("dd", "alltime-note", spec.note));
+  }
+  parent.appendChild(item);
+}
+// Everything a daily series has reported, labeled from its first covered day
+// and never stretched to cover the days before it.
+function seriesSinceSpec(series, labelFrom, format, unit) {
+  const toDate = seriesToDate(series);
+  if (!toDate.reported || !toDate.since) return null;
+  return {
+    label: labelFrom + " since " + longDay(toDate.since),
+    value: format(toDate.total),
+    exact: num(toDate.total) + " " + unit,
+    note: (toDate.reported === toDate.days ? plural(toDate.days, "day", "days") : num(toDate.reported) + " of " + plural(toDate.days, "day", "days")) + " reported, through " + longDay(toDate.through)
+  };
+}
+function renderAllTime() {
+  const root = document.getElementById("all-time");
+  if (!root) return;
+  root.textContent = "";
+  const index = metricIndex(state.snapshot);
+  const snapLoading = !state.snapshot && !state.snapshotFailed;
+  const pub = index["datasets.public"];
+  const priv = index["datasets.private"];
+  const doi = index["datasets.with_doi"];
+  const bytes = index["datasets.bytes"];
+  const unavailable = { value: "Unavailable", muted: true, note: state.snapshotFailed ? "The latest snapshot did not load." : "Not in the latest snapshot." };
+  function snapshotItem(label, metric, build) {
+    if (snapLoading) return allTimeItem(root, { label: label, loading: true });
+    const spec = metric ? build(metric) : Object.assign({}, unavailable);
+    spec.label = label;
+    allTimeItem(root, spec);
+  }
+  snapshotItem("Public datasets", pub, function (m) {
+    const notes = [];
+    const doiShare = doi ? pct(doi.value, doi.total) : null;
+    if (doiShare != null) notes.push(doiShare + "% with a DOI");
+    if (priv) notes.push(num(priv.value) + " private");
+    const change = historyDelta("datasets.public", num);
+    if (change) notes.push(change);
+    return { value: num(m.value), note: notes.join(", "), info: "Datasets published and publicly visible now. A digital object identifier (DOI) makes a dataset citable." };
+  });
+  snapshotItem("Data volume", bytes, function (m) {
+    const change = historyDelta("datasets.bytes", humanBytes);
+    return { value: humanBytes(m.value), exact: num(m.value) + " bytes", note: (pub ? "Across " + num(pub.value) + " public datasets" : "Public datasets") + (change ? ", " + change : "") };
+  });
+  const archiveLoading = !state.archive && !state.archiveFailed;
+  const archiveMissing = { value: "Unavailable", muted: true, note: "Daily usage did not load." };
+  if (archiveLoading) {
+    allTimeItem(root, { label: "Data downloaded", loading: true });
+    allTimeItem(root, { label: "Requests", loading: true });
+    allTimeItem(root, { label: "Usage measured since", loading: true });
+  } else if (!state.archive) {
+    allTimeItem(root, Object.assign({ label: "Data downloaded" }, archiveMissing));
+    allTimeItem(root, Object.assign({ label: "Requests" }, archiveMissing));
+    allTimeItem(root, Object.assign({ label: "Usage measured since" }, archiveMissing));
+  } else {
+    const egress = egressSeries(state.archive);
+    const downloads = egress ? seriesSinceSpec(egress, "Downloaded", humanBytes, "bytes") : null;
+    allTimeItem(root, downloads
+      ? Object.assign(downloads, { info: "Bytes the NEMAR S3 bucket returned on each reported day, added up. Includes internal reads such as Zarr conversions." })
+      : { label: "Data downloaded", value: "Not recorded", muted: true, note: "No download series is reporting." });
+    const requests = requestSeries(state.archive);
+    const requestTotal = requests ? seriesSinceSpec(requests, "Requests", compact, "requests") : null;
+    allTimeItem(root, requestTotal || {
+      label: "Requests to date",
+      value: "Not recorded",
+      muted: true,
+      note: "Cloudflare keeps only the last 30 days",
+      info: "Request totals come from Cloudflare, which keeps 30 days of zone analytics. No longer daily record exists yet, so a lifetime total would be a guess."
+    });
+    const starts = (state.archive.series || []).map(function (s) { return s.coverage_start; }).filter(function (d) { return typeof d === "string"; }).sort();
+    allTimeItem(root, starts.length
+      ? { label: "Usage measured since", value: longDay(starts[0]), note: "First day of stored daily usage" }
+      : { label: "Usage measured since", value: "Not recorded", muted: true, note: "No daily usage is stored yet." });
+  }
+  root.setAttribute("aria-busy", String(snapLoading || archiveLoading));
+}
+function loadHistory() {
+  HISTORY_KEYS.forEach(function (key) {
+    fetch(API + "/snapshot/history?metric=" + encodeURIComponent(key))
+      .then(function (r) { if (!r.ok) throw new Error("history " + r.status); return r.json(); })
+      .then(function (body) {
+        state.history[key] = (Array.isArray(body.points) ? body.points : []).filter(function (p) {
+          return p && typeof p.value === "number" && Number.isFinite(p.value) && typeof p.at === "string";
+        });
+        renderAllTime();
+      })
+      .catch(function (err) {
+        console.error("[ui] metric history failed:", key, err);
+        state.history[key] = [];
+      });
+  });
 }
 
 `;

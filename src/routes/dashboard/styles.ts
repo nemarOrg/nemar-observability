@@ -300,6 +300,17 @@ main > section { scroll-margin-top: calc(var(--topbar-h) + 16px); padding-top: v
 .kpi-delta.delta-none { color: var(--text-3); font-weight: 400; }
 .kpi-context { color: var(--text-3); font-size: var(--fs-xs); line-height: 1.45; }
 .kpi-foot { margin-top: auto; padding-top: var(--space-2); }
+.alltime { margin-top: var(--space-4); padding: 14px 20px 16px; border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--surface-2); }
+.alltime-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px var(--space-3); margin-bottom: var(--space-3); }
+.alltime-head h2 { font-family: var(--font); font-size: var(--fs-xs); font-weight: 600; text-transform: uppercase; letter-spacing: 0.08em; color: var(--text-2); }
+.alltime-head p { color: var(--text-3); font-size: var(--fs-xs); }
+.alltime-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(135px, 1fr)); gap: var(--space-3) var(--space-5); margin: 0; }
+.alltime-item { min-width: 0; }
+.alltime-item dt { display: flex; align-items: center; gap: 4px; color: var(--text-3); font-size: var(--fs-xs); }
+.alltime-item dd { margin: 0; }
+.alltime-value { margin-top: 2px; font-size: var(--fs-lg); font-weight: 600; letter-spacing: -0.01em; line-height: 1.3; font-variant-numeric: tabular-nums; }
+.alltime-value.is-muted { color: var(--text-3); font-weight: 500; font-size: var(--fs-md); }
+.alltime-note { margin-top: 2px; color: var(--text-3); font-size: var(--fs-xs); line-height: 1.45; }
 .scope-chip { display: inline-flex; align-items: center; gap: 6px; min-height: 24px; padding: 2px 10px; border: 1px solid var(--border); border-radius: var(--radius-pill); background: var(--surface); color: var(--text-2); font-size: var(--fs-xs); font-weight: 500; line-height: 1.3; font-variant-numeric: tabular-nums; }
 .scope-chip::before { content: ""; flex: none; width: 6px; height: 6px; border-radius: 50%; background: var(--accent); }
 .scope-current::before { background: var(--text-3); }
@@ -523,6 +534,8 @@ main > section { scroll-margin-top: calc(var(--topbar-h) + 16px); padding-top: v
   .card { padding: 16px; }
   .kpi { padding: 14px; min-height: 140px; }
   .kpi-value { font-size: 26px; }
+  .alltime { padding: 12px 14px 14px; }
+  .alltime-grid { column-gap: var(--space-4); }
   .tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-2); }
   .tile { padding: 12px; }
   .tile-value .v { font-size: var(--fs-lg); }

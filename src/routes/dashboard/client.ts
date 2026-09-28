@@ -19,6 +19,7 @@ import { USAGE_JS } from "./usage";
 
 const BOOT_JS = String.raw`
 load();
+loadHistory();
 const initialRange = rangeFor(30);
 document.getElementById("range-start").value = initialRange.start;
 document.getElementById("range-end").value = initialRange.end;

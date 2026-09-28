@@ -4,7 +4,7 @@ import { RANGE_JS } from "../src/routes/dashboard/range";
 // The page's own range code, run as the browser runs it: the same source,
 // evaluated in one function scope, with no DOM needed.
 const range = new Function(
-  `${RANGE_JS}\nreturn { MAX_RANGE_DAYS, shiftDay, rangeDays, validRange, priorRange, seriesArchiveWindow, observedTotal, matchedChange, percentDelta, countDelta, comparisonLabel, NO_COMPARISON };`,
+  `${RANGE_JS}\nreturn { MAX_RANGE_DAYS, shiftDay, rangeDays, validRange, priorRange, seriesArchiveWindow, observedTotal, matchedChange, seriesToDate, percentDelta, countDelta, comparisonLabel, NO_COMPARISON };`,
 )();
 
 // A daily series as GET /api/timeseries returns it, reporting 1 kB on each
@@ -84,6 +84,18 @@ describe("dashboard period totals", () => {
     });
     // Before the series began there is nothing to pair with.
     expect(range.matchedChange(series, "2026-09-14", "2026-09-20").matched).toBe(0);
+  });
+
+  test("a lifetime total starts at the series' coverage and never earlier", () => {
+    const gappy = bytesSeries(["2026-08-01", "2026-08-02", "2026-08-04"], "2026-08-01");
+    expect(range.seriesToDate(gappy)).toEqual({
+      total: 3000,
+      reported: 3,
+      since: "2026-08-01",
+      through: "2026-08-04",
+      days: 4,
+    });
+    expect(range.seriesToDate(bytesSeries([], undefined)).reported).toBe(0);
   });
 });
 

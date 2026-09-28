@@ -85,6 +85,7 @@ function renderSnapshot(snap) {
   renderCatalog(catalog);
   renderUsageSnapshot(usage);
   renderHealth(health);
+  renderAllTime();
   renderHeadline();
   const generated = new Date(snap.generated_at);
   const windowNote = document.getElementById("rolling-window");
@@ -105,12 +106,14 @@ function renderSnapshotError() {
       root.appendChild(gridSkeleton());
     });
     state.snapshotFailed = false;
+    renderAllTime();
     load();
   };
   document.getElementById("health-meta").textContent = "Could not load the latest snapshot.";
   stateMessage(document.getElementById("sections"), "error", "Could not load the latest snapshot", "The current state of the pipelines is unknown until it loads.", retry);
   stateMessage(document.getElementById("catalog"), "error", "Could not load catalog figures", "The latest snapshot did not load.", retry);
   stateMessage(document.getElementById("usage-snapshot"), "error", "Could not load the rolling 30-day measures", "The latest snapshot did not load.", retry);
+  renderAllTime();
 }
 function ring(percent) {
   const size = 64; const stroke = 6; const r = (size - stroke) / 2; const c = 2 * Math.PI * r;

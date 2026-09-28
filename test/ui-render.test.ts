@@ -44,12 +44,20 @@ describe("dashboard shell", () => {
     }
   });
 
-  test("the overview has a headline and range KPIs that start busy", () => {
+  test("the overview has a headline, range KPIs, and an all-time strip that start busy", () => {
     expect(html).toContain('<h1 id="overview-title"');
     expect(html).toContain('id="kpis" class="kpi-grid" aria-busy="true"');
     // Four placeholder cards hold the layout until the range data arrives.
-    const kpiBlock = html.slice(html.indexOf('id="kpis"'), html.indexOf("</section>"));
+    const kpiBlock = html.slice(html.indexOf('id="kpis"'), html.indexOf('class="alltime"'));
     expect(kpiBlock.match(/class="card kpi"/g)?.length).toBe(4);
+    // The all-time strip sits after the range cards, inside the overview.
+    const overview = html.slice(
+      html.indexOf('<section id="overview"'),
+      html.indexOf('<section id="usage"'),
+    );
+    expect(overview.indexOf('id="kpis"')).toBeLessThan(overview.indexOf('id="all-time"'));
+    expect(overview).toContain('<dl id="all-time" class="alltime-grid" aria-busy="true">');
+    expect(overview).toContain(">All time</h2>");
   });
 
   test("range-driven blocks name their dates, and snapshot blocks say Current state", () => {
@@ -215,6 +223,7 @@ describe("dashboard shell", () => {
     expect(fetches.sort()).toEqual([
       'fetch(API + "/audience',
       'fetch(API + "/snapshot',
+      'fetch(API + "/snapshot/history',
       'fetch(API + "/timeseries',
     ]);
   });
