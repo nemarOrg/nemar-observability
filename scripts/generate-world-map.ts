@@ -7,16 +7,10 @@ const EXPECTED_BASE_COUNTRY_COUNT = 175;
 const REQUIRED_SUPPLEMENT_COUNTRY_CODES = ["BB", "BH", "HK", "MT", "MU", "SG"] as const;
 const collection = (await Bun.file(
   new URL("./data/natural-earth-110m-admin-0-countries.geojson", import.meta.url),
-).json()) as GeoJSON.FeatureCollection<
-  GeoJSON.Geometry,
-  Record<string, unknown>
->;
+).json()) as GeoJSON.FeatureCollection<GeoJSON.Geometry, Record<string, unknown>>;
 const detailCollection = (await Bun.file(
   new URL("./data/natural-earth-50m-small-country-supplement.geojson", import.meta.url),
-).json()) as GeoJSON.FeatureCollection<
-  GeoJSON.Geometry,
-  Record<string, unknown>
->;
+).json()) as GeoJSON.FeatureCollection<GeoJSON.Geometry, Record<string, unknown>>;
 const projection = geoEqualEarth().fitExtent(
   [
     [8, 8],
@@ -56,9 +50,11 @@ function assertSourceContract(): void {
   const required = new Set<string>(REQUIRED_SUPPLEMENT_COUNTRY_CODES);
   const missing = [...required].filter((code) => !actual.has(code));
   const unexpected = [...actual].filter((code) => !required.has(code));
-  if (detailCollection.features.length !== REQUIRED_SUPPLEMENT_COUNTRY_CODES.length
-    || missing.length > 0
-    || unexpected.length > 0) {
+  if (
+    detailCollection.features.length !== REQUIRED_SUPPLEMENT_COUNTRY_CODES.length ||
+    missing.length > 0 ||
+    unexpected.length > 0
+  ) {
     throw new Error(
       `Natural Earth 1:50m supplement mismatch. Missing: ${missing.join(", ") || "none"}; unexpected: ${unexpected.join(", ") || "none"}.`,
     );
@@ -75,7 +71,8 @@ function countryNames(feature: CountryFeature): string[] {
     properties.NAME_CIAWF,
     properties.FORMAL_EN,
     properties.NAME_EN,
-  ].filter((name): name is string => typeof name === "string" && name.trim().length > 0)
+  ]
+    .filter((name): name is string => typeof name === "string" && name.trim().length > 0)
     .map((name) => name.trim())
     .filter((name, index, all) => all.indexOf(name) === index);
 }
@@ -99,7 +96,9 @@ if (countries.size !== EXPECTED_BASE_COUNTRY_COUNT) {
 // The 1:110m dataset omits several small countries at world-map scale. Add only
 // their detailed paths, preserving the compact 1:110m baseline for other shapes.
 for (const feature of detailCollection.features as CountryFeature[]) addCountry(feature);
-const missingSupplementPaths = REQUIRED_SUPPLEMENT_COUNTRY_CODES.filter((code) => !countries.has(code));
+const missingSupplementPaths = REQUIRED_SUPPLEMENT_COUNTRY_CODES.filter(
+  (code) => !countries.has(code),
+);
 if (missingSupplementPaths.length > 0) {
   throw new Error(`Missing required small-country paths: ${missingSupplementPaths.join(", ")}.`);
 }

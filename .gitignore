@@ -22,3 +22,6 @@ dist/
 
 # Local epic workflow state
 .claude/*.local.md
+
+# Claude Code local state and agent worktrees
+.claude/

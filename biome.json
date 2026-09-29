@@ -33,5 +33,10 @@
   },
   "files": {
     "ignore": ["node_modules", "dist", "*.json"]
+  },
+  "vcs": {
+    "enabled": true,
+    "clientKind": "git",
+    "useIgnoreFile": true
   }
 }

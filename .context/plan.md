@@ -77,9 +77,15 @@ day of audience coverage, and the remaining Umami operations. S3 egress issue
   CloudWatch collector code and added the separate storage-gauge section; its
   Worker changes are deployed. The historical read-only CloudWatch query
   succeeded.
-  The egress token/Worker secret, live section push, timer installation, and
-  end-to-end chart acceptance remain outstanding. Keep the timer disabled
-  until those gates pass; see `.context/phase4-plan.md`.
+  On 2026-09-28 the section ingest tokens (`egress`, `storage`, `website`)
+  were added to the Worker secret `OBS_INGEST_TOKENS_JSON`, the checkout at
+  `/opt/nemar-observability` on nemaring was updated to `main`, and both
+  daily timers (egress 08:17 UTC, storage 08:47 UTC) were installed and
+  enabled. Each service ran once and posted: egress 14 daily points through
+  2026-09-27, storage 121.65 TB and about 1.35 billion objects for
+  2026-09-28. Confirm the first unattended runs on 2026-09-29 (see
+  `.context/phase4-plan.md`). The dashboard redesign is PR #80 and the
+  matching admin portal redesign is website PR #366 (release 0.2.21).
 
 The first dashboard implementation (schema, Worker/API, UI, D1 history, cron,
 deployment, and docs) is already on `main`; the old P2-P7 scaffold checklist is
@@ -126,24 +132,22 @@ summed across buckets as unique people.
       verified safe. Keep visitor/session, page-view, and event measures
       separate from requests and response bytes. Set event coverage to the
       first complete UTC day after production instrumentation is verified.
-- [ ] **S3 response-byte collection (issue #59)** — after the core browser
-      analytics gates, install and enable the existing collector. Query
-      `AWS/S3:BytesDownloaded`, `Stat=Sum`, `Period=86400`, dimensions
-      `BucketName=nemar` and `FilterId=EntireBucket`, in `us-east-2`. This is a
-      bucket-wide byte total that includes conversion reads; it has no caller,
-      machine, or location attribution. Keep it separate from Cloudflare and
-      Worker measures. The collector must inject the scoped secrets, push a
-      real section, and pass API/chart coverage checks before its timer is
-      enabled. See `.context/phase4-plan.md` and issue #59.
+- [ ] **S3 response-byte collection (issue #59):** the collector, secrets,
+      and daily timer are installed on nemaring (2026-09-28) and the first
+      manual run posted 14 daily points. Query is `AWS/S3:BytesDownloaded`,
+      `Stat=Sum`, `Period=86400`, dimensions `BucketName=nemar` and
+      `FilterId=EntireBucket`, in `us-east-2`: a bucket-wide byte total that
+      includes conversion reads, with no caller, machine, or location
+      attribution. Keep it separate from Cloudflare and Worker measures.
+      Remaining: confirm the unattended 2026-09-29 run and chart coverage,
+      then close issue #59.
 - [ ] **S3 storage size section (`storage`):** collector
-      `scripts/push-s3-storage.ts`, units, and tests merged in PR #82; host
-      installation is still pending. It reuses the egress CloudWatch key from
+      `scripts/push-s3-storage.ts` merged in PR #82 and installed on nemaring
+      with its own daily timer. It reuses the egress CloudWatch key from
       `prod:/observability/egress` and pushes gauges only (no daily series;
-      trend via `/snapshot/history`). Operator steps still open: add
-      `OBS_STORAGE_INGEST_TOKEN` to that Infisical path, add the same value as
-      `storage` in `OBS_INGEST_TOKENS_JSON`, then run the combined nemaring
-      install block in the README and confirm `storage.bucket_bytes` in the
-      snapshot.
+      trend via `/snapshot/history`). The first push succeeded; remaining is
+      confirming `storage.bucket_bytes` in the public snapshot after the next
+      hourly cron and on the website admin Storage card.
 
 ## v1 metric catalog (all derivable now)
 
