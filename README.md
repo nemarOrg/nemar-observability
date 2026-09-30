@@ -267,10 +267,14 @@ sudo systemctl start nemar-observability-egress.service nemar-observability-stor
 journalctl -u nemar-observability-egress.service -u nemar-observability-storage.service -n 100 --no-pager
 ```
 
-After this, collector code updates itself: every service run first does `git pull --ff-only origin main` (`ExecStartPre` in the unit), so merging to `main` is the deploy for the collectors as well as the Worker.
-A failed pull does not block the collection; the journal shows it, and the run uses the code already on disk.
+After this, collector code updates itself: every collector run first starts `nemar-observability-update.service` (`Wants=` and `After=` in the collector units), which runs `ops/update-checkout.sh` as `yahya` and resets the checkout to `origin/main`, so merging to `main` is the deploy for the collectors as well as the Worker.
+It resets rather than pulls, so a dirty tree, a stray local commit, or another branch cannot block it.
+The update service is the only unit that can write to the checkout and it holds no secrets; the collectors, which hold the AWS key and the ingest tokens, cannot write to it.
+A failed update does not block the collection.
+It records when the failures began in `.update-failed-since`, and once that is a day old each collector publishes an error metric (`egress.collector.code_stale`, `storage.collector.code_stale`), which turns `/observability/health` red and opens a health-alert issue.
+The next successful update clears it.
 Only a change under `ops/systemd/` needs `sudo /opt/nemar-observability/ops/install-units.sh` again.
-The pull trusts `main` with the collectors' secrets exactly as the Worker deploy does, so keep branch protection (green CI) on `main`.
+The update trusts `main` with the collectors' secrets exactly as the Worker deploy does, so keep branch protection (green CI) on `main`.
 
 Afterward, confirm `storage.bucket_bytes` in `GET /observability/api/snapshot?cb=$(date +%s)` (the snapshot picks up a push at the next hourly cron) and the egress dates in `GET /observability/api/timeseries`.
 If either run failed, disable its timer with `sudo systemctl disable --now nemar-observability-<name>.timer` until the cause is fixed.

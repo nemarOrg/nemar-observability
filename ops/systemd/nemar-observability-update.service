@@ -1,0 +1,28 @@
+[Unit]
+Description=Update the nemaring collector checkout from main
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+# Started by each collector service (Wants= and After=). It is the only unit
+# that writes to the checkout and it holds no secrets; the collectors, which
+# hold the AWS key and ingest tokens, cannot write to it.
+Type=oneshot
+User=yahya
+Group=yahya
+Environment=HOME=/home/yahya
+Environment=PATH=/usr/local/bin:/usr/bin:/bin
+Environment=GIT_TERMINAL_PROMPT=0
+TimeoutStartSec=3min
+ExecStart=/opt/nemar-observability/ops/update-checkout.sh
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/opt/nemar-observability
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+LockPersonality=true
+RestrictSUIDSGID=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6

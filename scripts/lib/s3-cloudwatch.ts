@@ -6,6 +6,7 @@
 declare const process: { exit(code: number): never };
 declare const Bun: {
   env: Record<string, string | undefined>;
+  file(path: string | URL): { text(): Promise<string> };
   spawn(
     command: string[],
     options: {
@@ -19,6 +20,49 @@ declare const Bun: {
     exited: Promise<number>;
   };
 };
+
+/**
+ * The update service (ops/update-checkout.sh) writes the time of its first
+ * failed pull here and removes the file on the next success. A collector that
+ * cannot update keeps collecting, but says so once the failure is a day old, so
+ * a checkout stuck on old code becomes an alert instead of a silent drift.
+ */
+export const UPDATE_MARKER = new URL(
+  "../../.update-failed-since",
+  (import.meta as ImportMeta & { url: string }).url,
+);
+export const CODE_STALE_AFTER_MS = 24 * 3_600_000;
+
+/** The ISO time the checkout stopped updating, when that is over a day ago; else null. */
+export async function codeUpdateProblem(
+  nowMs = Date.now(),
+  marker: string | URL = UPDATE_MARKER,
+): Promise<string | null> {
+  let text: string;
+  try {
+    text = await Bun.file(marker).text();
+  } catch {
+    return null; // no marker: the last update succeeded
+  }
+  const since = Date.parse(text.trim());
+  if (Number.isNaN(since)) return "an unknown time";
+  return nowMs - since > CODE_STALE_AFTER_MS ? new Date(since).toISOString() : null;
+}
+
+/** An error metric, present only while the collector's code has stopped updating. */
+export function codeStaleMetrics(sectionKey: string, since: string | null) {
+  if (since === null) return [];
+  return [
+    {
+      key: `${sectionKey}.collector.code_stale`,
+      label: "Collector code updates",
+      value: 1,
+      unit: "errors",
+      severity: "error",
+      hint: `The collector has not been able to update its code since ${since}. Data is still being collected; repair the checkout on nemaring (see the README).`,
+    },
+  ];
+}
 
 export const AWS_REGION = "us-east-2";
 export const BUCKET_NAME = "nemar";
