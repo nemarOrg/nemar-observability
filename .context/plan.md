@@ -66,9 +66,11 @@ day of audience coverage, and the remaining Umami operations. S3 egress issue
   UTC day of event collection is verified. The canonical policy update is
   `nemarOrg/docs#46`; align its effective date with the production rollout and
   complete its review. The direct Worker-to-Umami API remains the source for
-  range-aware audience, country, and consented-event summaries. Keep the
-  separate D1 pusher unscheduled unless daily browser-activity series are
-  explicitly needed; do not duplicate these source totals in D1. The initial
+  range-aware audience, country, and consented-event summaries. The
+  separate D1 pusher (nemar-umami `push/push-section.sh`, fixed in nemar-umami
+  PR #7) has run hourly from nemaring since 2026-09-30 and delivers the
+  `website/pageviews` daily series, which `/health` expects; do not duplicate
+  the audience totals or country data in D1. The initial
   epic reconciliation is PR #78. See `.context/research.md` for exact routing
   and verification details.
 - S3 `BytesDownloaded` collection is the separate deferred follow-up in issue

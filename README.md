@@ -207,7 +207,7 @@ The first run after midnight publishes the UTC day that just closed, a failed ru
 Every run is an idempotent re-read of the same 14-day window.
 `Persistent=true` catches up a missed timer activation after downtime.
 Failures remain in the journal and, when possible, as a collector error metric.
-If a closed UTC day is still missing six hours after midnight, or a collector has had no successful run for 26 hours, `/observability/health` turns red and the health monitor opens an issue. One failed run does not: the failure status refreshes the section but not its `last_ok_at`, which is what health judges.
+If a closed UTC day is still missing six hours after midnight, or a collector has had no successful run for 26 hours, `/observability/health` turns red and the health monitor opens an issue. One failed run does not: the failure status refreshes the section but not its `last_ok_at`, which is what health judges. The same rules cover the Umami `website` section and its `pageviews` series, which the nemar-umami pusher delivers hourly.
 CloudWatch's `GetMetricData` API uses an exclusive end timestamp; the collector ends each
 query at today's UTC midnight so it requests only complete UTC days
 ([API reference](https://docs.aws.amazon.com/AmazonCloudWatch/latest/APIReference/API_GetMetricData.html)).
