@@ -2,11 +2,13 @@
 // /health can tolerate one failed run yet catch a collector that has not
 // succeeded for a day. A failed run publishes an error-only status that replaces
 // the section and refreshes received_at, which is why received_at alone is not
-// enough. Real SQLite, the real ingest route, and the real migration.
+// enough. The Umami pusher's success contract is tested here too, with its real
+// payload shape. Real SQLite, the real ingest route, and the real migration.
 
 import { Database } from "bun:sqlite";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import worker from "../src/index";
+import { loadPushedProblems, loadSeriesBehind } from "../src/lib/freshness";
 import type { Section } from "../src/lib/schema";
 import { savePushedSection } from "../src/lib/store";
 import type { Bindings } from "../src/types";
@@ -152,4 +154,88 @@ describe("migration 0005 on existing rows", () => {
     ]);
     before.close();
   });
+});
+
+// The Umami pusher (nemar-umami push/push-section.sh) posts one metric,
+// `collector_health`, whose severity is "warn" for a week with no page views or a
+// tracker asset that is down. That is a display level, never a failed run: the
+// pusher signals failure by not posting at all. So every delivery must move
+// last_ok_at, and health must stay clean for a warning.
+describe("the Umami pusher's delivery through the real ingest route", () => {
+  const WEBSITE_TOKEN = "website-ingest-token";
+  const NOW = new Date("2026-09-30T08:30:00Z");
+
+  const pusherPayload = (severity: "ok" | "warn") => ({
+    key: "website",
+    label: "Website",
+    source: "umami",
+    metrics: [
+      {
+        key: "collector_health",
+        label: "Collector health",
+        value: severity === "ok" ? 1 : 0,
+        unit: "status",
+        severity,
+        hint:
+          severity === "ok"
+            ? "collector healthy: Umami API returned complete daily data and public tracker returned HTTP 200"
+            : "zero pageviews in the last 7 complete UTC days; public tracker probe returned HTTP 503",
+      },
+    ],
+    daily_series: [
+      {
+        key: "pageviews",
+        label: "Umami pageviews",
+        unit: "count",
+        aggregation: "sum",
+        timezone: "UTC",
+        coverage_start: "2026-09-28",
+        coverage_end: "2026-09-29",
+        freshness_after_hours: 36,
+        points: [
+          { date: "2026-09-28", value: 26 },
+          { date: "2026-09-29", value: 1132 },
+        ],
+      },
+    ],
+  });
+
+  async function pushWebsite(body: unknown): Promise<void> {
+    const env = {
+      OBS_DB: asD1(engine),
+      OBS_INGEST_TOKENS_JSON: JSON.stringify({ egress: TOKEN, website: WEBSITE_TOKEN }),
+    } as unknown as Bindings;
+    const res = await worker.fetch(
+      new Request("https://x/observability/api/sections/website", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${WEBSITE_TOKEN}`, "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      }),
+      env,
+      {} as ExecutionContext,
+    );
+    expect(res.status).toBe(200);
+  }
+
+  const websiteRow = () =>
+    engine
+      .query("SELECT received_at, last_ok_at FROM ingested_sections WHERE key = 'website'")
+      .get() as { received_at: string; last_ok_at: string | null };
+
+  for (const severity of ["ok", "warn"] as const) {
+    test(`a ${severity} delivery sets last_ok_at and leaves health clean`, async () => {
+      await pushWebsite(pusherPayload(severity));
+      const { received_at, last_ok_at } = websiteRow();
+      expect(last_ok_at).toBe(received_at);
+
+      const at = new Date(Date.parse(received_at) + 3_600_000);
+      const problems = await loadPushedProblems(asD1(engine), at, true);
+      expect(problems.filter((p) => p.section === "website")).toEqual([]);
+
+      // The series is judged against the day expected at NOW, whatever the
+      // wall clock says when the test runs.
+      const behind = await loadSeriesBehind(asD1(engine), NOW, true);
+      expect(behind.filter((s) => s.key === "pageviews")).toEqual([]);
+    });
+  }
 });
