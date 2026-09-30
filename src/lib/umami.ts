@@ -374,3 +374,34 @@ export async function fetchUmamiAudience(
     note: notes.join(" "),
   };
 }
+
+export type UmamiLiveness =
+  | { state: "unconfigured" }
+  | { state: "unreachable" }
+  | { state: "ok"; lastEventAt: number };
+
+/**
+ * Whether Umami is up and still receiving events, for /health. Reads only the
+ * website's date range: its end is the newest stored event, so a dead tracker
+ * or a stopped container shows as an old timestamp even while the API answers.
+ */
+export async function fetchUmamiLiveness(env: Bindings): Promise<UmamiLiveness> {
+  const baseUrl = env.UMAMI_BASE_URL?.trim();
+  const websiteId = env.UMAMI_WEBSITE_ID?.trim();
+  const apiKey = env.UMAMI_API_KEY?.trim();
+  if (!baseUrl || !websiteId || !apiKey) return { state: "unconfigured" };
+  const base = isSafeBaseUrl(baseUrl);
+  if (!base) return { state: "unreachable" };
+  try {
+    const range = parseDateRange(
+      await fetchJson(
+        endpoint(base, `/api/websites/${encodeURIComponent(websiteId)}/daterange`),
+        apiKey,
+      ),
+    );
+    return range ? { state: "ok", lastEventAt: range.endAt } : { state: "unreachable" };
+  } catch {
+    console.error("[health] Umami date-range request failed");
+    return { state: "unreachable" };
+  }
+}

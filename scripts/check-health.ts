@@ -31,6 +31,8 @@ interface HealthBody {
   snapshot?: unknown;
   snapshot_error?: unknown;
   section_errors?: unknown;
+  series_behind?: unknown;
+  umami?: unknown;
   error?: unknown;
   cron?: { last_success_at?: string | null; last_error?: string | null } | null;
 }
@@ -64,6 +66,16 @@ export function verdictFor(status: number, body: HealthBody | null): HealthVerdi
   }
   const sections = Array.isArray(body.section_errors) ? body.section_errors : [];
   if (sections.length > 0) reasons.push(`sections failed to compute: ${sections.join(", ")}`);
+  const behind = Array.isArray(body.series_behind) ? body.series_behind : [];
+  if (behind.length > 0) {
+    const named = behind.map((item) => {
+      const entry = item as { key?: unknown; latest?: unknown; expected?: unknown };
+      return `${String(entry.key)} (newest ${String(entry.latest ?? "none")}, expected ${String(entry.expected)})`;
+    });
+    reasons.push(`daily series missing a closed UTC day: ${named.join(", ")}`);
+  }
+  if (body.umami === "unreachable") reasons.push("Umami website analytics are unreachable");
+  if (body.umami === "silent") reasons.push("Umami has received no events for over 6 hours");
   if (body.snapshot === "unreadable") {
     reasons.push(`stored snapshot is unreadable (${String(body.snapshot_error ?? "unknown")})`);
   }

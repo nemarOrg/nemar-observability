@@ -27,6 +27,23 @@ describe("verdictFor", () => {
     expect(v.summary).toContain("sections failed to compute: sync, cf");
   });
 
+  test("names a daily series that is missing a closed day", () => {
+    const v = verdictFor(503, {
+      ok: false,
+      stale: false,
+      section_errors: [],
+      series_behind: [{ key: "s3_bytes_downloaded", latest: "2026-09-28", expected: "2026-09-29" }],
+      umami: "ok",
+    });
+    expect(v.ok).toBe(false);
+    expect(v.summary).toContain("s3_bytes_downloaded (newest 2026-09-28, expected 2026-09-29)");
+  });
+
+  test("names an unreachable or silent Umami", () => {
+    expect(verdictFor(503, { ok: false, umami: "unreachable" }).summary).toContain("unreachable");
+    expect(verdictFor(503, { ok: false, umami: "silent" }).summary).toContain("no events");
+  });
+
   test("reports staleness with the last successful cron time", () => {
     const v = verdictFor(503, {
       ok: false,
