@@ -111,13 +111,28 @@ jobs:
           echo "==> $BASE/health"
           curl -sS --max-time 20 "$BASE/health" | tee /tmp/health.json
           echo
+          # Fail the deploy only for what this Worker owns: the store, the
+          # snapshot, and its own section errors. Collector and Umami health
+          # (series_behind, pushed_problems, umami) is reported as a warning, so
+          # a deploy that fixes a broken collector cannot be red because the
+          # collector has not run again yet. The health monitor alerts on those.
           bun -e '
             const j = JSON.parse(await Bun.file("/tmp/health.json").text());
-            if (j.ok !== true) {
-              console.error(`::error::health reports unhealthy: ok=${j.ok} stale=${j.stale} snapshot=${j.snapshot} section_errors=${(j.section_errors ?? []).join(",")}`);
+            const workerOwned =
+              j.error === undefined &&
+              j.stale === false &&
+              j.snapshot === "ok" &&
+              (j.section_errors ?? []).length === 0 &&
+              (j.checks_failed ?? []).length === 0;
+            if (!workerOwned) {
+              console.error(`::error::worker health is unhealthy: ${JSON.stringify(j)}`);
               process.exit(1);
             }
-            console.log("health ok");
+            if (j.ok !== true) {
+              console.log(`::warning::collector or Umami health is not ok (not a deploy failure): ${JSON.stringify(j)}`);
+            } else {
+              console.log("health ok");
+            }
           '
 
           # Cache-bust: /api/snapshot carries s-maxage=300, so the bare URL can

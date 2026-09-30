@@ -27,6 +27,44 @@ describe("verdictFor", () => {
     expect(v.summary).toContain("sections failed to compute: sync, cf");
   });
 
+  test("names a daily series that is missing a closed day", () => {
+    const v = verdictFor(503, {
+      ok: false,
+      stale: false,
+      section_errors: [],
+      series_behind: [{ key: "s3_bytes_downloaded", latest: "2026-09-28", expected: "2026-09-29" }],
+      umami: "ok",
+    });
+    expect(v.ok).toBe(false);
+    expect(v.summary).toContain("s3_bytes_downloaded (newest 2026-09-28, expected 2026-09-29)");
+  });
+
+  test("names an unreachable, silent, or misconfigured Umami, with the reason", () => {
+    const rotated = verdictFor(503, { ok: false, umami: "unreachable", umami_reason: "http_401" });
+    expect(rotated.summary).toContain("unreachable (http_401)");
+    expect(verdictFor(503, { ok: false, umami: "silent" }).summary).toContain("no events");
+    expect(verdictFor(503, { ok: false, umami: "misconfigured" }).summary).toContain(
+      "not fully configured",
+    );
+  });
+
+  test("names collector sections that are missing, stale, or running old code", () => {
+    const v = verdictFor(503, {
+      ok: false,
+      pushed_problems: [
+        { section: "egress", problem: "stale", detail: "last received 4h ago" },
+        { section: "storage", problem: "code_stale", detail: "storage.collector.code_stale" },
+      ],
+    });
+    expect(v.summary).toContain("egress stale (last received 4h ago)");
+    expect(v.summary).toContain("storage code_stale (storage.collector.code_stale)");
+  });
+
+  test("says when a health check itself could not run", () => {
+    const v = verdictFor(503, { ok: false, checks_failed: ["series", "pushed_sections"] });
+    expect(v.summary).toContain("health checks could not run: series, pushed_sections");
+  });
+
   test("reports staleness with the last successful cron time", () => {
     const v = verdictFor(503, {
       ok: false,

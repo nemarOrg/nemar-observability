@@ -31,6 +31,11 @@ interface HealthBody {
   snapshot?: unknown;
   snapshot_error?: unknown;
   section_errors?: unknown;
+  series_behind?: unknown;
+  pushed_problems?: unknown;
+  checks_failed?: unknown;
+  umami?: unknown;
+  umami_reason?: unknown;
   error?: unknown;
   cron?: { last_success_at?: string | null; last_error?: string | null } | null;
 }
@@ -64,6 +69,33 @@ export function verdictFor(status: number, body: HealthBody | null): HealthVerdi
   }
   const sections = Array.isArray(body.section_errors) ? body.section_errors : [];
   if (sections.length > 0) reasons.push(`sections failed to compute: ${sections.join(", ")}`);
+  const behind = Array.isArray(body.series_behind) ? body.series_behind : [];
+  if (behind.length > 0) {
+    const named = behind.map((item) => {
+      const entry = item as { key?: unknown; latest?: unknown; expected?: unknown };
+      return `${String(entry.key)} (newest ${String(entry.latest ?? "none")}, expected ${String(entry.expected)})`;
+    });
+    reasons.push(`daily series missing a closed UTC day: ${named.join(", ")}`);
+  }
+  const pushed = Array.isArray(body.pushed_problems) ? body.pushed_problems : [];
+  if (pushed.length > 0) {
+    const named = pushed.map((item) => {
+      const entry = item as { section?: unknown; problem?: unknown; detail?: unknown };
+      return `${String(entry.section)} ${String(entry.problem)} (${String(entry.detail)})`;
+    });
+    reasons.push(`collector sections unhealthy: ${named.join(", ")}`);
+  }
+  const notRun = Array.isArray(body.checks_failed) ? body.checks_failed : [];
+  if (notRun.length > 0) reasons.push(`health checks could not run: ${notRun.join(", ")}`);
+  if (body.umami === "unreachable") {
+    reasons.push(
+      `Umami website analytics are unreachable (${String(body.umami_reason ?? "unknown")})`,
+    );
+  }
+  if (body.umami === "silent") reasons.push("Umami has received no events for over 6 hours");
+  if (body.umami === "unconfigured" || body.umami === "misconfigured") {
+    reasons.push("Umami website analytics are not fully configured");
+  }
   if (body.snapshot === "unreadable") {
     reasons.push(`stored snapshot is unreadable (${String(body.snapshot_error ?? "unknown")})`);
   }

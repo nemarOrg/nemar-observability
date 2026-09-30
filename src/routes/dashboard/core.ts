@@ -24,6 +24,9 @@ const state = {
   audienceInvalid: false,
   // The equal-length period before the selected one, for comparisons.
   audiencePrior: null,
+  // The newest closed day inside a multi-day range, loaded on its own for the
+  // website map, which shows one completed UTC day.
+  geoDay: null,
   series: null,
   seriesFailed: false,
   // Every reported day of every daily series, for the all-time strip.

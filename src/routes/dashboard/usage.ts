@@ -147,6 +147,7 @@ function loadAudience() {
   const geography = document.getElementById("geography");
   const token = audienceGuard.begin();
   state.audiencePrior = null;
+  state.geoDay = null;
   if (!validRange(start, end)) {
     state.audience = null; state.audienceLoading = false; state.audienceFailed = false; state.audienceInvalid = true;
     renderKpis();
@@ -177,6 +178,11 @@ function loadAudience() {
       );
       return;
     }
+    try {
+      loadGeographyDay(start, end, payload, token);
+    } catch (err) {
+      console.error("[ui] website map day could not start:", err);
+    }
     loadPriorAudience(start, end, payload, token);
     renderKpis();
     renderHeadline();
@@ -188,6 +194,45 @@ function loadAudience() {
       "Could not load audience metrics", failureDetail(err, "Website and request totals for these dates are unknown right now, which is not the same as zero."),
       "Could not load country activity", failureDetail(err, "Locations for these dates are unknown right now.")
     );
+  });
+}
+// The website map covers one completed UTC day. When the selected dates are
+// anything else, load the newest closed day inside them so the website map still
+// works, labeled with that day; the request map keeps the whole range. A load
+// that is pending or has failed is said so on the map, with a retry.
+function loadGeographyDay(start, end, payload, token) {
+  if (payload.country_breakdown_scope === "single_completed_day") return;
+  // Nothing to ask when website analytics are not set up. An "unavailable" range
+  // is still worth one cheap single-day try: the range summary can fail on its own
+  // (a long range timing out) while the day's map would load.
+  if (payload.umami.status === "unconfigured") return;
+  const day = geographyDayFor(start, end);
+  if (!day) return;
+  const entry = { start: start, end: end, day: day, payload: null, status: "loading", retry: null };
+  entry.retry = function () {
+    if (!audienceGuard.isCurrent(token) || !isSelected(start, end)) return;
+    loadGeographyDay(start, end, payload, token);
+    renderGeography(payload, start, end);
+  };
+  state.geoDay = entry;
+  fetchAudience(day, day).then(function (dayPayload) {
+    if (!audienceGuard.isCurrent(token) || !isSelected(start, end)) return;
+    entry.payload = dayPayload;
+    entry.status = "loaded";
+    try {
+      renderGeography(payload, start, end);
+    } catch (err) {
+      console.error("[ui] website map display failed:", err);
+    }
+  }, function (err) {
+    if (!audienceGuard.isCurrent(token) || !isSelected(start, end)) return;
+    console.error("[ui] website map day load failed:", err);
+    entry.status = "failed";
+    try {
+      renderGeography(payload, start, end);
+    } catch (renderErr) {
+      console.error("[ui] website map display failed:", renderErr);
+    }
   });
 }
 function loadPriorAudience(start, end, payload, token) {
@@ -354,8 +399,10 @@ function renderSeries(payload, start, end) {
       label.appendChild(el("p", "measure-total-label", observedPoints.length === 0 ? "Range total" : gap ? "Observed total, some periods missing" : "Range total"));
       label.appendChild(el("p", "measure-total", observedPoints.length === 0 ? "Unknown" : seriesValue(observedTotal, series.unit)));
       head.appendChild(label);
-      // Freshness is a fact about the data, stated plainly rather than as an alarm.
-      head.appendChild(badge("neutral", lastDay ? "Through " + shortDay(lastDay) : "No days counted yet", "neutral"));
+      // Said only when the series is behind the newest closed day; a series that
+      // is up to date needs no flag, and a missing day is stated plainly, not as an alarm.
+      const catchUp = seriesCatchUp(series);
+      if (catchUp) head.appendChild(badge("neutral", catchUp, "neutral"));
       measure.appendChild(head);
       measure.appendChild(chart(series, buckets, grouping, start, end, group.plane.description));
       const legend = el("div", "chart-legend");

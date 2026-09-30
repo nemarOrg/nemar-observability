@@ -1,7 +1,7 @@
 [Unit]
 Description=Collect daily NEMAR S3 download bytes for observability
-Wants=network-online.target
-After=network-online.target
+Wants=network-online.target nemar-observability-update.service
+After=network-online.target nemar-observability-update.service
 
 [Service]
 Type=oneshot
@@ -10,6 +10,8 @@ Group=yahya
 Environment=HOME=/home/yahya
 Environment=PATH=/home/yahya/.local/bin:/home/yahya/.bun/bin:/usr/local/bin:/usr/bin:/bin
 WorkingDirectory=/opt/nemar-observability
+# A hard stop for a hung run; the next timer activation starts a fresh one.
+TimeoutStartSec=10min
 ExecStart=/opt/nemar-observability/ops/with-collector-secrets.sh /opt/nemar-observability/scripts/push-s3-egress.ts
 NoNewPrivileges=true
 PrivateTmp=true

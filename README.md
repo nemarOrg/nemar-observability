@@ -15,7 +15,7 @@ Tiles show aggregate headline numbers. Built-in breakdowns such as the largest a
 
 Usage is grouped by reporting source: anonymous browser page views and action events, server-side access requests and redirects, Cloudflare edge requests and bytes, and S3 response bytes when those series are available. These are separate measures: page views and actions are events rather than people, access redirects do not confirm completed downloads, and edge traffic can include bots and repeat clients. The selected UTC date range controls every displayed additive series and total. Daily values are summed into calendar-aligned weeks or months only when the bucket has complete observations; a partial boundary bucket is labeled, and a missing observation stays **unknown**, never zero. Daily distinct visitors are not summed into a range total. Snapshot health is a separate point-in-time view labeled **latest state**, with its generated time shown.
 
-The range-aware audience panel reports Umami visitors as anonymous unique-session estimates, not identified people. Umami visits use a separate visit identifier; sessions can be assigned to more than one country during a range. Cloudflare country counts are zone-wide HTTP requests, not visitors or completed downloads. Summary values use the selected UTC range; country breakdowns are limited to a single completed UTC day. The day/week/month selector applies only to additive daily time series.
+The range-aware audience panel reports Umami visitors as anonymous unique-session estimates, not identified people. Umami visits use a separate visit identifier; sessions can be assigned to more than one country during a range. Cloudflare country counts are zone-wide HTTP requests, not visitors or completed downloads. Summary values use the selected UTC range; website country breakdowns are limited to a single completed UTC day, so for a longer range the website map shows the newest completed day inside it and says which day. The day/week/month selector applies only to additive daily time series.
 
 ## How it works
 
@@ -202,12 +202,13 @@ or has no ingest token, the systemd journal records the failure and the last
 series eventually ages stale. Check the service logs and
 `GET /observability/api/timeseries` for the returned dates.
 
-The timer is scheduled daily at 08:17 UTC with up to 15 minutes of randomized
-delay. `Persistent=true` catches up a missed timer activation after downtime;
-it does not retry a collector process that ran and failed. Failures remain in
-the journal and, when possible, as a collector error metric. The next scheduled
-run re-reads the 14-day overlap, replacing corrected observations. CloudWatch's
-`GetMetricData` API uses an exclusive end timestamp; the collector ends each
+The timer runs hourly at :15 UTC, with up to 2 minutes of randomized delay.
+The first run after midnight publishes the UTC day that just closed, a failed run retries itself an hour later, and CloudWatch data that arrives late replaces the earlier value (S3 request metrics are best-effort).
+Every run is an idempotent re-read of the same 14-day window.
+`Persistent=true` catches up a missed timer activation after downtime.
+Failures remain in the journal and, when possible, as a collector error metric.
+If a closed UTC day is still missing six hours after midnight, or a collector has had no successful run for 26 hours, `/observability/health` turns red and the health monitor opens an issue. One failed run does not: the failure status refreshes the section but not its `last_ok_at`, which is what health judges.
+CloudWatch's `GetMetricData` API uses an exclusive end timestamp; the collector ends each
 query at today's UTC midnight so it requests only complete UTC days
 ([API reference](https://docs.aws.amazon.com/AmazonCloudWatch/latest/APIReference/API_GetMetricData.html)).
 
@@ -248,34 +249,40 @@ A human must first create one new secret, in two places, with a fresh random val
 1. In Infisical project `nemar` (ID `817f7473-a318-4e99-9cf4-a89db057f5fc`), environment `prod`, path `/observability/egress`, add `OBS_STORAGE_INGEST_TOKEN`. (The egress collector still needs its own `OBS_EGRESS_INGEST_TOKEN` there, with a matching `egress` entry in the Worker secret, if that is not done yet.)
 2. Add the same value under key `storage` in the production Worker secret `OBS_INGEST_TOKENS_JSON`, keeping every existing entry (such as `egress`) and a distinct value per key: `npx cfman wrangler --account sccn secret put OBS_INGEST_TOKENS_JSON -c wrangler.toml`.
 
-Then, on nemaring, this one block clones or updates the checkout, installs both units, runs the one-time egress backfill, enables both timers, runs each service once, and shows the journal:
+Then, on nemaring, install the units once.
+Never run `git` as root in the checkout: the services pull as `yahya`, and root-owned objects make that pull fail.
+`ops/install-units.sh` repairs the ownership, installs both units, and enables both timers:
 
 ```bash
-sudo bash -euo pipefail <<'EOF'
-REPO=/opt/nemar-observability
-if [ -d "$REPO/.git" ]; then
-  git -C "$REPO" pull --ff-only
-else
-  git clone https://github.com/nemarOrg/nemar-observability.git "$REPO"
-fi
-install -m 0644 "$REPO"/ops/systemd/nemar-observability-{egress,storage}.{service,timer} /etc/systemd/system/
-systemctl daemon-reload
+# Fresh host only: /opt is root-owned, so create the directory for yahya first.
+[ -d /opt/nemar-observability/.git ] || {
+  sudo install -d -o yahya -g yahya /opt/nemar-observability
+  sudo -u yahya git clone https://github.com/nemarOrg/nemar-observability.git /opt/nemar-observability
+}
+sudo -u yahya git -C /opt/nemar-observability pull --ff-only
+sudo /opt/nemar-observability/ops/install-units.sh
+# First install only: the one-time egress backfill.
 sudo -u yahya env HOME=/home/yahya \
   PATH=/home/yahya/.local/bin:/home/yahya/.bun/bin:/usr/local/bin:/usr/bin:/bin \
   EGRESS_START_DATE=2026-08-01 \
-  "$REPO/ops/with-collector-secrets.sh" "$REPO/scripts/push-s3-egress.ts" \
-  || echo "egress backfill failed; see the output above"
-systemctl enable --now nemar-observability-egress.timer nemar-observability-storage.timer
-systemctl start nemar-observability-egress.service || echo "egress run failed; see the journal below"
-systemctl start nemar-observability-storage.service || echo "storage run failed; see the journal below"
+  /opt/nemar-observability/ops/with-collector-secrets.sh /opt/nemar-observability/scripts/push-s3-egress.ts
+sudo systemctl start nemar-observability-egress.service nemar-observability-storage.service
 journalctl -u nemar-observability-egress.service -u nemar-observability-storage.service -n 100 --no-pager
-systemctl list-timers 'nemar-observability-*' --no-pager
-EOF
 ```
 
+After this, collector code updates itself: every collector run first starts `nemar-observability-update.service` (`Wants=` and `After=` in the collector units), which runs `ops/update-checkout.sh` as `yahya` and resets the checkout to `origin/main`, so merging to `main` is the deploy for the collectors as well as the Worker.
+It resets rather than pulls, so a dirty tree, a stray local commit, or another branch cannot block it.
+The update service is the only unit that can write to the checkout and it holds no secrets; the collectors, which hold the AWS key and the ingest tokens, cannot write to it.
+A failed update does not block the collection.
+It records when the failures began in `/var/lib/nemar-observability/update-failed-since` (the update service's systemd `StateDirectory`, outside the checkout), and once that is a day old each collector publishes an error metric (`egress.collector.code_stale`, `storage.collector.code_stale`), which turns `/observability/health` red and opens a health-alert issue.
+The next successful update clears it.
+Only a change under `ops/systemd/` needs `sudo /opt/nemar-observability/ops/install-units.sh` again.
+The update trusts `main` with the collectors' secrets exactly as the Worker deploy does, so keep branch protection (green CI) on `main`.
+
 Afterward, confirm `storage.bucket_bytes` in `GET /observability/api/snapshot?cb=$(date +%s)` (the snapshot picks up a push at the next hourly cron) and the egress dates in `GET /observability/api/timeseries`.
-If either run failed, disable its timer with `sudo systemctl disable --now nemar-observability-<name>.timer` until the cause is fixed.
-The storage timer runs daily at 08:47 UTC with up to 15 minutes of randomized delay.
+If either run failed, disable its timer with `sudo systemctl disable --now nemar-observability-<name>.timer` until the cause is fixed. `ops/install-units.sh` leaves a timer you disabled that way disabled; re-enable it with `sudo systemctl enable --now nemar-observability-<name>.timer`.
+The storage timer runs at 08:45 and 14:45 UTC with up to 2 minutes of randomized delay, so a failed first run retries itself.
+It is not hourly because S3 publishes a day's size some time during the next UTC day and the collector rejects a value older than the previous UTC day, so early-morning runs could report a failure that is only S3 catching up.
 
 ## Development
 

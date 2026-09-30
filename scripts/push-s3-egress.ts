@@ -5,6 +5,8 @@ import {
   type DailyPoint,
   assertFresh,
   bucketMetricQuery,
+  codeStaleMetrics,
+  codeUpdateProblem,
   completeResult,
   dailyPoints,
   fail,
@@ -63,7 +65,7 @@ export function parsePoints(output: string, startDate: string, endDate: string):
   return points;
 }
 
-export function egressSection(points: DailyPoint[]) {
+export function egressSection(points: DailyPoint[], codeStaleSince: string | null = null) {
   const first = points[0];
   const latest = points[points.length - 1];
   return {
@@ -87,6 +89,7 @@ export function egressSection(points: DailyPoint[]) {
         severity: "ok",
         hint: "The latest scheduled collection completed.",
       },
+      ...codeStaleMetrics("egress", codeStaleSince),
     ],
     daily_series: [
       {
@@ -105,7 +108,7 @@ export function egressSection(points: DailyPoint[]) {
 }
 
 async function pushSection(token: string, points: DailyPoint[]) {
-  await postSection("egress", token, egressSection(points));
+  await postSection("egress", token, egressSection(points, await codeUpdateProblem()));
   console.info(
     `[s3-egress] posted ${points.length} daily points (${points[0].date} through ${points[points.length - 1].date} UTC)`,
   );

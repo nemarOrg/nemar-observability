@@ -9,10 +9,7 @@ import worker from "../src/index";
 import { recordCronRun } from "../src/lib/store";
 import type { Bindings } from "../src/types";
 import { asD1 } from "./helpers/d1";
-
-const MIGRATION = await Bun.file(
-  new URL("../src/db/migrations/0001_init.sql", import.meta.url),
-).text();
+import { MIGRATIONS } from "./helpers/migrations";
 
 const ctx = { waitUntil() {}, passThroughOnException() {} } as unknown as ExecutionContext;
 
@@ -58,7 +55,7 @@ const health = () => worker.fetch(new Request("https://x/observability/health"),
 
 beforeEach(() => {
   engine = new Database(":memory:");
-  engine.run(MIGRATION);
+  for (const sql of MIGRATIONS) engine.run(sql);
   env = { OBS_DB: asD1(engine) } as Bindings;
 });
 afterEach(() => engine.close());

@@ -250,7 +250,7 @@ async function fetchJson(url: URL, apiKey: string): Promise<unknown> {
     headers: { Authorization: `Bearer ${apiKey}`, Accept: "application/json" },
     signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
   });
-  if (!response.ok) throw new Error("Umami request failed");
+  if (!response.ok) throw new Error(`Umami request failed: HTTP ${response.status}`);
   return (await response.json()) as unknown;
 }
 
@@ -373,4 +373,95 @@ export async function fetchUmamiAudience(
     countries: countries ?? [],
     note: notes.join(" "),
   };
+}
+
+export type UmamiFailure =
+  | "http_401"
+  | "http_403"
+  | "http_404"
+  | "http_error"
+  | "timeout"
+  | "network"
+  | "invalid_response"
+  | "invalid_base_url";
+
+export type UmamiLiveness =
+  | { state: "unconfigured" }
+  /** One or two of the base URL, website id, and API key are set: a config fault. */
+  | { state: "misconfigured" }
+  | { state: "unreachable"; reason: UmamiFailure }
+  | { state: "ok"; lastEventAt: number };
+
+function classifyFailure(err: unknown): UmamiFailure {
+  if (err instanceof Error) {
+    if (err.name === "TimeoutError" || err.name === "AbortError") return "timeout";
+    const status = /HTTP (\d{3})/.exec(err.message)?.[1];
+    if (status === "401" || status === "403" || status === "404") return `http_${status}`;
+    if (status) return "http_error";
+  }
+  return "network";
+}
+
+/** A newest event this far ahead of now is a clock or parsing fault, not liveness. */
+const FUTURE_TOLERANCE_MS = 5 * 60_000;
+
+async function probeUmami(env: Bindings, retryDelayMs: number): Promise<UmamiLiveness> {
+  const baseUrl = env.UMAMI_BASE_URL?.trim();
+  const websiteId = env.UMAMI_WEBSITE_ID?.trim();
+  const apiKey = env.UMAMI_API_KEY?.trim();
+  const set = [baseUrl, websiteId, apiKey].filter(Boolean).length;
+  if (set === 0) return { state: "unconfigured" };
+  if (!baseUrl || !websiteId || !apiKey) return { state: "misconfigured" };
+  const base = isSafeBaseUrl(baseUrl);
+  if (!base) {
+    console.error("[health] Umami base URL is invalid");
+    return { state: "unreachable", reason: "invalid_base_url" };
+  }
+  const url = endpoint(base, `/api/websites/${encodeURIComponent(websiteId)}/daterange`);
+  let reason: UmamiFailure = "network";
+  // Two attempts a second apart, so one 502 during a container restart or a
+  // tunnel blip does not read as an outage.
+  for (let attempt = 0; attempt < 2; attempt++) {
+    if (attempt > 0 && retryDelayMs > 0) await new Promise((r) => setTimeout(r, retryDelayMs));
+    try {
+      const range = parseDateRange(await fetchJson(url, apiKey));
+      if (!range || range.endAt > Date.now() + FUTURE_TOLERANCE_MS) {
+        reason = "invalid_response";
+        continue;
+      }
+      return { state: "ok", lastEventAt: range.endAt };
+    } catch (err) {
+      reason = classifyFailure(err);
+    }
+  }
+  console.error(`[health] Umami date-range request failed: ${reason}`);
+  return { state: "unreachable", reason };
+}
+
+const LIVENESS_CACHE_MS = 60_000;
+const livenessCache = new Map<string, { at: number; result: UmamiLiveness }>();
+
+/** For tests, which change what Umami answers between calls. */
+export function resetUmamiLivenessCache(): void {
+  livenessCache.clear();
+}
+
+/**
+ * Whether Umami is up and still receiving events, for /health. Reads only the
+ * website's date range: its end is the newest stored event, so a dead tracker
+ * or a stopped container shows as an old timestamp even while the API answers.
+ * /health is public and uncached, so the answer is kept for a minute per
+ * isolate: a loop against the endpoint cannot turn into a loop against Umami.
+ */
+export async function fetchUmamiLiveness(
+  env: Bindings,
+  options: { retryDelayMs?: number; cacheMs?: number } = {},
+): Promise<UmamiLiveness> {
+  const { retryDelayMs = 1_000, cacheMs = LIVENESS_CACHE_MS } = options;
+  const key = `${env.UMAMI_BASE_URL}|${env.UMAMI_WEBSITE_ID}|${env.UMAMI_API_KEY ? "key" : ""}`;
+  const cached = livenessCache.get(key);
+  if (cached && Date.now() - cached.at < cacheMs) return cached.result;
+  const result = await probeUmami(env, retryDelayMs);
+  livenessCache.set(key, { at: Date.now(), result });
+  return result;
 }

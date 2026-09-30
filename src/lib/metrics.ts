@@ -5,6 +5,7 @@
 import type { Bindings } from "../types";
 import { computeAccessSection } from "./access";
 import { computeCfSection } from "./cf-section";
+import { NO_RETRY, type RetryPolicy, withD1Retry } from "./d1-retry";
 import {
   type Metric,
   type MetricSnapshot,
@@ -471,58 +472,29 @@ async function publicationSection(db: D1Database, now: string): Promise<Section>
 // Exported for tests (run against a real SQLite engine). Not part of the
 // public snapshot API; buildSnapshot() is the only production caller.
 export async function usersSection(db: D1Database, now: string): Promise<Section> {
-  // Every user count excludes soft-deleted tombstones (`deleted_at IS NULL`,
-  // nemar-cli migration 0037). The status pin also drops the id=-1
-  // 'nemar-system' sentinel (it is status='revoked'), but deleted_at is the
-  // authoritative exclusion now that the column exists.
-  const c = await counts<"pending" | "verified" | "approved" | "active_tokens">(
+  // One headline: registered users who proved an ORCID iD by signing in with
+  // ORCID (`orcid_verified`, nemar-cli migration 0050). A DOI-discovered iD in
+  // `users.orcid` is not counted: nobody proved it. Soft-deleted tombstones are
+  // excluded (`deleted_at IS NULL`, migration 0037) and so are revoked users,
+  // which also drops the id=-1 'nemar-system' sentinel. Approval queues and
+  // token counts are admin work and live in the admin portal, not here.
+  const c = await counts<"with_orcid">(
     db,
-    `SELECT
-       (SELECT COUNT(*) FROM users WHERE status = 'pending'  AND deleted_at IS NULL) as pending,
-       (SELECT COUNT(*) FROM users WHERE status = 'verified' AND deleted_at IS NULL) as verified,
-       (SELECT COUNT(*) FROM users WHERE status = 'approved' AND deleted_at IS NULL) as approved,
-       (SELECT COUNT(*) FROM tokens WHERE revoked_at IS NULL) as active_tokens`,
+    `SELECT COUNT(*) as with_orcid FROM users
+     WHERE orcid_verified = 1 AND status != 'revoked' AND deleted_at IS NULL`,
   );
-  const pending = c.pending ?? 0;
-  const verified = c.verified ?? 0;
   return section(
     "users",
     "Users",
     "nemar-cli",
     [
-      // Email-verified users are the actionable approval queue: nemar-cli's
-      // POST /admin/approve/:username only approves status='verified' (or
-      // re-approves 'revoked'); a 'pending' user gets 400 "needs to verify
-      // their email first". So this is the warn tile.
       metric({
-        key: "users.verified",
-        label: "Awaiting approval",
-        value: verified,
-        severity: pendingSeverity(verified),
-        drilldown: "users.verified",
-        hint: "Users with a verified email whom an administrator can approve now",
-      }),
-      metric({
-        key: "users.pending",
-        label: "Pending verification",
-        value: pending,
+        key: "users.with_orcid",
+        label: "Users with ORCID iD",
+        value: c.with_orcid ?? 0,
+        unit: "users",
         severity: "info",
-        drilldown: "users.pending",
-        hint: "Signed up but not yet through email verification and onboarding, so not ready for approval",
-      }),
-      metric({
-        key: "users.approved",
-        label: "Approved users",
-        value: c.approved ?? 0,
-        severity: "info",
-        drilldown: "users.approved",
-      }),
-      metric({
-        key: "users.active_tokens",
-        label: "Active API tokens",
-        value: c.active_tokens ?? 0,
-        unit: "count",
-        severity: "info",
+        hint: "Registered users who signed in with ORCID, which proves their iD",
       }),
     ],
     now,
@@ -537,9 +509,15 @@ export async function usersSection(db: D1Database, now: string): Promise<Section
  * fewer tiles — one broken source shouldn't blank the whole dashboard, but it
  * also shouldn't hide that it's broken.
  */
-export async function buildSnapshot(env: Bindings): Promise<MetricSnapshot> {
+export async function buildSnapshot(
+  env: Bindings,
+  retry: RetryPolicy = NO_RETRY,
+): Promise<MetricSnapshot> {
   const now = new Date().toISOString();
   const db = env.NEMAR_DB;
+  // Waits out nemar-db's hourly backup export instead of dropping the tiles.
+  // Only builders that read nemar-db need it; the edge section reads our own DB.
+  const guard = <T>(key: string, build: () => Promise<T>) => withD1Retry(build, retry, key);
 
   // One key per builder below, in the same order, so a failed section is
   // reported under its own key.
@@ -555,15 +533,15 @@ export async function buildSnapshot(env: Bindings): Promise<MetricSnapshot> {
     "users",
   ];
   const builtins = await Promise.allSettled([
-    datasetsSection(db, now),
-    sizesSection(db, now),
-    archiveSection(db, now),
-    zarrSection(db, now),
-    autoImportSection(db, now),
-    publicationSection(db, now),
-    computeAccessSection(env, now),
+    guard("datasets", () => datasetsSection(db, now)),
+    guard("sizes", () => sizesSection(db, now)),
+    guard("archive", () => archiveSection(db, now)),
+    guard("zarr", () => zarrSection(db, now)),
+    guard("imports", () => autoImportSection(db, now)),
+    guard("publication", () => publicationSection(db, now)),
+    guard("access", () => computeAccessSection(env, now)),
     computeCfSection(env, now),
-    usersSection(db, now),
+    guard("users", () => usersSection(db, now)),
   ]);
 
   const sections: Section[] = [];

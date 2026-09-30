@@ -1,89 +1,166 @@
 // Exercises the real usersSection() metric builder against a real SQLite engine
-// (bun:sqlite behind a D1 shim, no mocks). Proves tombstones are excluded from
-// every count, the "Awaiting approval" (verified) warn tile is present, pending
-// is relabeled to info, and users.approved carries a drilldown.
+// (bun:sqlite behind a D1 shim, no mocks). The Users card is one number: users
+// who proved an ORCID iD by signing in with ORCID. Proves that a DOI-discovered
+// iD does not count, and that tombstones and revoked users are excluded.
 
 import { Database } from "bun:sqlite";
 import { describe, expect, test } from "bun:test";
 import { usersSection } from "../src/lib/metrics";
-import type { Metric } from "../src/lib/schema";
 import { asD1 } from "./helpers/d1";
 
-function seededDb(): D1Database {
+function usersDb(): { d: Database; add: (row: Row) => void } {
   const d = new Database(":memory:");
   d.exec(`CREATE TABLE users (
-    id INTEGER PRIMARY KEY, username TEXT, email TEXT, status TEXT NOT NULL, deleted_at TEXT
+    id INTEGER PRIMARY KEY, username TEXT, email TEXT, status TEXT NOT NULL,
+    orcid TEXT, orcid_verified INTEGER NOT NULL DEFAULT 0, deleted_at TEXT
   );`);
-  d.exec("CREATE TABLE tokens (user_id INTEGER, revoked_at TEXT);");
-  const u = d.prepare(
-    "INSERT INTO users (id, username, email, status, deleted_at) VALUES (?, ?, ?, ?, ?)",
+  const insert = d.prepare(
+    "INSERT INTO users (id, username, email, status, orcid, orcid_verified, deleted_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
   );
-  u.run(1, "alice", "a@x.org", "verified", null);
-  u.run(2, "bob", "b@x.org", "pending", null);
-  u.run(3, "carol", "c@x.org", "approved", null);
-  // tombstones across every status bucket — must be excluded everywhere:
-  u.run(4, null, "deleted+4@deleted.invalid", "verified", "2026-02-01T00:00:00Z");
-  u.run(5, null, "deleted+5@deleted.invalid", "pending", "2026-02-01T00:00:00Z");
-  u.run(6, null, "deleted+6@deleted.invalid", "approved", "2026-02-01T00:00:00Z");
-  // id=-1 nemar-system sentinel (status='revoked'):
-  u.run(-1, "nemar-system", "sys@x.org", "revoked", null);
-  const t = d.prepare("INSERT INTO tokens (user_id, revoked_at) VALUES (?, ?)");
-  t.run(1, null);
-  t.run(3, null);
-  t.run(3, "2026-02-01T00:00:00Z"); // revoked, must not count
-  return asD1(d);
+  return {
+    d,
+    add: (r) =>
+      void insert.run(r.id, r.username ?? null, r.email, r.status, r.orcid, r.verified, r.deleted),
+  };
 }
 
-function byKey(metrics: Metric[], key: string): Metric {
-  const m = metrics.find((x) => x.key === key);
-  if (!m) throw new Error(`missing metric ${key}`);
-  return m;
+interface Row {
+  id: number;
+  username?: string;
+  email: string;
+  status: string;
+  orcid: string | null;
+  verified: 0 | 1;
+  deleted: string | null;
 }
+
+const TOMBSTONE = "2026-02-01T00:00:00Z";
 
 describe("usersSection", () => {
-  test("counts exclude tombstones and the sentinel", async () => {
-    const s = await usersSection(seededDb(), "2026-06-07T00:00:00Z");
-    expect(byKey(s.metrics, "users.verified").value).toBe(1); // alice only
-    expect(byKey(s.metrics, "users.pending").value).toBe(1); // bob only
-    expect(byKey(s.metrics, "users.approved").value).toBe(1); // carol only
-    expect(byKey(s.metrics, "users.active_tokens").value).toBe(2); // two non-revoked
+  test("is a single headline: users with a verified ORCID iD", async () => {
+    const { d, add } = usersDb();
+    add({
+      id: 1,
+      username: "alice",
+      email: "a@x.org",
+      status: "approved",
+      orcid: "0000-0001-0000-0001",
+      verified: 1,
+      deleted: null,
+    });
+    const s = await usersSection(asD1(d), "2026-09-30T00:00:00Z");
+    expect(s.metrics.map((m) => m.key)).toEqual(["users.with_orcid"]);
+    expect(s.metrics[0]).toMatchObject({
+      label: "Users with ORCID iD",
+      value: 1,
+      unit: "users",
+      severity: "info",
+    });
+    // Nothing to drill into: approvals and tokens are admin work, in the portal.
+    expect(s.metrics[0].drilldown).toBeUndefined();
   });
 
-  test("verified tile is the warn-severity Awaiting approval queue", async () => {
-    const s = await usersSection(seededDb(), "now");
-    const v = byKey(s.metrics, "users.verified");
-    expect(v.label).toBe("Awaiting approval");
-    expect(v.severity).toBe("warn"); // 1 verified -> warn
-    expect(v.drilldown).toBe("users.verified");
-  });
-
-  test("pending tile is relabeled to info, with a drilldown", async () => {
-    const s = await usersSection(seededDb(), "now");
-    const p = byKey(s.metrics, "users.pending");
-    expect(p.label).toBe("Pending verification");
-    expect(p.severity).toBe("info");
-    expect(p.drilldown).toBe("users.pending");
-  });
-
-  test("approved tile gains a drilldown", async () => {
-    const s = await usersSection(seededDb(), "now");
-    expect(byKey(s.metrics, "users.approved").drilldown).toBe("users.approved");
-  });
-
-  test("verified tile is ok severity when the queue is empty", async () => {
-    const d = new Database(":memory:");
-    d.exec(
-      "CREATE TABLE users (id INTEGER PRIMARY KEY, username TEXT, email TEXT, status TEXT NOT NULL, deleted_at TEXT);",
-    );
-    d.exec("CREATE TABLE tokens (user_id INTEGER, revoked_at TEXT);");
-    d.prepare("INSERT INTO users (id, username, email, status, deleted_at) VALUES (?,?,?,?,?)").run(
-      1,
-      "carol",
-      "c@x.org",
-      "approved",
-      null,
-    );
+  test("counts users in every live status who proved their iD", async () => {
+    const { d, add } = usersDb();
+    add({
+      id: 1,
+      username: "a",
+      email: "a@x.org",
+      status: "pending",
+      orcid: "0000-0001-0000-0001",
+      verified: 1,
+      deleted: null,
+    });
+    add({
+      id: 2,
+      username: "b",
+      email: "b@x.org",
+      status: "verified",
+      orcid: "0000-0001-0000-0002",
+      verified: 1,
+      deleted: null,
+    });
+    add({
+      id: 3,
+      username: "c",
+      email: "c@x.org",
+      status: "approved",
+      orcid: "0000-0001-0000-0003",
+      verified: 1,
+      deleted: null,
+    });
     const s = await usersSection(asD1(d), "now");
-    expect(byKey(s.metrics, "users.verified").severity).toBe("ok");
+    expect(s.metrics[0].value).toBe(3);
+  });
+
+  test("a DOI-discovered iD that nobody proved is not counted", async () => {
+    const { d, add } = usersDb();
+    add({
+      id: 1,
+      username: "a",
+      email: "a@x.org",
+      status: "approved",
+      orcid: "0000-0001-0000-0001",
+      verified: 0,
+      deleted: null,
+    });
+    add({
+      id: 2,
+      username: "b",
+      email: "b@x.org",
+      status: "approved",
+      orcid: null,
+      verified: 0,
+      deleted: null,
+    });
+    const s = await usersSection(asD1(d), "now");
+    expect(s.metrics[0].value).toBe(0);
+  });
+
+  test("excludes soft-deleted tombstones, revoked users, and the system sentinel", async () => {
+    const { d, add } = usersDb();
+    add({
+      id: 1,
+      username: "alice",
+      email: "a@x.org",
+      status: "approved",
+      orcid: "0000-0001-0000-0001",
+      verified: 1,
+      deleted: null,
+    });
+    add({
+      id: 2,
+      email: "deleted+2@deleted.invalid",
+      status: "approved",
+      orcid: "0000-0001-0000-0002",
+      verified: 1,
+      deleted: TOMBSTONE,
+    });
+    add({
+      id: 3,
+      username: "banned",
+      email: "b@x.org",
+      status: "revoked",
+      orcid: "0000-0001-0000-0003",
+      verified: 1,
+      deleted: null,
+    });
+    add({
+      id: -1,
+      username: "nemar-system",
+      email: "sys@x.org",
+      status: "revoked",
+      orcid: "0000-0001-0000-0004",
+      verified: 1,
+      deleted: null,
+    });
+    const s = await usersSection(asD1(d), "now");
+    expect(s.metrics[0].value).toBe(1);
+  });
+
+  test("zero is reported as zero, not as missing", async () => {
+    const { d } = usersDb();
+    const s = await usersSection(asD1(d), "now");
+    expect(s.metrics[0].value).toBe(0);
   });
 });

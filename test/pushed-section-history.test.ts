@@ -8,16 +8,14 @@ import {
   saveSnapshot,
 } from "../src/lib/store";
 import { asD1 } from "./helpers/d1";
+import { MIGRATIONS } from "./helpers/migrations";
 
-const MIGRATION = await Bun.file(
-  new URL("../src/db/migrations/0001_init.sql", import.meta.url),
-).text();
 let engine: Database;
 let db: D1Database;
 
 beforeEach(() => {
   engine = new Database(":memory:");
-  engine.run(MIGRATION);
+  for (const migration of MIGRATIONS) engine.run(migration);
   db = asD1(engine);
 });
 afterEach(() => engine.close());

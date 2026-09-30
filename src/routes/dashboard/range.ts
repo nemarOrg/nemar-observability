@@ -41,6 +41,15 @@ function presetFor(start, end, today) {
   }
   return null;
 }
+// The day the website map shows for a range that is not one completed day: the
+// newest closed UTC day inside it (its last day, or yesterday when the range
+// reaches today), or null when the range holds no closed day. Website sessions
+// are never summed or differenced across days, so the map stays on one day.
+function geographyDayFor(start, end, today) {
+  const t = today || todayUtc();
+  const day = end < t ? end : shiftDay(t, -1);
+  return day >= start ? day : null;
+}
 // Said on every card whose range reaches today (UTC), which is not over yet.
 function inProgressNote(end, today) { return end >= (today || todayUtc()) ? "Today (UTC) is still in progress." : ""; }
 // The equal-length period that ends the day before the range starts.

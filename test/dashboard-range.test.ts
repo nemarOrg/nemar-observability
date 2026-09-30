@@ -12,6 +12,7 @@ const range = clientLogic([
   "inProgressNote",
   "presetFor",
   "priorRange",
+  "geographyDayFor",
   "seriesArchiveWindow",
   "observedTotal",
   "matchedChange",
@@ -214,5 +215,21 @@ describe("dashboard change labels", () => {
     for (const c of [range.NO_COMPARISON, range.COMPARISON_FAILED, range.PARTIAL_PERIOD]) {
       expect(c.direction).toBe("none");
     }
+  });
+});
+
+describe("the day the website map shows", () => {
+  test("is the last day of a range that ended before today", () => {
+    expect(range.geographyDayFor("2026-09-01", "2026-09-20", "2026-09-30")).toBe("2026-09-20");
+  });
+
+  test("is yesterday for a range that reaches today or later", () => {
+    expect(range.geographyDayFor("2026-09-01", "2026-09-30", "2026-09-30")).toBe("2026-09-29");
+    expect(range.geographyDayFor("2026-09-01", "2026-10-05", "2026-09-30")).toBe("2026-09-29");
+  });
+
+  test("is null when the range holds no closed day", () => {
+    expect(range.geographyDayFor("2026-09-30", "2026-09-30", "2026-09-30")).toBeNull();
+    expect(range.geographyDayFor("2026-10-01", "2026-10-05", "2026-09-30")).toBeNull();
   });
 });

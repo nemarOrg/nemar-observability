@@ -2,8 +2,9 @@
 // Worker: the page's own script, the real router and API handlers, and a real
 // SQLite store behind the D1 surface. Requests the page makes are handed to
 // the Worker in process instead of over a socket; nothing in the page or the
-// API is replaced. Two tests shape transport only: one holds an answer back to
-// make it arrive late, one returns an HTTP error once to exercise Try again.
+// API is replaced. Some tests shape transport only: one holds an answer back to
+// make it arrive late, one returns an HTTP error once to exercise Try again, and
+// the website map tests answer /audience with captured live responses.
 
 import { Database } from "bun:sqlite";
 import { afterEach, describe, expect, test } from "bun:test";
@@ -12,17 +13,12 @@ import worker from "../src/index";
 import { saveDailySeries } from "../src/lib/store";
 import { renderDashboardPage } from "../src/routes/ui";
 import type { Bindings } from "../src/types";
+import audienceDay from "./fixtures/audience-day-2026-09-29-to-2026-09-29.json";
+import audienceWeek from "./fixtures/audience-week-2026-09-23-to-2026-09-29.json";
 import timeseries from "./fixtures/timeseries-2026-07-01-to-2026-09-28.json";
 import { asD1 } from "./helpers/d1";
+import { MIGRATIONS } from "./helpers/migrations";
 
-const MIGRATIONS = await Promise.all(
-  [
-    "0001_init.sql",
-    "0002_cf_daily_host.sql",
-    "0003_daily_series.sql",
-    "0004_atomic_section_ingest.sql",
-  ].map((name) => Bun.file(new URL(`../src/db/migrations/${name}`, import.meta.url)).text()),
-);
 const ctx = { waitUntil() {}, passThroughOnException() {} } as unknown as ExecutionContext;
 const ORIGIN = "https://dashboard.nemar.org";
 
@@ -36,11 +32,39 @@ afterEach(async () => {
 
 // An observability store as a fresh deploy has it: migrated, nothing else.
 // With seed, it also holds the captured live egress series.
-async function store(seed: boolean) {
+async function store(seed: boolean, throughDay?: string) {
   const engine = new Database(":memory:");
   for (const migration of MIGRATIONS) engine.run(migration);
   const db = asD1(engine);
-  if (seed) {
+  if (throughDay) {
+    // An egress series that reaches the given day, so the page can be shown a
+    // series that is up to date.
+    const first = new Date(Date.parse(`${throughDay}T00:00:00Z`) - 86_400_000)
+      .toISOString()
+      .slice(0, 10);
+    await saveDailySeries(
+      db,
+      "egress",
+      "aws-s3-cloudwatch",
+      [
+        {
+          key: "s3_bytes_downloaded",
+          label: "S3 bytes downloaded",
+          unit: "bytes",
+          aggregation: "sum",
+          timezone: "UTC",
+          coverage_start: first,
+          coverage_end: throughDay,
+          freshness_after_hours: 36,
+          points: [
+            { date: first, value: 1_000_000_000_000 },
+            { date: throughDay, value: 2_000_000_000_000 },
+          ],
+        },
+      ],
+      new Date().toISOString(),
+    );
+  } else if (seed) {
     const s = timeseries.response.series[0];
     await saveDailySeries(
       db,
@@ -68,8 +92,8 @@ async function store(seed: boolean) {
 type Route = (request: Request, env: Bindings) => Promise<Response>;
 const direct: Route = (request, env) => worker.fetch(request, env, ctx);
 
-async function openPage(seed: boolean, route: Route = direct) {
-  const { engine, db } = await store(seed);
+async function openPage(seed: boolean, route: Route = direct, throughDay?: string) {
+  const { engine, db } = await store(seed, throughDay);
   // No NEMAR_DB and no analytics tokens: catalog sections fail for real and
   // the network edge and website analytics report themselves unconfigured.
   const env = { OBS_DB: db } as unknown as Bindings;
@@ -194,5 +218,247 @@ describe("dashboard page in a real DOM", () => {
     await until(() => !busy(document, "series"), "the series to settle");
     expect(errors).toEqual([]);
     expect(text(document, "series")).not.toContain("Could not load");
+  });
+
+  // Website analytics map one completed UTC day. For a longer range the page
+  // loads the newest closed day inside it, so the website map works and says
+  // which day it shows. The two audience answers are captured live responses.
+  test("the website map works for a multi-day range by showing the newest closed day", async () => {
+    const requested: string[] = [];
+    const route: Route = async (request, env) => {
+      const url = new URL(request.url);
+      if (!url.pathname.endsWith("/audience")) return direct(request, env);
+      const start = url.searchParams.get("start");
+      const end = url.searchParams.get("end");
+      requested.push(`${start}..${end}`);
+      const body = start === end ? audienceDay.response : audienceWeek.response;
+      return new Response(JSON.stringify(body), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    };
+    const { document, errors } = await openPage(false, route);
+    const sources = () =>
+      Array.from(document.querySelectorAll(".geography-source")) as unknown as {
+        textContent: string;
+        disabled: boolean;
+        click(): void;
+      }[];
+    await until(
+      () => sources().some((b) => b.textContent.includes("Website sessions") && !b.disabled),
+      "the website source to enable",
+    );
+    // One request for the range, one for its newest closed day (which is yesterday).
+    const day = new Date(Date.now() - 86_400_000).toISOString().slice(0, 10);
+    expect(requested).toContain(`${day}..${day}`);
+
+    const website = sources().find((b) => b.textContent.includes("Website sessions"));
+    expect(website?.textContent).toContain("Newest closed day");
+    website?.click();
+    await until(
+      () => (document.querySelector(".geography-period")?.textContent ?? "").includes("Sep 29"),
+      "the website map period",
+    );
+    expect(document.querySelector(".scope-note")?.textContent).toContain(
+      "newest completed UTC day in these dates",
+    );
+    // The captured day: 778 anonymous sessions, the United States first.
+    expect(text(document, "geography")).toContain("Anonymous unique sessions");
+    expect(text(document, "geography")).toContain("778");
+    expect(text(document, "geography")).toContain("United States");
+    expect(errors).toEqual([]);
+  });
+
+  describe("the website map when its day cannot simply load", () => {
+    type AudienceFixture = typeof audienceDay.response;
+    const clone = (body: AudienceFixture): AudienceFixture => JSON.parse(JSON.stringify(body));
+    const json = (body: unknown, status = 200) =>
+      new Response(JSON.stringify(body), {
+        status,
+        headers: { "content-type": "application/json" },
+      });
+    const websiteButton = (document: Window["document"]) =>
+      (
+        Array.from(document.querySelectorAll(".geography-source")) as unknown as {
+          textContent: string;
+          disabled: boolean;
+        }[]
+      ).find((b) => b.textContent.includes("Website sessions"));
+    const chip = (document: Window["document"]) =>
+      document.querySelector(".scope-note")?.textContent ?? "";
+
+    test("a failed day load says so and offers Try again, which recovers", async () => {
+      let failures = 1;
+      const route: Route = async (request, env) => {
+        const url = new URL(request.url);
+        if (!url.pathname.endsWith("/audience")) return direct(request, env);
+        const single = url.searchParams.get("start") === url.searchParams.get("end");
+        if (single && failures > 0) {
+          failures--;
+          return json({ error: "Service unavailable" }, 503);
+        }
+        return json(single ? audienceDay.response : audienceWeek.response);
+      };
+      const { document, errors } = await openPage(false, route);
+      await until(() => chip(document).includes("Could not load the website map"), "the failure");
+      // Not the permanent-limitation wording: this one is a failure.
+      expect(websiteButton(document)?.textContent).toContain("Could not load");
+      expect(websiteButton(document)?.textContent).not.toContain("Single day only");
+      expect(chip(document)).toContain("Try again");
+
+      (document.querySelector(".scope-note .button") as unknown as { click(): void }).click();
+      await until(
+        () => (websiteButton(document)?.textContent ?? "").includes("Newest closed day"),
+        "the retry to load the day",
+      );
+      expect(websiteButton(document)?.disabled).toBe(false);
+      expect(errors).toEqual([]);
+    });
+
+    test("a day with no country data is labeled by its coverage, not as a map", async () => {
+      const partialDay = clone(audienceDay.response);
+      partialDay.umami.status = "partial";
+      partialDay.umami.country_coverage = null as never;
+      partialDay.umami.countries = [];
+      const route: Route = async (request, env) => {
+        const url = new URL(request.url);
+        if (!url.pathname.endsWith("/audience")) return direct(request, env);
+        const single = url.searchParams.get("start") === url.searchParams.get("end");
+        return json(single ? partialDay : audienceWeek.response);
+      };
+      const { document, errors } = await openPage(false, route);
+      await until(() => chip(document).includes("no country data"), "the no-data notice");
+      expect(websiteButton(document)?.textContent).toContain("Partial coverage");
+      expect(websiteButton(document)?.textContent).not.toContain("Newest closed day");
+      expect(websiteButton(document)?.disabled).toBe(true);
+      expect(errors).toEqual([]);
+    });
+
+    const singleDayRequests = (requested: string[]) =>
+      requested.filter((r) => r.split("..")[0] === r.split("..")[1]);
+    const routeWith = (body: AudienceFixture, requested: string[]): Route => {
+      return async (request, env) => {
+        const url = new URL(request.url);
+        if (!url.pathname.endsWith("/audience")) return direct(request, env);
+        requested.push(`${url.searchParams.get("start")}..${url.searchParams.get("end")}`);
+        const single = url.searchParams.get("start") === url.searchParams.get("end");
+        return json(single ? audienceDay.response : body);
+      };
+    };
+
+    test("no day request is made when website analytics are not configured", async () => {
+      const off = clone(audienceWeek.response);
+      off.umami.status = "unconfigured";
+      const requested: string[] = [];
+      const { document, errors } = await openPage(false, routeWith(off, requested));
+      await until(() => websiteButton(document) !== undefined, "the map toolbar");
+      await Bun.sleep(150);
+      expect(singleDayRequests(requested)).toEqual([]);
+      expect(errors).toEqual([]);
+    });
+
+    // A long range can fail its summary on its own (a query that times out)
+    // while the single day's map would load, so "unavailable" still gets one try.
+    test("a range whose summary is unavailable still tries the newest day", async () => {
+      const down = clone(audienceWeek.response);
+      down.umami.status = "unavailable";
+      const requested: string[] = [];
+      const { document, errors } = await openPage(false, routeWith(down, requested));
+      await until(
+        () => (websiteButton(document)?.textContent ?? "").includes("Newest closed day"),
+        "the newest day to load",
+      );
+      expect(singleDayRequests(requested)).toHaveLength(1);
+      expect(errors).toEqual([]);
+    });
+
+    // The day answer for a range that is no longer selected must not land on the
+    // map for the range that is. The first day request (for the default range) is
+    // held until a different range has loaded its own day; then it is released.
+    test("a late day answer for an earlier range does not replace the current range's day", async () => {
+      let release: () => void = () => {};
+      const held = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      let heldDay = "";
+      const withDay = (day: string) => {
+        const body = clone(audienceDay.response);
+        for (const source of [body.umami, body.cloudflare]) {
+          (source as { coverage: unknown }).coverage = { start: day, end: day };
+          (source as { country_coverage: unknown }).country_coverage = { start: day, end: day };
+        }
+        return body;
+      };
+      const route: Route = async (request, env) => {
+        const url = new URL(request.url);
+        if (!url.pathname.endsWith("/audience")) return direct(request, env);
+        const start = url.searchParams.get("start") ?? "";
+        const single = start === url.searchParams.get("end");
+        if (single && !heldDay) {
+          heldDay = start;
+          await held;
+        }
+        return json(single ? withDay(start) : audienceWeek.response);
+      };
+      const { window, document, errors } = await openPage(false, route);
+      await until(() => heldDay !== "", "the default range's day request");
+
+      const older = new Date(Date.now() - 10 * 86_400_000).toISOString().slice(0, 10);
+      const startInput = document.getElementById("range-start") as unknown as { value: string };
+      const endInput = document.getElementById("range-end") as unknown as {
+        value: string;
+        dispatchEvent(e: unknown): void;
+      };
+      startInput.value = new Date(Date.now() - 40 * 86_400_000).toISOString().slice(0, 10);
+      endInput.value = older;
+      endInput.dispatchEvent(new window.Event("change"));
+      await until(
+        () => (websiteButton(document)?.textContent ?? "").includes("Newest closed day"),
+        "the newer range's day to load",
+      );
+
+      release();
+      await Bun.sleep(200);
+      await window.happyDOM.waitUntilComplete();
+      (websiteButton(document) as unknown as { click(): void }).click();
+      const label = (day: string) =>
+        new Date(`${day}T00:00:00Z`).toLocaleDateString("en-US", {
+          month: "short",
+          day: "numeric",
+          year: "numeric",
+          timeZone: "UTC",
+        });
+      expect(chip(document)).toContain(label(older));
+      expect(chip(document)).not.toContain(label(heldDay));
+      expect(document.querySelector(".geography-period")?.textContent).toContain(label(older));
+      expect(errors).toEqual([]);
+    });
+  });
+});
+
+describe("the catch-up pill on a usage card", () => {
+  const pill = (document: Window["document"]) =>
+    Array.from(document.querySelectorAll("#series .badge")).map((b) => b.textContent ?? "");
+
+  test("shows when a closed day is missing, naming the last day", async () => {
+    // The captured series ends long before yesterday.
+    const last = timeseries.response.series[0].latest_observation_date;
+    const label = new Date(`${last}T00:00:00Z`).toLocaleDateString("en-US", {
+      month: "short",
+      day: "numeric",
+      timeZone: "UTC",
+    });
+    const { document, errors } = await openPage(true);
+    await until(() => document.querySelector("#series .measure-head") !== null, "the series card");
+    expect(pill(document)).toContain(`Through ${label}`);
+    expect(errors).toEqual([]);
+  });
+
+  test("is absent when the series reaches yesterday", async () => {
+    const yesterday = new Date(Date.now() - 86_400_000).toISOString().slice(0, 10);
+    const { document, errors } = await openPage(false, direct, yesterday);
+    await until(() => document.querySelector("#series .measure-head") !== null, "the series card");
+    expect(pill(document).filter((t) => t.includes("Through"))).toEqual([]);
+    expect(errors).toEqual([]);
   });
 });

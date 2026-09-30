@@ -10,6 +10,8 @@ import {
   type DailyPoint,
   addUtcDays,
   bucketMetricQuery,
+  codeStaleMetrics,
+  codeUpdateProblem,
   completeResult,
   dailyPoints,
   fail,
@@ -227,7 +229,10 @@ const SCOPE_NOTE =
 /** Public section label; the key, `storage`, is the stable contract. */
 const SECTION_LABEL = "Data storage";
 
-export function storageSection(observation: StorageObservation) {
+export function storageSection(
+  observation: StorageObservation,
+  codeStaleSince: string | null = null,
+) {
   const { date } = observation;
   return {
     key: "storage",
@@ -271,6 +276,7 @@ export function storageSection(observation: StorageObservation) {
         severity: "ok",
         hint: "The latest scheduled collection completed.",
       },
+      ...codeStaleMetrics("storage", codeStaleSince),
     ],
   };
 }
@@ -311,7 +317,7 @@ export async function collectStorage(sectionsUrl?: string) {
   await postSection(
     STORAGE_COLLECTOR.sectionKey,
     ingestToken,
-    storageSection(observation),
+    storageSection(observation, await codeUpdateProblem()),
     sectionsUrl,
   );
   console.info(
