@@ -24,7 +24,7 @@ function audienceMeasure(parent, label, value) {
   card.appendChild(el("strong", "measure-value" + (typeof value === "number" ? "" : " is-muted"), audienceNumber(value)));
   parent.appendChild(card);
 }
-function audienceSourceCard(title, source, definitions, metrics) {
+function audienceSourceCard(title, source, definitions, metrics, quiet) {
   const card = el("article", "card audience-source");
   const heading = el("div", "card-head");
   const titles = el("div", "card-titles");
@@ -33,7 +33,7 @@ function audienceSourceCard(title, source, definitions, metrics) {
   titleRow.appendChild(infoDisclosure("About " + title, definitions));
   titles.appendChild(titleRow);
   heading.appendChild(titles);
-  heading.appendChild(audienceBadge(source.status));
+  if (!quiet || source.status !== "partial") heading.appendChild(audienceBadge(source.status));
   card.appendChild(heading);
   const measures = el("div", "measures");
   metrics.forEach(function (metric) { audienceMeasure(measures, metric.label, source[metric.key]); });
@@ -108,7 +108,8 @@ function renderAudience(payload) {
     "Requests to NEMAR",
     payload.cloudflare,
     "The network edge counts one request for each page, file, image, or API call. One page view can create many requests, and bots or repeat clients also count. This is not a count of people, sessions, page views, or completed downloads. Some requests have no reported country.",
-    [{ key: "requests", label: "Requests" }]
+    [{ key: "requests", label: "Requests" }],
+    true
   ));
   root.appendChild(grid);
   const details = disclosure("How these totals work", "howto-inline");
@@ -409,7 +410,7 @@ function renderSeries(payload, start, end) {
       if (buckets.some(function (b) { return b.partial && b.value !== null; })) {
         const item = el("span", "legend-item");
         item.appendChild(el("span", "legend-key key-dashed"));
-        item.appendChild(el("span", null, "Dashed: today so far or a partial calendar period"));
+        item.appendChild(el("span", null, grouping === "day" ? "Partial day" : "Partial period"));
         legend.appendChild(item);
       }
       if (gap) {

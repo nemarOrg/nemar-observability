@@ -211,7 +211,12 @@ describe("the day in progress", () => {
 
   test("a range ending yesterday also draws today, dashed, when the series reports it", () => {
     const days = seriesBuckets(series, "2026-09-26", "2026-09-28", "day", "2026-09-29");
-    expect(days.map((b: { start: string }) => b.start)).toEqual(["2026-09-26", "2026-09-27", "2026-09-28", "2026-09-29"]);
+    expect(days.map((b: { start: string }) => b.start)).toEqual([
+      "2026-09-26",
+      "2026-09-27",
+      "2026-09-28",
+      "2026-09-29",
+    ]);
     const last = days[days.length - 1];
     expect(last.partial).toBe(true);
     expect(last.value).toBe(3);
@@ -221,7 +226,12 @@ describe("the day in progress", () => {
 
   test("today is left off when the series has not reported it, never drawn as a gap", () => {
     const days = seriesBuckets(series, "2026-09-26", "2026-09-29", "day", "2026-09-30");
-    expect(days.map((b: { start: string }) => b.start)).toEqual(["2026-09-26", "2026-09-27", "2026-09-28", "2026-09-29"]);
+    expect(days.map((b: { start: string }) => b.start)).toEqual([
+      "2026-09-26",
+      "2026-09-27",
+      "2026-09-28",
+      "2026-09-29",
+    ]);
     expect(days.every((b: { partial: boolean }) => !b.partial)).toBe(true);
   });
 });

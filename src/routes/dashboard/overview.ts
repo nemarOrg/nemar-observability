@@ -170,7 +170,7 @@ function renderKpis() {
       exact: num(cf.requests) + " requests",
       delta: full ? audienceComparison(function (prior, period) {
         return fullyMeasured(prior.cloudflare, period.start, period.end, "coverage") ? percentDelta(cf.requests, prior.cloudflare.requests, comparisonLabel(period.days)) : null;
-      }) : PARTIAL_PERIOD,
+      }) : NO_COMPARISON,
       context: !full && coverage ? "Measured " + coverage + " only" : rangeSentence(start, end),
       caveat: "Includes automated traffic; not a count of people.",
       spark: daily ? dailySpark(daily, start, end, "Requests", function (v) { return num(v) + " requests"; }) : null
@@ -212,7 +212,7 @@ function renderKpis() {
         if (!fullyMeasured(prior.cloudflare, period.start, period.end, "country_coverage")) return null;
         const before = countriesIn(prior);
         return before ? countDelta(reach.count, before.count, comparisonLabel(period.days)) : null;
-      }) : PARTIAL_PERIOD,
+      }) : NO_COMPARISON,
       context: notes.join(" "),
       caveat: "Includes automated traffic."
     };

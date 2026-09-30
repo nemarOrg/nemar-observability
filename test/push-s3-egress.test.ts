@@ -6,7 +6,12 @@ import {
   extractAwsErrorCode,
   shouldPublishFailureStatus,
 } from "../scripts/lib/s3-cloudwatch";
-import { lookbackDays, parsePoints, startDateForWindow } from "../scripts/push-s3-egress";
+import {
+  egressSection,
+  lookbackDays,
+  parsePoints,
+  startDateForWindow,
+} from "../scripts/push-s3-egress";
 
 const cloudWatchResponse = await readFile(
   new URL("./fixtures/cloudwatch-s3-2026-09-25.json", import.meta.url),
@@ -63,5 +68,17 @@ describe("S3 egress failure reporting", () => {
       ),
     ).toBe("AccessDenied");
     expect(extractAwsErrorCode("private error detail without a code")).toBeUndefined();
+  });
+});
+
+describe("the day in progress", () => {
+  test("the headline stays on the latest closed day while the series reaches today", () => {
+    const today = new Date().toISOString().slice(0, 10);
+    const section = egressSection([
+      { date: "2026-09-25", value: 100 },
+      { date: today, value: 7 },
+    ]);
+    expect(section.metrics[0].value).toBe(100);
+    expect(section.daily_series[0].coverage_end).toBe(today);
   });
 });
