@@ -23,7 +23,7 @@ function tile(metric) {
   t.appendChild(heading);
   const valRow = el("div", "tile-value");
   const listCount = hasBreakdown && metric.breakdown_unit && metric.breakdown_unit !== metric.unit;
-  valRow.appendChild(el("span", listCount ? "tile-caption" : "v", listCount ? "Top " + metric.breakdown.length + (metric.value > metric.breakdown.length ? " of " + num(metric.value) : "") + " listed" : fmt(metric)));
+  valRow.appendChild(el("span", listCount ? "tile-caption" : "v", listCount ? "Top " + Math.min(metric.breakdown.length, 10) + (metric.value > 10 ? " of " + num(metric.value) : "") + " listed" : fmt(metric)));
   const p = pct(metric.value, metric.total);
   if (p != null) valRow.appendChild(el("span", "tile-pct", p + "% of " + (metric.unit === "bytes" ? humanBytes(metric.total) : num(metric.total))));
   t.appendChild(valRow);
@@ -64,10 +64,23 @@ function sectionCard(section, headingTag) {
   const scalars = el("div", "tiles");
   const lists = el("div", "tile-lists");
   section.metrics.forEach(function (m) { (m.breakdown && m.breakdown.length ? lists : scalars).appendChild(tile(m)); });
-  if (scalars.childNodes.length) body.appendChild(scalars);
-  if (lists.childNodes.length) body.appendChild(lists);
-  // One list beside the stat tiles reads better than a lone full-width list.
-  if (scalars.childNodes.length && lists.childNodes.length === 1) card.classList.add("card-split");
+  // With stat tiles and several lists, the last (tallest) list takes the right
+  // column and everything else stacks in the left, so the two sides balance.
+  const split = scalars.childNodes.length && lists.childNodes.length >= 1;
+  if (split) {
+    const main = el("div", "split-main");
+    main.appendChild(scalars);
+    const tall = lists.lastChild;
+    if (lists.childNodes.length > 1) { lists.removeChild(tall); main.appendChild(lists); }
+    const side = el("div", "tile-lists");
+    side.appendChild(tall);
+    body.appendChild(main);
+    body.appendChild(side);
+    card.classList.add("card-split");
+  } else {
+    if (scalars.childNodes.length) body.appendChild(scalars);
+    if (lists.childNodes.length) body.appendChild(lists);
+  }
   card.appendChild(body);
   return card;
 }

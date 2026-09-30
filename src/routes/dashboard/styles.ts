@@ -372,12 +372,14 @@ main > section { scroll-margin-top: calc(var(--topbar-h) + 16px); padding-top: v
 .audience-events { border-top: 1px solid var(--border); padding-top: var(--space-3); }
 .howto-inline { margin-top: var(--space-3); }
 .tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: var(--space-3); align-items: stretch; }
+.split-main { min-width: 0; }
 .tile-lists { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 340px), 1fr)); gap: var(--space-3); align-items: start; }
-.tiles + .tile-lists { margin-top: var(--space-3); }
+.tiles + .tile-lists, .split-main > * + * { margin-top: var(--space-3); }
 @media (min-width: 1000px) {
   .card-split .section-body { display: grid; grid-template-columns: minmax(0, 1fr) minmax(340px, 40%); gap: var(--space-3); align-items: start; }
-  .card-split .tiles + .tile-lists { margin-top: 0; }
+  .card-split .split-main + .tile-lists { margin-top: 0; }
 }
+.split-main + .tile-lists { margin-top: var(--space-3); }
 .tile { display: flex; flex-direction: column; gap: 4px; min-width: 0; padding: 14px; border-radius: var(--radius-md); background: var(--surface-2); border: 1px solid var(--border); }
 .tile-head { display: flex; align-items: flex-start; gap: 6px; }
 .tile-label { color: var(--text-2); font-size: var(--fs-sm); flex: 1; min-width: 0; }
