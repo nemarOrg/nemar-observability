@@ -1,7 +1,7 @@
 // /health must go red by itself when a source stops delivering: the S3 egress
-// series missing a closed UTC day (or never arriving), a collector section that
-// is missing, stale, or reporting an error, and Umami unreachable, silent, or
-// not fully configured. Real SQLite with this repo's migrations and a real
+// and website page-view series missing a closed UTC day (or never arriving), a
+// collector section that is missing, stale, or reporting an error, and Umami
+// unreachable, silent, or not fully configured. Real SQLite with this repo's migrations and a real
 // local HTTP server for Umami; no mocks.
 
 import { Database } from "bun:sqlite";
@@ -81,6 +81,31 @@ function seedSection(
     .run(key, json, receivedAt, lastOk);
 }
 
+/**
+ * The Umami pusher's section. Its only metric is `collector_health`, a display
+ * level ("warn" when a week had no page views or the tracker asset is down), not
+ * a `*.collector.errors` failure flag, so a delivery always counts as a success.
+ */
+function seedWebsite(receivedAt: string, severity: "ok" | "warn" = "ok"): void {
+  seedSection("website", receivedAt, {
+    raw: JSON.stringify({
+      key: "website",
+      label: "Website analytics",
+      source: "umami",
+      updated_at: receivedAt,
+      metrics: [
+        { key: "collector_health", label: "Collector health", value: 1, unit: "status", severity },
+      ],
+    }),
+  });
+}
+
+/** Both expected daily series, egress at `egress` and page views at `views`. */
+function seedExpectedSeries(egress: string | null, views: string | null = egress): void {
+  seedSeries(egress);
+  seedSeries(views, "pageviews", "website");
+}
+
 beforeEach(() => {
   engine = new Database(":memory:");
   for (const sql of MIGRATIONS) engine.run(sql);
@@ -110,26 +135,33 @@ describe("expectedLatestDay", () => {
 
 describe("loadSeriesBehind", () => {
   test("nothing is behind when the newest day is the expected one", async () => {
-    seedSeries("2026-09-29");
+    seedExpectedSeries("2026-09-29");
     expect(await loadSeriesBehind(asD1(engine), NOW, true)).toEqual([]);
   });
 
   test("a missing yesterday is reported once the grace has passed", async () => {
-    seedSeries("2026-09-28");
+    seedExpectedSeries("2026-09-28", "2026-09-29");
     expect(await loadSeriesBehind(asD1(engine), NOW, true)).toEqual([
       { key: "s3_bytes_downloaded", latest: "2026-09-28", expected: "2026-09-29" },
     ]);
   });
 
+  test("website page views are held to the same rule", async () => {
+    seedExpectedSeries("2026-09-29", "2026-09-28");
+    expect(await loadSeriesBehind(asD1(engine), NOW, true)).toEqual([
+      { key: "pageviews", latest: "2026-09-28", expected: "2026-09-29" },
+    ]);
+  });
+
   test("the same gap is tolerated inside the grace, so a normal night stays green", async () => {
-    seedSeries("2026-09-28");
+    seedExpectedSeries("2026-09-28");
     expect(await loadSeriesBehind(asD1(engine), at("2026-09-30T03:00:00Z"), true)).toEqual([]);
   });
 
   test("a series with no observations is behind", async () => {
-    seedSeries(null);
+    seedExpectedSeries(null, "2026-09-29");
     const behind = await loadSeriesBehind(asD1(engine), NOW, true);
-    expect(behind.map((s) => s.latest)).toEqual([null]);
+    expect(behind.map((s) => [s.key, s.latest])).toEqual([["s3_bytes_downloaded", null]]);
   });
 
   // A first ingest that is rejected every time (wrong token, 409, 422) never
@@ -137,6 +169,14 @@ describe("loadSeriesBehind", () => {
   test("in production, a series that never arrived is behind", async () => {
     expect(await loadSeriesBehind(asD1(engine), NOW, true)).toEqual([
       { key: "s3_bytes_downloaded", latest: null, expected: "2026-09-29" },
+      { key: "pageviews", latest: null, expected: "2026-09-29" },
+    ]);
+  });
+
+  test("the website series alone missing is reported by its key", async () => {
+    seedSeries("2026-09-29");
+    expect(await loadSeriesBehind(asD1(engine), NOW, true)).toEqual([
+      { key: "pageviews", latest: null, expected: "2026-09-29" },
     ]);
   });
 
@@ -145,16 +185,25 @@ describe("loadSeriesBehind", () => {
   });
 
   test("a third-party series is not held to the first-party rule", async () => {
-    seedSeries("2026-09-29");
+    seedExpectedSeries("2026-09-29");
     seedSeries("2026-09-01", "qa_checks", "qa");
+    expect(await loadSeriesBehind(asD1(engine), NOW, true)).toEqual([]);
+  });
+
+  // Umami's event series (event_<name>) are pushed only once event coverage is
+  // enabled, so they are not expected and cannot hold health red.
+  test("a website event series that is behind is not judged", async () => {
+    seedExpectedSeries("2026-09-29");
+    seedSeries("2026-09-10", "event_citation_click", "website");
     expect(await loadSeriesBehind(asD1(engine), NOW, true)).toEqual([]);
   });
 });
 
 describe("loadPushedProblems", () => {
-  test("nothing is wrong when both collectors succeeded recently", async () => {
+  test("nothing is wrong when all three collectors succeeded recently", async () => {
     seedSection("egress", hoursAgo(1));
     seedSection("storage", hoursAgo(10));
+    seedWebsite(hoursAgo(1));
     expect(await loadPushedProblems(asD1(engine), NOW, true)).toEqual([]);
   });
 
@@ -163,6 +212,7 @@ describe("loadPushedProblems", () => {
     expect(problems.map((p) => `${p.section}:${p.problem}`)).toEqual([
       "egress:missing",
       "storage:missing",
+      "website:missing",
     ]);
   });
 
@@ -173,26 +223,53 @@ describe("loadPushedProblems", () => {
   test("a day and two hours without a successful run is stale, less is not", async () => {
     seedSection("egress", hoursAgo(1), { lastOk: hoursAgo(25) });
     seedSection("storage", hoursAgo(1), { lastOk: hoursAgo(27) });
+    seedWebsite(hoursAgo(1));
     expect(await loadPushedProblems(asD1(engine), NOW, true)).toEqual([
       { section: "storage", problem: "stale", detail: "last success 27h ago" },
     ]);
   });
 
+  test("the website pusher missing a whole day is stale, one missed hour is not", async () => {
+    seedSection("egress", hoursAgo(1));
+    seedSection("storage", hoursAgo(1));
+    seedWebsite(hoursAgo(3));
+    expect(await loadPushedProblems(asD1(engine), NOW, true)).toEqual([]);
+
+    engine.run("DELETE FROM ingested_sections WHERE key = 'website'");
+    seedWebsite(hoursAgo(28));
+    expect(await loadPushedProblems(asD1(engine), NOW, true)).toEqual([
+      { section: "website", problem: "stale", detail: "last success 28h ago" },
+    ]);
+  });
+
+  // collector_health is the pusher's display level (no page views for a week, or
+  // the tracker asset down), not a failed run; Umami's own liveness covers the
+  // former, and a warning must not read as a collector that stopped.
+  test("a website collector_health warning is delivered data, not a problem", async () => {
+    seedSection("egress", hoursAgo(1));
+    seedSection("storage", hoursAgo(1));
+    seedWebsite(hoursAgo(1), "warn");
+    expect(await loadPushedProblems(asD1(engine), NOW, true)).toEqual([]);
+  });
+
   test("the old once-a-day timer stays green until the hourly one is installed", async () => {
     seedSection("egress", hoursAgo(24));
     seedSection("storage", hoursAgo(19));
+    seedWebsite(hoursAgo(1));
     expect(await loadPushedProblems(asD1(engine), NOW, true)).toEqual([]);
   });
 
   test("one failed run is not a problem while an earlier run succeeded", async () => {
     seedSection("egress", hoursAgo(0.1), { failedRun: true, lastOk: hoursAgo(1.1) });
     seedSection("storage", hoursAgo(1));
+    seedWebsite(hoursAgo(1));
     expect(await loadPushedProblems(asD1(engine), NOW, true)).toEqual([]);
   });
 
   test("failures that persist past the window are stale even though each refreshed the section", async () => {
     seedSection("egress", hoursAgo(0.1), { failedRun: true, lastOk: hoursAgo(30) });
     seedSection("storage", hoursAgo(1));
+    seedWebsite(hoursAgo(1));
     expect(await loadPushedProblems(asD1(engine), NOW, true)).toEqual([
       { section: "egress", problem: "stale", detail: "last success 30h ago" },
     ]);
@@ -201,6 +278,7 @@ describe("loadPushedProblems", () => {
   test("a collector that has never succeeded is stale", async () => {
     seedSection("egress", hoursAgo(0.1), { failedRun: true });
     seedSection("storage", hoursAgo(1));
+    seedWebsite(hoursAgo(1));
     expect(await loadPushedProblems(asD1(engine), NOW, true)).toEqual([
       { section: "egress", problem: "stale", detail: "no successful run yet" },
     ]);
@@ -217,6 +295,7 @@ describe("loadPushedProblems", () => {
       },
     });
     seedSection("storage", hoursAgo(1));
+    seedWebsite(hoursAgo(1));
     expect(await loadPushedProblems(asD1(engine), NOW, true)).toEqual([
       { section: "egress", problem: "code_stale", detail: "egress.collector.code_stale" },
     ]);
@@ -225,6 +304,7 @@ describe("loadPushedProblems", () => {
   test("a stored section that is not valid JSON is unreadable", async () => {
     seedSection("egress", hoursAgo(1), { raw: "{not json" });
     seedSection("storage", hoursAgo(1));
+    seedWebsite(hoursAgo(1));
     const problems = await loadPushedProblems(asD1(engine), NOW, true);
     expect(problems.map((p) => p.problem)).toEqual(["unreadable"]);
   });
@@ -232,6 +312,7 @@ describe("loadPushedProblems", () => {
   test("a third-party section is not judged: its severity is a display level", async () => {
     seedSection("egress", hoursAgo(1));
     seedSection("storage", hoursAgo(1));
+    seedWebsite(hoursAgo(1));
     seedSection("qa", hoursAgo(900), { failedRun: true, lastOk: null });
     engine.query("UPDATE ingested_sections SET section_json = ? WHERE key = 'qa'").run(
       JSON.stringify({
@@ -396,9 +477,10 @@ describe("Umami liveness over HTTP", () => {
     };
     const freshDay = () => new Date(Date.now() - 86_400_000).toISOString().slice(0, 10);
     const seedCollectors = () => {
-      seedSeries(freshDay());
+      seedExpectedSeries(freshDay());
       seedSection("egress", new Date().toISOString());
       seedSection("storage", new Date().toISOString());
+      seedWebsite(new Date().toISOString());
     };
 
     test("200 in production when every source is delivering", async () => {
@@ -460,8 +542,10 @@ describe("Umami liveness over HTTP", () => {
 
     test("503 when the egress series never arrived", async () => {
       seedHealthy();
+      seedSeries(freshDay(), "pageviews", "website");
       seedSection("egress", new Date().toISOString());
       seedSection("storage", new Date().toISOString());
+      seedWebsite(new Date().toISOString());
       const res = await call(production());
       expect(res.status).toBe(503);
       const body = (await res.json()) as { series_behind: { key: string; latest: null }[] };
@@ -470,11 +554,26 @@ describe("Umami liveness over HTTP", () => {
       ]);
     });
 
-    test("503 when a collector has not succeeded for over a day", async () => {
+    test("503 when the website pusher never delivered", async () => {
       seedHealthy();
       seedSeries(freshDay());
+      seedSection("egress", new Date().toISOString());
+      seedSection("storage", new Date().toISOString());
+      const res = await call(production());
+      expect(res.status).toBe(503);
+      expect(await res.json()).toMatchObject({
+        ok: false,
+        series_behind: [{ key: "pageviews", latest: null }],
+        pushed_problems: [{ section: "website", problem: "missing" }],
+      });
+    });
+
+    test("503 when a collector has not succeeded for over a day", async () => {
+      seedHealthy();
+      seedExpectedSeries(freshDay());
       seedSection("egress", new Date().toISOString(), { lastOk: hoursAgo(80) });
       seedSection("storage", new Date().toISOString());
+      seedWebsite(new Date().toISOString());
       const res = await call(production());
       expect(res.status).toBe(503);
       expect(await res.json()).toMatchObject({
