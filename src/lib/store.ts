@@ -549,23 +549,30 @@ export async function loadPushedSections(db: D1Database): Promise<Section[]> {
   return out;
 }
 
-/** Zone-wide requests per UTC day across every stored host, oldest first. */
-export async function loadHostDayTotals(
+/** Newest write time per UTC day in cf_daily_host on or after `sinceDate`. */
+export async function loadHostDayStamps(
   db: D1Database,
-): Promise<{ date: string; requests: number }[]> {
+  sinceDate: string,
+): Promise<Map<string, string>> {
   const rows = await db
-    .prepare(
-      "SELECT date, SUM(requests) AS requests FROM cf_daily_host GROUP BY date ORDER BY date",
-    )
-    .all<{ date: string; requests: number }>();
-  return rows.results ?? [];
+    .prepare("SELECT date, MAX(updated_at) AS at FROM cf_daily_host WHERE date >= ?1 GROUP BY date")
+    .bind(sinceDate)
+    .all<{ date: string; at: string }>();
+  return new Map((rows.results ?? []).map((r) => [r.date, r.at]));
 }
 
-/** Distinct UTC days present in cf_daily_host on or after `sinceDate`. */
-export async function loadHostDates(db: D1Database, sinceDate: string): Promise<Set<string>> {
+/** Stored points of one daily series with the time each was last written. */
+export async function loadSeriesPoints(
+  db: D1Database,
+  section: string,
+  key: string,
+): Promise<{ date: string; value: number; updated_at: string }[]> {
   const rows = await db
-    .prepare("SELECT DISTINCT date FROM cf_daily_host WHERE date >= ?1")
-    .bind(sinceDate)
-    .all<{ date: string }>();
-  return new Set((rows.results ?? []).map((r) => r.date));
+    .prepare(
+      `SELECT date, value, updated_at FROM daily_series_points
+       WHERE section_key=?1 AND series_key=?2 ORDER BY date`,
+    )
+    .bind(section, key)
+    .all<{ date: string; value: number; updated_at: string }>();
+  return rows.results ?? [];
 }

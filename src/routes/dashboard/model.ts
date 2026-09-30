@@ -90,7 +90,7 @@ function egressSeries(payload) {
 }
 function requestSeries(payload) {
   return ((payload && payload.series) || []).find(function (s) {
-    return String(s.section).toLowerCase() === "cf" && /request/i.test(String(s.key) + " " + String(s.label)) && s.unit === "count";
+    return String(s.section).toLowerCase() === "cf" && s.key === "requests" && s.unit === "count";
   }) || null;
 }
 

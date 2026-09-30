@@ -1,11 +1,12 @@
 // Hourly snapshot recompute (wrangler crons = ["47 * * * *"]).
 
-import { fetchHostDay } from "./lib/cf-analytics";
+import { fetchHostDay, fetchZoneDailyRequests } from "./lib/cf-analytics";
 import { CRON_RETRY, type RetryPolicy } from "./lib/d1-retry";
 import { buildSnapshot } from "./lib/metrics";
+import { isSettled, planRequestPull, writablePoints } from "./lib/request-series";
 import {
-  loadHostDates,
-  loadHostDayTotals,
+  loadHostDayStamps,
+  loadSeriesPoints,
   pruneHostDays,
   recordCronRun,
   saveDailySeries,
@@ -18,18 +19,17 @@ import type { Bindings } from "./types";
 const KEEP_SNAPSHOTS = 850;
 /** Match the cf section's reporting window, plus a day of slack. */
 const KEEP_HOST_DAYS = 31;
-/** How far back Cloudflare's adaptive dataset can be asked for a missing day. */
-const BACKFILL_DAYS = 30;
-/** Missing days fetched per run, so a backfill cannot stall the snapshot. */
-const BACKFILL_PER_RUN = 5;
 
 /**
  * Accumulate the per-host Cloudflare split, which cannot be queried over a
  * 30-day window in one call (see cf-analytics.ts).
  *
- * Pulls TWO days every run: today, whose totals are still growing, and
- * yesterday, which may have been last pulled before it finished. Both are
- * upserts of the authoritative day-to-date total, so re-pulling is idempotent.
+ * Pulls today every run (its totals are still growing) and yesterday only
+ * until it is settled (see request-series.ts), so a closed day costs one or two
+ * calls in its life, not one per hour. Both are upserts of the authoritative
+ * day-to-date total, so re-pulling is idempotent. The per-host view fills in
+ * one day at a time from deploy; the lifetime request total does not depend on
+ * it (see syncRequestSeries).
  *
  * Isolated from the snapshot path on purpose: a zone-analytics outage or an
  * expired token must not take down the D1-derived sections, so this logs and
@@ -46,24 +46,17 @@ const BACKFILL_PER_RUN = 5;
 async function accumulateHostDays(env: Bindings, now: Date): Promise<void> {
   if (!env.CF_ZONE_ANALYTICS_TOKEN || !env.CF_ZONE_ID) return;
   const at = now.toISOString();
-  const days = [
-    new Date(now.getTime() - 86_400_000).toISOString().slice(0, 10),
-    now.toISOString().slice(0, 10),
-  ];
-  // Days inside Cloudflare's retention that we never stored (a fresh deploy, or
-  // an outage): fill a few per run, newest first, until the window is complete.
   const dayMs = 86_400_000;
-  const oldest = new Date(now.getTime() - BACKFILL_DAYS * dayMs).toISOString().slice(0, 10);
+  const today = now.toISOString().slice(0, 10);
+  const yesterday = new Date(now.getTime() - dayMs).toISOString().slice(0, 10);
+  const days = [today];
   try {
-    const have = await loadHostDates(env.OBS_DB, oldest);
-    const missing: string[] = [];
-    for (let back = 2; back <= BACKFILL_DAYS; back++) {
-      const date = new Date(now.getTime() - back * dayMs).toISOString().slice(0, 10);
-      if (!have.has(date)) missing.push(date);
-    }
-    days.push(...missing.slice(0, BACKFILL_PER_RUN));
+    const stamps = await loadHostDayStamps(env.OBS_DB, yesterday);
+    const written = stamps.get(yesterday);
+    if (!written || !isSettled(yesterday, written)) days.unshift(yesterday);
   } catch (err) {
-    console.error("[cron] cf host-day backfill lookup failed:", err);
+    console.error("[cron] cf host-day settle lookup failed:", err);
+    days.unshift(yesterday);
   }
   let pulled = 0;
   for (const date of days) {
@@ -78,13 +71,6 @@ async function accumulateHostDays(env: Bindings, now: Date): Promise<void> {
     console.error("[cron] cf host-day: every pull failed; skipping prune to preserve the signal");
     return;
   }
-  // Before the prune: the series is the permanent record, cf_daily_host is only
-  // the window it is derived from.
-  try {
-    await saveRequestSeries(env, at);
-  } catch (err) {
-    console.error("[cron] cf request series save failed:", err);
-  }
   try {
     await pruneHostDays(
       env.OBS_DB,
@@ -96,32 +82,44 @@ async function accumulateHostDays(env: Bindings, now: Date): Promise<void> {
 }
 
 /**
- * Keep every day's zone-wide request total beyond Cloudflare's 30 days.
- * Days are upserted (idempotent) and never deleted, so the lifetime total keeps
- * growing after cf_daily_host prunes the per-host rows.
+ * Keep every day's zone-wide request total beyond Cloudflare's 30 days, from
+ * the same daily rollup as the headline (httpRequests1dGroups). One call per
+ * run covers the open day plus any day not yet settled or never stored; settled
+ * days are not asked for again and never overwritten with a lower value. Points
+ * are never deleted, so the lifetime total keeps growing.
+ *
+ * Isolated like the host pull: an edge outage must not stop the snapshot.
  */
-export async function saveRequestSeries(env: Bindings, at: string): Promise<void> {
-  const totals = await loadHostDayTotals(env.OBS_DB);
-  if (totals.length === 0) return;
-  await saveDailySeries(
-    env.OBS_DB,
-    "cf",
-    "cloudflare",
-    [
-      {
-        key: "requests",
-        label: "Network edge requests",
-        unit: "count",
-        aggregation: "sum",
-        timezone: "UTC",
-        coverage_start: totals[0].date,
-        coverage_end: totals[totals.length - 1].date,
-        freshness_after_hours: 36,
-        points: totals.map((t) => ({ date: t.date, value: t.requests })),
-      },
-    ],
-    at,
-  );
+export async function syncRequestSeries(env: Bindings, now: Date): Promise<void> {
+  if (!env.CF_ZONE_ANALYTICS_TOKEN || !env.CF_ZONE_ID) return;
+  try {
+    const stored = await loadSeriesPoints(env.OBS_DB, "cf", "requests");
+    const { since, until } = planRequestPull(stored, now);
+    const fetched = await fetchZoneDailyRequests(env, since, until);
+    const points = writablePoints(stored, fetched, now.toISOString().slice(0, 10));
+    if (points.length === 0) return;
+    await saveDailySeries(
+      env.OBS_DB,
+      "cf",
+      "cloudflare",
+      [
+        {
+          key: "requests",
+          label: "Network edge requests",
+          unit: "count",
+          aggregation: "sum",
+          timezone: "UTC",
+          coverage_start: points[0].date,
+          coverage_end: points[points.length - 1].date,
+          freshness_after_hours: 36,
+          points,
+        },
+      ],
+      now.toISOString(),
+    );
+  } catch (err) {
+    console.error("[cron] cf request series sync failed:", err);
+  }
 }
 
 export async function handleScheduled(
@@ -133,7 +131,9 @@ export async function handleScheduled(
     // Before the snapshot: computeCfSection reads the rows this writes, so
     // running it first means the section reflects the current hour, not the
     // previous one.
-    await accumulateHostDays(env, new Date());
+    const now = new Date();
+    await accumulateHostDays(env, now);
+    await syncRequestSeries(env, now);
     let retries = 0;
     const snapshot = await buildSnapshot(env, {
       ...retry,
