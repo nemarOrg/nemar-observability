@@ -372,12 +372,14 @@ main > section { scroll-margin-top: calc(var(--topbar-h) + 16px); padding-top: v
 .audience-events { border-top: 1px solid var(--border); padding-top: var(--space-3); }
 .howto-inline { margin-top: var(--space-3); }
 .tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: var(--space-3); align-items: stretch; }
+.split-main { min-width: 0; }
 .tile-lists { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 340px), 1fr)); gap: var(--space-3); align-items: start; }
-.tiles + .tile-lists { margin-top: var(--space-3); }
+.tiles + .tile-lists, .split-main > * + * { margin-top: var(--space-3); }
 @media (min-width: 1000px) {
   .card-split .section-body { display: grid; grid-template-columns: minmax(0, 1fr) minmax(340px, 40%); gap: var(--space-3); align-items: start; }
-  .card-split .tiles + .tile-lists { margin-top: 0; }
+  .card-split .split-main + .tile-lists { margin-top: 0; }
 }
+.split-main + .tile-lists { margin-top: var(--space-3); }
 .tile { display: flex; flex-direction: column; gap: 4px; min-width: 0; padding: 14px; border-radius: var(--radius-md); background: var(--surface-2); border: 1px solid var(--border); }
 .tile-head { display: flex; align-items: flex-start; gap: 6px; }
 .tile-label { color: var(--text-2); font-size: var(--fs-sm); flex: 1; min-width: 0; }
@@ -468,7 +470,9 @@ main > section { scroll-margin-top: calc(var(--topbar-h) + 16px); padding-top: v
 
 /* ---------- pipelines ---------- */
 .health-meta { margin: calc(-1 * var(--space-3)) 0 var(--space-4); color: var(--text-3); font-size: var(--fs-xs); }
-.health-grid { display: grid; gap: var(--space-4); grid-template-columns: repeat(auto-fill, minmax(min(100%, max(320px, calc((100% - 32px) / 3))), 1fr)); align-items: start; }
+/* Columns pack cards by height, so there are no holes beside a short card. */
+.health-grid { column-width: 320px; column-gap: var(--space-4); }
+.health-grid > * { break-inside: avoid; margin-bottom: var(--space-4); }
 .health-card { display: flex; flex-direction: column; }
 .coverage { display: flex; align-items: center; gap: var(--space-4); padding: var(--space-3); margin-bottom: var(--space-2); border-radius: var(--radius-md); background: var(--surface-2); }
 .ring { position: relative; width: 64px; height: 64px; flex: none; }
