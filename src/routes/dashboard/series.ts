@@ -70,6 +70,16 @@ function seriesBuckets(series, start, end, grouping, today) {
   }
   return buckets;
 }
+// The newest counted day before today, or null. Today's open point is always
+// recent, so judging currency by it would hide a missing yesterday.
+function latestClosedDay(series, today) {
+  let best = null;
+  ((series && series.points) || []).forEach(function (p) { if (p.date < today && (best === null || p.date > best)) best = p.date; });
+  if (best) return best;
+  if (series && series.points && series.points.length) return null;
+  const latest = series ? series.latest_observation_date : null;
+  return isValidDay(latest) ? latest : null;
+}
 // Whether a series is current: "current" while its latest day is within the
 // freshness allowance it declares, "stale" past it or with no day counted, and
 // "unknown" when it declares no usable allowance, which is flagged rather than
@@ -78,7 +88,7 @@ function seriesFreshness(series, now) {
   const at = typeof now === "number" ? now : Date.now();
   const hours = series ? series.freshness_after_hours : undefined;
   if (typeof hours !== "number" || !Number.isFinite(hours) || hours <= 0) return "unknown";
-  const lastDay = series.latest_observation_date;
+  const lastDay = latestClosedDay(series, isoDay(new Date(at)));
   if (!isValidDay(lastDay)) return "stale";
   const periodEnd = Date.parse(lastDay + "T00:00:00Z") + 86400000;
   return at - periodEnd > hours * 3600000 ? "stale" : "current";
@@ -87,9 +97,10 @@ function seriesFreshness(series, now) {
 // is nothing to say, and otherwise the plain fact of how far it reaches. The
 // newest closed day is yesterday, so a series through yesterday needs no flag.
 function seriesCatchUp(series, today) {
-  const lastDay = series ? series.latest_observation_date : null;
+  const now = today || isoDay(new Date());
+  const lastDay = latestClosedDay(series, now);
   if (!isValidDay(lastDay)) return "No days counted yet";
-  const closed = shiftDay(today || isoDay(new Date()), -1);
+  const closed = shiftDay(now, -1);
   return lastDay >= closed ? null : "Through " + shortDay(lastDay);
 }
 function seriesValue(value, unit) {

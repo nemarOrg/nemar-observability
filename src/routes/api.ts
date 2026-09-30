@@ -224,7 +224,7 @@ async function loadCloudflareAudience(
   }
 
   return {
-    status: clipped ? "partial" : "available",
+    status: clipped || includesCurrentUtcDay ? "partial" : "available",
     coverage: result.coverage,
     country_coverage: result.country_coverage,
     country_requests: result.country_requests,

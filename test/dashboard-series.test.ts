@@ -10,6 +10,7 @@ const {
   seriesWindowFor,
   SERIES_CACHE_MS,
   seriesCatchUp,
+  latestClosedDay,
 } = clientLogic([
   "seriesBuckets",
   "seriesValue",
@@ -18,6 +19,7 @@ const {
   "seriesWindowFor",
   "SERIES_CACHE_MS",
   "seriesCatchUp",
+  "latestClosedDay",
 ]);
 
 // The live S3 egress series (see the fixture's source line): one value per
@@ -165,7 +167,7 @@ describe("series freshness", () => {
   test("a series with no counted day is stale", () => {
     expect(
       seriesFreshness(
-        { ...egress, latest_observation_date: null },
+        { ...egress, latest_observation_date: null, points: [] },
         Date.parse("2026-09-27T00:00:00Z"),
       ),
     ).toBe("stale");
@@ -233,5 +235,23 @@ describe("the day in progress", () => {
       "2026-09-29",
     ]);
     expect(days.every((b: { partial: boolean }) => !b.partial)).toBe(true);
+  });
+});
+
+describe("currency ignores the day in progress", () => {
+  const withOpenDay = (dates: string[]) => ({
+    freshness_after_hours: 36,
+    latest_observation_date: dates[dates.length - 1],
+    points: dates.map((date) => ({ date, value: 1 })),
+  });
+
+  test("a missing yesterday is still flagged when today's point exists", () => {
+    const series = withOpenDay(["2026-09-27", "2026-09-30"]);
+    expect(latestClosedDay(series, "2026-09-30")).toBe("2026-09-27");
+    expect(seriesCatchUp(series, "2026-09-30")).toBe("Through Sep 27");
+  });
+
+  test("no flag when yesterday and today are both present", () => {
+    expect(seriesCatchUp(withOpenDay(["2026-09-29", "2026-09-30"]), "2026-09-30")).toBeNull();
   });
 });
