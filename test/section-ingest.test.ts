@@ -29,10 +29,10 @@ function section(value: number, unit: "count" | "bytes" = "count") {
         unit,
         aggregation: "sum",
         timezone: "UTC",
-        coverage_start: "2026-09-01",
-        coverage_end: "2026-09-02",
+        coverage_start: "2020-09-01",
+        coverage_end: "2020-09-02",
         freshness_after_hours: 36,
-        points: [{ date: "2026-09-01", value }],
+        points: [{ date: "2020-09-01", value }],
       },
     ],
   };
@@ -69,11 +69,23 @@ describe("section ingest contract and atomic publication", () => {
   test("applies cross-field date rules beyond JSON Schema field validation", async () => {
     const invalid = section(1);
     invalid.daily_series[0].points = [
-      { date: "2026-09-01", value: 1 },
-      { date: "2026-09-01", value: 2 },
+      { date: "2020-09-01", value: 1 },
+      { date: "2020-09-01", value: 2 },
     ];
     const response = await post(invalid);
     expect(response.status).toBe(422);
+  });
+
+  // A pusher that zero-fills a window (or reads a restored, emptier source) must
+  // not erase a settled past day; a higher value is still accepted.
+  test("a re-push never lowers a closed day but can raise it", async () => {
+    const storedValue = async () =>
+      (await loadDailySeries(db, "2020-09-01", "2020-09-01"))[0]?.points[0]?.value;
+    expect((await post(section(50))).status).toBe(200);
+    expect((await post(section(0))).status).toBe(200);
+    expect(await storedValue()).toBe(50);
+    expect((await post(section(70))).status).toBe(200);
+    expect(await storedValue()).toBe(70);
   });
 
   test("rejects changed series semantics without relabeling prior points", async () => {
@@ -81,8 +93,8 @@ describe("section ingest contract and atomic publication", () => {
     const response = await post(section(30, "bytes"));
     expect(response.status).toBe(409);
     expect(await response.json()).toMatchObject({ series_key: "pageviews" });
-    const rows = await loadDailySeries(db, "2026-09-01", "2026-09-02");
-    expect(rows[0]).toMatchObject({ unit: "count", points: [{ date: "2026-09-01", value: 3 }] });
+    const rows = await loadDailySeries(db, "2020-09-01", "2020-09-02");
+    expect(rows[0]).toMatchObject({ unit: "count", points: [{ date: "2020-09-01", value: 3 }] });
   });
 
   test("a series write failure leaves the previous headline and complete series visible", async () => {
@@ -95,7 +107,7 @@ describe("section ingest contract and atomic publication", () => {
     expect(failed.status).toBe(500);
     const sections = await loadPushedSections(db);
     expect(sections[0].metrics[0].value).toBe(4);
-    const series = await loadDailySeries(db, "2026-09-01", "2026-09-02");
-    expect(series[0].points).toEqual([{ date: "2026-09-01", value: 4 }]);
+    const series = await loadDailySeries(db, "2020-09-01", "2020-09-02");
+    expect(series[0].points).toEqual([{ date: "2020-09-01", value: 4 }]);
   });
 });

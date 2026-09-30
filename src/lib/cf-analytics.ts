@@ -153,6 +153,39 @@ export interface ZoneTotals {
   byCountry: { label: string; value: number }[];
 }
 
+const ZONE_DAILY_REQUESTS_QUERY = `query($zone:String!,$since:Date!,$until:Date!){
+  viewer{zones(filter:{zoneTag:$zone}){
+    httpRequests1dGroups(limit:${WINDOW_DAYS + 2},filter:{date_geq:$since,date_lt:$until},orderBy:[date_ASC]){
+      dimensions{date}
+      sum{requests}
+    }
+  }}
+}`;
+
+/**
+ * Zone-wide requests per UTC day for `since` (inclusive) to `until`
+ * (exclusive). Same dataset as the 30-day headline, so the stored daily series
+ * and the headline measure one thing. One call covers the whole range; a day
+ * with no traffic has no row.
+ */
+export async function fetchZoneDailyRequests(
+  env: Bindings,
+  since: string,
+  until: string,
+): Promise<{ date: string; requests: number }[]> {
+  const data = await queryGraphQL<{
+    viewer: {
+      zones: {
+        httpRequests1dGroups: { dimensions: { date: string }; sum: { requests: number } }[];
+      }[];
+    };
+  }>(env, ZONE_DAILY_REQUESTS_QUERY, { zone: env.CF_ZONE_ID, since, until });
+  return firstZone(data.viewer.zones).httpRequests1dGroups.map((r) => ({
+    date: r.dimensions.date,
+    requests: r.sum.requests,
+  }));
+}
+
 export async function fetchZoneTotals(env: Bindings, now: Date): Promise<ZoneTotals> {
   // Both bounds are truncated to calendar dates, so the span is inclusive of
   // `since` and exclusive of `until`. Subtracting WINDOW_DAYS would therefore
