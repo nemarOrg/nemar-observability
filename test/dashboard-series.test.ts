@@ -71,7 +71,7 @@ describe("calendar buckets on the real egress series", () => {
   });
 
   test("months follow the calendar, including a partial first month", () => {
-    const buckets = seriesBuckets(egress, "2026-07-15", "2026-09-30", "month");
+    const buckets = seriesBuckets(egress, "2026-07-15", "2026-09-30", "month", "2026-10-15");
     expect(
       buckets.map((b: { start: string; end: string; partial: boolean }) => [
         b.start,
@@ -194,5 +194,34 @@ describe("the catch-up flag", () => {
   test("says so when no day has been counted", () => {
     expect(seriesCatchUp(through(null), "2026-09-30")).toBe("No days counted yet");
     expect(seriesCatchUp(null, "2026-09-30")).toBe("No days counted yet");
+  });
+});
+
+describe("the day in progress", () => {
+  const series = {
+    coverage_start: "2026-09-25",
+    coverage_end: "2026-09-29",
+    points: [
+      { date: "2026-09-26", value: 5 },
+      { date: "2026-09-27", value: 6 },
+      { date: "2026-09-28", value: 7 },
+      { date: "2026-09-29", value: 3 },
+    ],
+  };
+
+  test("a range ending yesterday also draws today, dashed, when the series reports it", () => {
+    const days = seriesBuckets(series, "2026-09-26", "2026-09-28", "day", "2026-09-29");
+    expect(days.map((b: { start: string }) => b.start)).toEqual(["2026-09-26", "2026-09-27", "2026-09-28", "2026-09-29"]);
+    const last = days[days.length - 1];
+    expect(last.partial).toBe(true);
+    expect(last.value).toBe(3);
+    expect(last.label.startsWith("Today so far")).toBe(true);
+    expect(days[0].partial).toBe(false);
+  });
+
+  test("today is left off when the series has not reported it, never drawn as a gap", () => {
+    const days = seriesBuckets(series, "2026-09-26", "2026-09-29", "day", "2026-09-30");
+    expect(days.map((b: { start: string }) => b.start)).toEqual(["2026-09-26", "2026-09-27", "2026-09-28", "2026-09-29"]);
+    expect(days.every((b: { partial: boolean }) => !b.partial)).toBe(true);
   });
 });

@@ -29,7 +29,12 @@ function seriesWindowFor(start, end, today) {
 // end. A bucket's value is the sum of its days only when every day was
 // reported; one missing day makes it null (unknown), never a partial sum and
 // never zero. First and last buckets cut by the range are marked partial.
-function seriesBuckets(series, start, end, grouping) {
+function seriesBuckets(series, start, end, grouping, today) {
+  // A range that ends yesterday also draws the day in progress when the series
+  // already reports it; that bucket is partial (dashed) and never enters totals.
+  const openDay = today || todayUtc();
+  const drawEnd = end === shiftDay(openDay, -1) && series.points.some(function (p) { return p.date === openDay && series.coverage_end >= openDay; }) ? openDay : end;
+  end = drawEnd;
   const values = new Map(series.points.map(function (p) { return [p.date, p.value]; }));
   const buckets = []; let cursor = start;
   while (cursor <= end) {
@@ -47,13 +52,14 @@ function seriesBuckets(series, start, end, grouping) {
     }
     const bucketStart = cursor > calendarStart ? cursor : calendarStart;
     const bucketEnd = end < calendarEnd ? end : calendarEnd;
-    const partial = bucketStart !== calendarStart || bucketEnd !== calendarEnd;
+    const open = bucketEnd >= openDay;
+    const partial = open || bucketStart !== calendarStart || bucketEnd !== calendarEnd;
     let sum = 0; let complete = true;
     for (let d = bucketStart; d <= bucketEnd; d = shiftDay(d, 1)) {
       if (d < series.coverage_start || d > series.coverage_end || !values.has(d)) complete = false;
       else sum += values.get(d);
     }
-    const label = partial
+    const label = open && grouping === "day" ? "Today so far, " + longDay(bucketStart) : partial
       ? "Partial " + (grouping === "week" ? "week" : grouping === "month" ? "month" : "period") + ", " + rangeText(bucketStart, bucketEnd)
       : grouping === "month"
         ? new Date(bucketStart + "T00:00:00Z").toLocaleString("en-US", { month: "long", year: "numeric", timeZone: "UTC" })
