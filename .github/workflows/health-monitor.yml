@@ -68,8 +68,12 @@ jobs:
             gh issue comment "$existing" --body "$body"
           else
             echo "Opening a new alert issue"
+            # GitHub rejects titles over 256 characters; a multi-fault summary can
+            # exceed that, and the full text is in the body anyway.
+            title="Dashboard unhealthy: $SUMMARY"
+            if [ "${#title}" -gt 250 ]; then title="${title:0:247}..."; fi
             gh issue create \
-              --title "Dashboard unhealthy: $SUMMARY" \
+              --title "$title" \
               --label health-alert \
               --body "$body"
           fi

@@ -24,18 +24,23 @@ export const UMAMI_SILENT_AFTER_MS = 6 * HOUR_MS;
  * a fault in production (a first ingest that is rejected every time never
  * registers a series, and health must not read that as "nothing to check").
  */
-export const EXPECTED_SERIES = [{ section: "egress", key: "s3_bytes_downloaded" }] as const;
+export const EXPECTED_SERIES = [
+  { section: "egress", key: "s3_bytes_downloaded" },
+  { section: "website", key: "pageviews" },
+] as const;
 
 /**
  * The first-party pushed sections and the longest each may go without a
- * successful collector run. A day and two hours: the collectors run hourly (egress)
- * or twice a day (storage) and retry by themselves, so only a day with no success
- * at all is a fault, and one failed run never is. It is also long enough that the
- * old once-a-day timer stays green until the new ones are installed.
+ * successful collector run. A day and two hours: the collectors run hourly (egress,
+ * and website page views from the Umami pusher) or twice a day (storage) and retry
+ * by themselves, so only a day with no success at all is a fault, and one failed
+ * run never is. It is also long enough that the old once-a-day timer stays green
+ * until the new ones are installed.
  */
 export const EXPECTED_SECTION_MAX_AGE_MS: Record<string, number> = {
   egress: 26 * HOUR_MS,
   storage: 26 * HOUR_MS,
+  website: 26 * HOUR_MS,
 };
 
 /** The newest UTC day every expected daily series must already contain. */
@@ -44,6 +49,7 @@ export function expectedLatestDay(now: Date): string {
 }
 
 export interface BehindSeries {
+  section: string;
   key: string;
   latest: string | null;
   expected: string;
@@ -73,11 +79,13 @@ export async function loadSeriesBehind(
   for (const want of EXPECTED_SERIES) {
     const id = `${want.section}/${want.key}`;
     if (!found.has(id)) {
-      if (production) behind.push({ key: want.key, latest: null, expected });
+      if (production) behind.push({ section: want.section, key: want.key, latest: null, expected });
       continue;
     }
     const latest = found.get(id) ?? null;
-    if (latest === null || latest < expected) behind.push({ key: want.key, latest, expected });
+    if (latest === null || latest < expected) {
+      behind.push({ section: want.section, key: want.key, latest, expected });
+    }
   }
   return behind;
 }

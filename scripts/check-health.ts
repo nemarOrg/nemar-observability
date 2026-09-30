@@ -72,8 +72,14 @@ export function verdictFor(status: number, body: HealthBody | null): HealthVerdi
   const behind = Array.isArray(body.series_behind) ? body.series_behind : [];
   if (behind.length > 0) {
     const named = behind.map((item) => {
-      const entry = item as { key?: unknown; latest?: unknown; expected?: unknown };
-      return `${String(entry.key)} (newest ${String(entry.latest ?? "none")}, expected ${String(entry.expected)})`;
+      const entry = item as {
+        section?: unknown;
+        key?: unknown;
+        latest?: unknown;
+        expected?: unknown;
+      };
+      const name = entry.section === undefined ? "" : `${String(entry.section)}/`;
+      return `${name}${String(entry.key)} (newest ${String(entry.latest ?? "none")}, expected ${String(entry.expected)})`;
     });
     reasons.push(`daily series missing a closed UTC day: ${named.join(", ")}`);
   }

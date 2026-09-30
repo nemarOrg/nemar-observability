@@ -27,16 +27,36 @@ describe("verdictFor", () => {
     expect(v.summary).toContain("sections failed to compute: sync, cf");
   });
 
-  test("names a daily series that is missing a closed day", () => {
+  test("names a daily series, with its section, that is missing a closed day", () => {
     const v = verdictFor(503, {
       ok: false,
       stale: false,
       section_errors: [],
-      series_behind: [{ key: "s3_bytes_downloaded", latest: "2026-09-28", expected: "2026-09-29" }],
+      series_behind: [
+        {
+          section: "egress",
+          key: "s3_bytes_downloaded",
+          latest: "2026-09-28",
+          expected: "2026-09-29",
+        },
+        { section: "website", key: "pageviews", latest: null, expected: "2026-09-29" },
+      ],
       umami: "ok",
     });
     expect(v.ok).toBe(false);
+    expect(v.summary).toContain(
+      "egress/s3_bytes_downloaded (newest 2026-09-28, expected 2026-09-29)",
+    );
+    expect(v.summary).toContain("website/pageviews (newest none, expected 2026-09-29)");
+  });
+
+  test("still names a series from a Worker that predates the section field", () => {
+    const v = verdictFor(503, {
+      ok: false,
+      series_behind: [{ key: "s3_bytes_downloaded", latest: "2026-09-28", expected: "2026-09-29" }],
+    });
     expect(v.summary).toContain("s3_bytes_downloaded (newest 2026-09-28, expected 2026-09-29)");
+    expect(v.summary).not.toContain("undefined");
   });
 
   test("names an unreachable, silent, or misconfigured Umami, with the reason", () => {
