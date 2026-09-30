@@ -15,7 +15,7 @@ name: Health monitor
 
 on:
   schedule:
-    # Every 15 minutes. The snapshot cron runs hourly at :17 and /health flags
+    # Every 15 minutes. The snapshot cron runs hourly at :47 and /health flags
     # staleness after 2h, so this is comfortably tighter than the signal itself.
     - cron: "*/15 * * * *"
   workflow_dispatch:

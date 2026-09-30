@@ -1,6 +1,7 @@
-// Hourly snapshot recompute (wrangler crons = ["17 * * * *"]).
+// Hourly snapshot recompute (wrangler crons = ["47 * * * *"]).
 
 import { fetchHostDay } from "./lib/cf-analytics";
+import { CRON_RETRY } from "./lib/d1-retry";
 import { buildSnapshot } from "./lib/metrics";
 import { pruneHostDays, recordCronRun, saveHostDays, saveSnapshot } from "./lib/store";
 import type { Bindings } from "./types";
@@ -67,7 +68,7 @@ export async function handleScheduled(env: Bindings): Promise<void> {
     // running it first means the section reflects the current hour, not the
     // previous one.
     await accumulateHostDays(env, new Date());
-    const snapshot = await buildSnapshot(env);
+    const snapshot = await buildSnapshot(env, CRON_RETRY);
     await saveSnapshot(env.OBS_DB, snapshot);
     await env.OBS_DB.prepare(
       "DELETE FROM snapshots WHERE id NOT IN (SELECT id FROM snapshots ORDER BY id DESC LIMIT ?)",

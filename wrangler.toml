@@ -18,10 +18,12 @@ routes = [
 # workers.dev fallback so the worker is reachable for dev/testing.
 workers_dev = true
 
-# Hourly snapshot recompute, offset 17 past the hour from nemar-cli's "0 3 * * *"
-# cleanup so the two crons never hammer the shared nemar-db at once.
+# Hourly snapshot recompute at :47. nemar-cli's nemar-db-backup workflow exports
+# nemar-db every hour (its Actions cron starts at :00 but runs commit between
+# :10 and :30), and D1 rejects other queries during an export. :47 stays clear
+# of that window; the cron also retries a locked read (src/lib/d1-retry.ts).
 [triggers]
-crons = ["17 * * * *"]
+crons = ["47 * * * *"]
 
 # Source DB: nemar-cli's D1, READ-ONLY (SELECT only in code). NO migrations_dir —
 # nemar-cli owns its schema; this worker must never migrate it.

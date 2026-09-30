@@ -5,6 +5,7 @@
 import type { Bindings } from "../types";
 import { computeAccessSection } from "./access";
 import { computeCfSection } from "./cf-section";
+import { NO_RETRY, type RetryPolicy, withD1Retry } from "./d1-retry";
 import {
   type Metric,
   type MetricSnapshot,
@@ -537,9 +538,14 @@ export async function usersSection(db: D1Database, now: string): Promise<Section
  * fewer tiles — one broken source shouldn't blank the whole dashboard, but it
  * also shouldn't hide that it's broken.
  */
-export async function buildSnapshot(env: Bindings): Promise<MetricSnapshot> {
+export async function buildSnapshot(
+  env: Bindings,
+  retry: RetryPolicy = NO_RETRY,
+): Promise<MetricSnapshot> {
   const now = new Date().toISOString();
   const db = env.NEMAR_DB;
+  // Waits out nemar-db's hourly backup export instead of dropping the tiles.
+  const guard = <T>(build: () => Promise<T>) => withD1Retry(build, retry);
 
   // One key per builder below, in the same order, so a failed section is
   // reported under its own key.
@@ -555,15 +561,15 @@ export async function buildSnapshot(env: Bindings): Promise<MetricSnapshot> {
     "users",
   ];
   const builtins = await Promise.allSettled([
-    datasetsSection(db, now),
-    sizesSection(db, now),
-    archiveSection(db, now),
-    zarrSection(db, now),
-    autoImportSection(db, now),
-    publicationSection(db, now),
-    computeAccessSection(env, now),
-    computeCfSection(env, now),
-    usersSection(db, now),
+    guard(() => datasetsSection(db, now)),
+    guard(() => sizesSection(db, now)),
+    guard(() => archiveSection(db, now)),
+    guard(() => zarrSection(db, now)),
+    guard(() => autoImportSection(db, now)),
+    guard(() => publicationSection(db, now)),
+    guard(() => computeAccessSection(env, now)),
+    guard(() => computeCfSection(env, now)),
+    guard(() => usersSection(db, now)),
   ]);
 
   const sections: Section[] = [];
