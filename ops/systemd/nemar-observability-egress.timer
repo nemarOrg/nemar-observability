@@ -1,10 +1,16 @@
 [Unit]
-Description=Run the NEMAR S3 egress collector daily
+Description=Run the NEMAR S3 egress collector shortly after each UTC midnight
 
 [Timer]
-OnCalendar=*-*-* 08:17:00 UTC
+# First run right after the UTC day closes, so yesterday's bytes are on the
+# dashboard within minutes. The two later runs re-read the same 14-day window
+# (an idempotent replace), which both retries a failed first run and picks up
+# any request metrics CloudWatch delivered late.
+OnCalendar=*-*-* 00:15:00 UTC
+OnCalendar=*-*-* 02:15:00 UTC
+OnCalendar=*-*-* 05:15:00 UTC
 Persistent=true
-RandomizedDelaySec=15m
+RandomizedDelaySec=2m
 AccuracySec=1m
 Unit=nemar-observability-egress.service
 

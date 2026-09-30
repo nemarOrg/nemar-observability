@@ -202,8 +202,11 @@ or has no ingest token, the systemd journal records the failure and the last
 series eventually ages stale. Check the service logs and
 `GET /observability/api/timeseries` for the returned dates.
 
-The timer is scheduled daily at 08:17 UTC with up to 15 minutes of randomized
-delay. `Persistent=true` catches up a missed timer activation after downtime;
+The timer runs three times a day, at 00:15, 02:15, and 05:15 UTC, each with up to 2 minutes of
+randomized delay. The 00:15 run publishes the UTC day that just closed; the 02:15 and 05:15 runs
+re-read the same 14-day window, which retries a failed first run and replaces any observation
+CloudWatch delivered late (S3 request metrics are best-effort). Every run is an idempotent replace.
+`Persistent=true` catches up a missed timer activation after downtime;
 it does not retry a collector process that ran and failed. Failures remain in
 the journal and, when possible, as a collector error metric. The next scheduled
 run re-reads the 14-day overlap, replacing corrected observations. CloudWatch's
