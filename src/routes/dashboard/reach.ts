@@ -27,10 +27,15 @@ function countryName(label) {
   if (!code) return label;
   return (WORLD_COUNTRY_NAMES[code] && WORLD_COUNTRY_NAMES[code][0]) || label;
 }
+// Requests use the selected range. Website sessions map one completed day: the
+// selected day itself, or for a longer range the newest closed day inside it once
+// that day has loaded (state.geoDay), so the source says which day it shows.
 function geographySources(payload) {
+  const dayLoaded = state.geoDay && state.geoDay.payload ? state.geoDay : null;
+  const umami = dayLoaded ? dayLoaded.payload.umami : payload.umami;
   return [
     { key: "cloudflare", label: "Requests", unit: "requests", totalLabel: "Requests to NEMAR", total: payload.cloudflare.country_requests, source: payload.cloudflare },
-    { key: "umami", label: "Website sessions", unit: "anonymous sessions", totalLabel: "Anonymous unique sessions", total: payload.umami.visitors, source: payload.umami }
+    { key: "umami", label: "Website sessions", unit: "anonymous sessions", totalLabel: "Anonymous unique sessions", total: umami.visitors, source: umami, day: dayLoaded ? dayLoaded.day : null }
   ];
 }
 function hasCountryData(item) {
@@ -69,7 +74,9 @@ function renderGeography(payload, start, end) {
     button.type = "button";
     button.disabled = !available || !hasValues;
     button.setAttribute("aria-pressed", String(item.key === active.key));
-    const sourceStatus = available && item.key === "umami" && start !== end
+    const sourceStatus = available && item.key === "umami" && item.day
+      ? "Newest closed day"
+      : available && item.key === "umami" && start !== end
       ? "Single day only"
       : available && item.key === "umami" && end >= isoDay(new Date())
         ? "Completed day only"
@@ -85,7 +92,10 @@ function renderGeography(payload, start, end) {
   // Website analytics report countries for one completed UTC day at a time; say so once,
   // plainly, whenever the chosen dates are anything else.
   if (payload.country_breakdown_scope && payload.country_breakdown_scope !== "single_completed_day") {
-    toolbar.appendChild(el("span", "scope-chip scope-note", "Website sessions map one completed UTC day only"));
+    const websiteDay = sources.find(function (item) { return item.key === "umami"; }).day;
+    toolbar.appendChild(el("span", "scope-chip scope-note", websiteDay
+      ? "Website sessions map " + longDay(websiteDay) + " only, the newest completed UTC day in these dates"
+      : "Website sessions map one completed UTC day only"));
   }
   root.appendChild(toolbar);
 

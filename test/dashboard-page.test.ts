@@ -12,6 +12,8 @@ import worker from "../src/index";
 import { saveDailySeries } from "../src/lib/store";
 import { renderDashboardPage } from "../src/routes/ui";
 import type { Bindings } from "../src/types";
+import audienceDay from "./fixtures/audience-day-2026-09-29-to-2026-09-29.json";
+import audienceWeek from "./fixtures/audience-week-2026-09-23-to-2026-09-29.json";
 import timeseries from "./fixtures/timeseries-2026-07-01-to-2026-09-28.json";
 import { asD1 } from "./helpers/d1";
 
@@ -194,5 +196,54 @@ describe("dashboard page in a real DOM", () => {
     await until(() => !busy(document, "series"), "the series to settle");
     expect(errors).toEqual([]);
     expect(text(document, "series")).not.toContain("Could not load");
+  });
+
+  // Website analytics map one completed UTC day. For a longer range the page
+  // loads the newest closed day inside it, so the website map works and says
+  // which day it shows. The two audience answers are captured live responses.
+  test("the website map works for a multi-day range by showing the newest closed day", async () => {
+    const requested: string[] = [];
+    const route: Route = async (request, env) => {
+      const url = new URL(request.url);
+      if (!url.pathname.endsWith("/audience")) return direct(request, env);
+      const start = url.searchParams.get("start");
+      const end = url.searchParams.get("end");
+      requested.push(`${start}..${end}`);
+      const body = start === end ? audienceDay.response : audienceWeek.response;
+      return new Response(JSON.stringify(body), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    };
+    const { document, errors } = await openPage(false, route);
+    const sources = () =>
+      Array.from(document.querySelectorAll(".geography-source")) as unknown as {
+        textContent: string;
+        disabled: boolean;
+        click(): void;
+      }[];
+    await until(
+      () => sources().some((b) => b.textContent.includes("Website sessions") && !b.disabled),
+      "the website source to enable",
+    );
+    // One request for the range, one for its newest closed day (which is yesterday).
+    const day = new Date(Date.now() - 86_400_000).toISOString().slice(0, 10);
+    expect(requested).toContain(`${day}..${day}`);
+
+    const website = sources().find((b) => b.textContent.includes("Website sessions"));
+    expect(website?.textContent).toContain("Newest closed day");
+    website?.click();
+    await until(
+      () => (document.querySelector(".geography-period")?.textContent ?? "").includes("Sep 29"),
+      "the website map period",
+    );
+    expect(document.querySelector(".scope-note")?.textContent).toContain(
+      "newest completed UTC day in these dates",
+    );
+    // The captured day: 778 anonymous sessions, the United States first.
+    expect(text(document, "geography")).toContain("Anonymous unique sessions");
+    expect(text(document, "geography")).toContain("778");
+    expect(text(document, "geography")).toContain("United States");
+    expect(errors).toEqual([]);
   });
 });

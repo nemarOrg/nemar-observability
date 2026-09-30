@@ -1,0 +1,700 @@
+{
+ "source": "live GET /observability/api/audience?start=2026-09-29&end=2026-09-29 captured 2026-09-30",
+ "response": {
+  "start": "2026-09-29",
+  "end": "2026-09-29",
+  "observed_at": "2026-09-30T08:37:07.203Z",
+  "country_breakdown_scope": "single_completed_day",
+  "umami": {
+   "status": "available",
+   "coverage": {
+    "start": "2026-09-29",
+    "end": "2026-09-29"
+   },
+   "country_coverage": {
+    "start": "2026-09-29",
+    "end": "2026-09-29"
+   },
+   "visitors": 778,
+   "visits": 838,
+   "pageviews": 1132,
+   "event_metrics": {
+    "status": "unconfigured",
+    "coverage": null,
+    "metrics": [
+     {
+      "name": "citation_click",
+      "events": null,
+      "visitors": null
+     },
+     {
+      "name": "viewer_open",
+      "events": null,
+      "visitors": null
+     },
+     {
+      "name": "viewer_interaction",
+      "events": null,
+      "visitors": null
+     },
+     {
+      "name": "upload_started",
+      "events": null,
+      "visitors": null
+     },
+     {
+      "name": "upload_completed",
+      "events": null,
+      "visitors": null
+     }
+    ],
+    "note": "Consent-gated event metrics need a verified coverage start date."
+   },
+   "countries": [
+    {
+     "label": "US",
+     "value": 161
+    },
+    {
+     "label": "Other / withheld",
+     "value": 125
+    },
+    {
+     "label": "SG",
+     "value": 116
+    },
+    {
+     "label": "CN",
+     "value": 98
+    },
+    {
+     "label": "IN",
+     "value": 74
+    },
+    {
+     "label": "DE",
+     "value": 36
+    },
+    {
+     "label": "HK",
+     "value": 29
+    },
+    {
+     "label": "JP",
+     "value": 25
+    },
+    {
+     "label": "FR",
+     "value": 22
+    },
+    {
+     "label": "NL",
+     "value": 19
+    },
+    {
+     "label": "GB",
+     "value": 15
+    },
+    {
+     "label": "PL",
+     "value": 14
+    },
+    {
+     "label": "BR",
+     "value": 12
+    },
+    {
+     "label": "CA",
+     "value": 12
+    },
+    {
+     "label": "ES",
+     "value": 10
+    },
+    {
+     "label": "KR",
+     "value": 10
+    }
+   ],
+   "suppressed_small_countries": true,
+   "note": "Country values omit sessions without a reported country and are not an exclusive partition. Country values below 10 are withheld; smaller rows are combined only when their total reaches 10."
+  },
+  "cloudflare": {
+   "status": "available",
+   "coverage": {
+    "start": "2026-09-29",
+    "end": "2026-09-29"
+   },
+   "country_coverage": {
+    "start": "2026-09-29",
+    "end": "2026-09-29"
+   },
+   "country_requests": 795211,
+   "requests": 795211,
+   "countries": [
+    {
+     "label": "US",
+     "value": 386636
+    },
+    {
+     "label": "CN",
+     "value": 159541
+    },
+    {
+     "label": "SG",
+     "value": 38725
+    },
+    {
+     "label": "JP",
+     "value": 28391
+    },
+    {
+     "label": "BR",
+     "value": 26393
+    },
+    {
+     "label": "GB",
+     "value": 14600
+    },
+    {
+     "label": "KR",
+     "value": 11480
+    },
+    {
+     "label": "FR",
+     "value": 10712
+    },
+    {
+     "label": "IN",
+     "value": 8315
+    },
+    {
+     "label": "CA",
+     "value": 7608
+    },
+    {
+     "label": "VN",
+     "value": 6068
+    },
+    {
+     "label": "HK",
+     "value": 5849
+    },
+    {
+     "label": "AR",
+     "value": 5697
+    },
+    {
+     "label": "MX",
+     "value": 4598
+    },
+    {
+     "label": "DE",
+     "value": 4114
+    },
+    {
+     "label": "AU",
+     "value": 3495
+    },
+    {
+     "label": "PK",
+     "value": 3414
+    },
+    {
+     "label": "NL",
+     "value": 3026
+    },
+    {
+     "label": "CO",
+     "value": 2897
+    },
+    {
+     "label": "BD",
+     "value": 2782
+    },
+    {
+     "label": "ZA",
+     "value": 2769
+    },
+    {
+     "label": "CL",
+     "value": 2616
+    },
+    {
+     "label": "ES",
+     "value": 2396
+    },
+    {
+     "label": "RU",
+     "value": 2349
+    },
+    {
+     "label": "QA",
+     "value": 2091
+    },
+    {
+     "label": "VE",
+     "value": 2070
+    },
+    {
+     "label": "EC",
+     "value": 1999
+    },
+    {
+     "label": "TW",
+     "value": 1972
+    },
+    {
+     "label": "IT",
+     "value": 1820
+    },
+    {
+     "label": "UA",
+     "value": 1818
+    },
+    {
+     "label": "CH",
+     "value": 1803
+    },
+    {
+     "label": "TR",
+     "value": 1614
+    },
+    {
+     "label": "SA",
+     "value": 1532
+    },
+    {
+     "label": "PE",
+     "value": 1443
+    },
+    {
+     "label": "KZ",
+     "value": 1384
+    },
+    {
+     "label": "MA",
+     "value": 1357
+    },
+    {
+     "label": "TN",
+     "value": 1315
+    },
+    {
+     "label": "CZ",
+     "value": 1161
+    },
+    {
+     "label": "BE",
+     "value": 1047
+    },
+    {
+     "label": "NG",
+     "value": 991
+    },
+    {
+     "label": "PL",
+     "value": 967
+    },
+    {
+     "label": "ID",
+     "value": 966
+    },
+    {
+     "label": "PY",
+     "value": 941
+    },
+    {
+     "label": "KE",
+     "value": 838
+    },
+    {
+     "label": "UZ",
+     "value": 798
+    },
+    {
+     "label": "AE",
+     "value": 796
+    },
+    {
+     "label": "EG",
+     "value": 776
+    },
+    {
+     "label": "DZ",
+     "value": 767
+    },
+    {
+     "label": "AZ",
+     "value": 759
+    },
+    {
+     "label": "JO",
+     "value": 741
+    },
+    {
+     "label": "IE",
+     "value": 683
+    },
+    {
+     "label": "PT",
+     "value": 641
+    },
+    {
+     "label": "PH",
+     "value": 616
+    },
+    {
+     "label": "NP",
+     "value": 586
+    },
+    {
+     "label": "UY",
+     "value": 578
+    },
+    {
+     "label": "BO",
+     "value": 530
+    },
+    {
+     "label": "FI",
+     "value": 530
+    },
+    {
+     "label": "DO",
+     "value": 524
+    },
+    {
+     "label": "IL",
+     "value": 512
+    },
+    {
+     "label": "OM",
+     "value": 480
+    },
+    {
+     "label": "RO",
+     "value": 465
+    },
+    {
+     "label": "TH",
+     "value": 458
+    },
+    {
+     "label": "SE",
+     "value": 433
+    },
+    {
+     "label": "MY",
+     "value": 425
+    },
+    {
+     "label": "IQ",
+     "value": 424
+    },
+    {
+     "label": "NO",
+     "value": 412
+    },
+    {
+     "label": "SN",
+     "value": 322
+    },
+    {
+     "label": "GR",
+     "value": 318
+    },
+    {
+     "label": "PA",
+     "value": 308
+    },
+    {
+     "label": "ET",
+     "value": 306
+    },
+    {
+     "label": "AL",
+     "value": 295
+    },
+    {
+     "label": "CI",
+     "value": 284
+    },
+    {
+     "label": "JM",
+     "value": 281
+    },
+    {
+     "label": "AT",
+     "value": 280
+    },
+    {
+     "label": "IR",
+     "value": 258
+    },
+    {
+     "label": "BG",
+     "value": 251
+    },
+    {
+     "label": "CR",
+     "value": 234
+    },
+    {
+     "label": "BY",
+     "value": 232
+    },
+    {
+     "label": "LB",
+     "value": 226
+    },
+    {
+     "label": "RS",
+     "value": 223
+    },
+    {
+     "label": "BA",
+     "value": 216
+    },
+    {
+     "label": "Other / withheld",
+     "value": 207
+    },
+    {
+     "label": "HN",
+     "value": 202
+    },
+    {
+     "label": "HU",
+     "value": 199
+    },
+    {
+     "label": "GT",
+     "value": 166
+    },
+    {
+     "label": "CG",
+     "value": 156
+    },
+    {
+     "label": "NZ",
+     "value": 146
+    },
+    {
+     "label": "KG",
+     "value": 143
+    },
+    {
+     "label": "AO",
+     "value": 142
+    },
+    {
+     "label": "GE",
+     "value": 142
+    },
+    {
+     "label": "BH",
+     "value": 141
+    },
+    {
+     "label": "MD",
+     "value": 137
+    },
+    {
+     "label": "XK",
+     "value": 135
+    },
+    {
+     "label": "KW",
+     "value": 133
+    },
+    {
+     "label": "KH",
+     "value": 132
+    },
+    {
+     "label": "SV",
+     "value": 125
+    },
+    {
+     "label": "TG",
+     "value": 121
+    },
+    {
+     "label": "MN",
+     "value": 116
+    },
+    {
+     "label": "LT",
+     "value": 110
+    },
+    {
+     "label": "SK",
+     "value": 104
+    },
+    {
+     "label": "NI",
+     "value": 103
+    },
+    {
+     "label": "PR",
+     "value": 99
+    },
+    {
+     "label": "AM",
+     "value": 94
+    },
+    {
+     "label": "MK",
+     "value": 80
+    },
+    {
+     "label": "LK",
+     "value": 79
+    },
+    {
+     "label": "HR",
+     "value": 76
+    },
+    {
+     "label": "PS",
+     "value": 75
+    },
+    {
+     "label": "LV",
+     "value": 74
+    },
+    {
+     "label": "SY",
+     "value": 72
+    },
+    {
+     "label": "TT",
+     "value": 72
+    },
+    {
+     "label": "GA",
+     "value": 71
+    },
+    {
+     "label": "SI",
+     "value": 70
+    },
+    {
+     "label": "ML",
+     "value": 63
+    },
+    {
+     "label": "GY",
+     "value": 60
+    },
+    {
+     "label": "EE",
+     "value": 59
+    },
+    {
+     "label": "MT",
+     "value": 59
+    },
+    {
+     "label": "DK",
+     "value": 57
+    },
+    {
+     "label": "LU",
+     "value": 48
+    },
+    {
+     "label": "MU",
+     "value": 48
+    },
+    {
+     "label": "BW",
+     "value": 46
+    },
+    {
+     "label": "T1",
+     "value": 46
+    },
+    {
+     "label": "BB",
+     "value": 41
+    },
+    {
+     "label": "BF",
+     "value": 38
+    },
+    {
+     "label": "LY",
+     "value": 38
+    },
+    {
+     "label": "CY",
+     "value": 36
+    },
+    {
+     "label": "MM",
+     "value": 36
+    },
+    {
+     "label": "GH",
+     "value": 33
+    },
+    {
+     "label": "BN",
+     "value": 29
+    },
+    {
+     "label": "BS",
+     "value": 19
+    },
+    {
+     "label": "UG",
+     "value": 18
+    },
+    {
+     "label": "MQ",
+     "value": 17
+    },
+    {
+     "label": "ZW",
+     "value": 17
+    },
+    {
+     "label": "CM",
+     "value": 16
+    },
+    {
+     "label": "RE",
+     "value": 16
+    },
+    {
+     "label": "TJ",
+     "value": 16
+    },
+    {
+     "label": "ME",
+     "value": 15
+    },
+    {
+     "label": "CD",
+     "value": 14
+    },
+    {
+     "label": "MZ",
+     "value": 12
+    },
+    {
+     "label": "SR",
+     "value": 12
+    },
+    {
+     "label": "TZ",
+     "value": 12
+    }
+   ],
+   "suppressed_small_countries": true,
+   "note": "Counts are requests at the network edge, not visitors or completed downloads. Country totals cover completed UTC days only; each day's small cells are suppressed before daily values are added. Country values omit requests without a reported country. Country values below 10 are withheld per day; daily withheld rows are combined only when their daily total reaches 10."
+  }
+ }
+}

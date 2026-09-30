@@ -147,6 +147,7 @@ function loadAudience() {
   const geography = document.getElementById("geography");
   const token = audienceGuard.begin();
   state.audiencePrior = null;
+  state.geoDay = null;
   if (!validRange(start, end)) {
     state.audience = null; state.audienceLoading = false; state.audienceFailed = false; state.audienceInvalid = true;
     renderKpis();
@@ -177,6 +178,7 @@ function loadAudience() {
       );
       return;
     }
+    loadGeographyDay(start, end, payload, token);
     loadPriorAudience(start, end, payload, token);
     renderKpis();
     renderHeadline();
@@ -188,6 +190,27 @@ function loadAudience() {
       "Could not load audience metrics", failureDetail(err, "Website and request totals for these dates are unknown right now, which is not the same as zero."),
       "Could not load country activity", failureDetail(err, "Locations for these dates are unknown right now.")
     );
+  });
+}
+// The website map covers one completed UTC day. When the selected dates are
+// anything else, load the newest closed day inside them so the website map still
+// works, labeled with that day; the request map keeps the whole range.
+function loadGeographyDay(start, end, payload, token) {
+  if (payload.country_breakdown_scope === "single_completed_day") return;
+  const day = geographyDayFor(start, end);
+  if (!day) return;
+  state.geoDay = { start: start, end: end, day: day, payload: null };
+  fetchAudience(day, day).then(function (dayPayload) {
+    if (!audienceGuard.isCurrent(token) || !isSelected(start, end)) return;
+    state.geoDay = { start: start, end: end, day: day, payload: dayPayload };
+    try {
+      renderGeography(payload, start, end);
+    } catch (err) {
+      console.error("[ui] website map display failed:", err);
+    }
+  }, function (err) {
+    if (!audienceGuard.isCurrent(token)) return;
+    console.error("[ui] website map day load failed:", err);
   });
 }
 function loadPriorAudience(start, end, payload, token) {
