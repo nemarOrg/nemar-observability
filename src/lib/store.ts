@@ -548,3 +548,24 @@ export async function loadPushedSections(db: D1Database): Promise<Section[]> {
   }
   return out;
 }
+
+/** Zone-wide requests per UTC day across every stored host, oldest first. */
+export async function loadHostDayTotals(
+  db: D1Database,
+): Promise<{ date: string; requests: number }[]> {
+  const rows = await db
+    .prepare(
+      "SELECT date, SUM(requests) AS requests FROM cf_daily_host GROUP BY date ORDER BY date",
+    )
+    .all<{ date: string; requests: number }>();
+  return rows.results ?? [];
+}
+
+/** Distinct UTC days present in cf_daily_host on or after `sinceDate`. */
+export async function loadHostDates(db: D1Database, sinceDate: string): Promise<Set<string>> {
+  const rows = await db
+    .prepare("SELECT DISTINCT date FROM cf_daily_host WHERE date >= ?1")
+    .bind(sinceDate)
+    .all<{ date: string }>();
+  return new Set((rows.results ?? []).map((r) => r.date));
+}
