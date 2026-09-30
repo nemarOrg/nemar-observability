@@ -49,6 +49,7 @@ export function expectedLatestDay(now: Date): string {
 }
 
 export interface BehindSeries {
+  section: string;
   key: string;
   latest: string | null;
   expected: string;
@@ -78,11 +79,13 @@ export async function loadSeriesBehind(
   for (const want of EXPECTED_SERIES) {
     const id = `${want.section}/${want.key}`;
     if (!found.has(id)) {
-      if (production) behind.push({ key: want.key, latest: null, expected });
+      if (production) behind.push({ section: want.section, key: want.key, latest: null, expected });
       continue;
     }
     const latest = found.get(id) ?? null;
-    if (latest === null || latest < expected) behind.push({ key: want.key, latest, expected });
+    if (latest === null || latest < expected) {
+      behind.push({ section: want.section, key: want.key, latest, expected });
+    }
   }
   return behind;
 }

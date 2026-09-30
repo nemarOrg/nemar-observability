@@ -1,8 +1,8 @@
 // /health must go red by itself when a source stops delivering: the S3 egress
 // and website page-view series missing a closed UTC day (or never arriving), a
 // collector section that is missing, stale, or reporting an error, and Umami
-// unreachable, silent, or not fully configured. Real SQLite with this repo's migrations and a real
-// local HTTP server for Umami; no mocks.
+// unreachable, silent, or not fully configured. Real SQLite with this repo's
+// migrations and a real local HTTP server for Umami; no mocks.
 
 import { Database } from "bun:sqlite";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test } from "bun:test";
@@ -25,15 +25,22 @@ const hoursAgo = (hours: number) => new Date(NOW.getTime() - hours * 3_600_000).
 
 let engine: Database;
 
-function seedSeries(latestDate: string | null, key = "s3_bytes_downloaded", section = "egress") {
+const EGRESS_SERIES = { source: "aws-s3-cloudwatch", label: "S3 bytes downloaded", unit: "bytes" };
+const WEBSITE_SERIES = { source: "umami", label: "Umami pageviews", unit: "count" };
+
+function seedSeries(
+  latestDate: string | null,
+  key = "s3_bytes_downloaded",
+  section = "egress",
+  meta = EGRESS_SERIES,
+) {
   engine
     .query(
       `INSERT INTO daily_series (section_key, series_key, source, label, unit, aggregation, timezone,
          coverage_start, coverage_end, freshness_after_hours, updated_at)
-       VALUES (?, ?, 'aws-s3-cloudwatch', 'S3 bytes downloaded', 'bytes',
-         'sum', 'UTC', '2026-08-01', '2026-09-28', 36, '2026-09-29T08:19:00.000Z')`,
+       VALUES (?, ?, ?, ?, ?, 'sum', 'UTC', '2026-08-01', '2026-09-28', 36, '2026-09-29T08:19:00.000Z')`,
     )
-    .run(section, key);
+    .run(section, key, meta.source, meta.label, meta.unit);
   if (latestDate) {
     engine
       .query(
@@ -52,7 +59,13 @@ function seedSeries(latestDate: string | null, key = "s3_bytes_downloaded", sect
 function seedSection(
   key: string,
   receivedAt: string,
-  opts: { failedRun?: boolean; lastOk?: string | null; raw?: string; extraMetric?: object } = {},
+  opts: {
+    failedRun?: boolean;
+    lastOk?: string | null;
+    raw?: string;
+    extraMetric?: object;
+    source?: string;
+  } = {},
 ): void {
   const failed = opts.failedRun === true;
   const json =
@@ -76,25 +89,37 @@ function seedSection(
   const lastOk = opts.lastOk === undefined ? (failed ? null : receivedAt) : opts.lastOk;
   engine
     .query(
-      "INSERT INTO ingested_sections (key, section_json, source, received_at, last_ok_at) VALUES (?, ?, 'aws-s3-cloudwatch', ?, ?)",
+      "INSERT INTO ingested_sections (key, section_json, source, received_at, last_ok_at) VALUES (?, ?, ?, ?, ?)",
     )
-    .run(key, json, receivedAt, lastOk);
+    .run(key, json, opts.source ?? "aws-s3-cloudwatch", receivedAt, lastOk);
 }
 
 /**
  * The Umami pusher's section. Its only metric is `collector_health`, a display
  * level ("warn" when a week had no page views or the tracker asset is down), not
  * a `*.collector.errors` failure flag, so a delivery always counts as a success.
+ * `lastOk` overrides when that success was (default: this delivery).
  */
-function seedWebsite(receivedAt: string, severity: "ok" | "warn" = "ok"): void {
+function seedWebsite(
+  receivedAt: string,
+  opts: { severity?: "ok" | "warn"; lastOk?: string } = {},
+): void {
   seedSection("website", receivedAt, {
+    source: "umami",
+    lastOk: opts.lastOk,
     raw: JSON.stringify({
       key: "website",
-      label: "Website analytics",
+      label: "Website",
       source: "umami",
       updated_at: receivedAt,
       metrics: [
-        { key: "collector_health", label: "Collector health", value: 1, unit: "status", severity },
+        {
+          key: "collector_health",
+          label: "Collector health",
+          value: 1,
+          unit: "status",
+          severity: opts.severity ?? "ok",
+        },
       ],
     }),
   });
@@ -103,7 +128,7 @@ function seedWebsite(receivedAt: string, severity: "ok" | "warn" = "ok"): void {
 /** Both expected daily series, egress at `egress` and page views at `views`. */
 function seedExpectedSeries(egress: string | null, views: string | null = egress): void {
   seedSeries(egress);
-  seedSeries(views, "pageviews", "website");
+  seedSeries(views, "pageviews", "website", WEBSITE_SERIES);
 }
 
 beforeEach(() => {
@@ -142,14 +167,19 @@ describe("loadSeriesBehind", () => {
   test("a missing yesterday is reported once the grace has passed", async () => {
     seedExpectedSeries("2026-09-28", "2026-09-29");
     expect(await loadSeriesBehind(asD1(engine), NOW, true)).toEqual([
-      { key: "s3_bytes_downloaded", latest: "2026-09-28", expected: "2026-09-29" },
+      {
+        section: "egress",
+        key: "s3_bytes_downloaded",
+        latest: "2026-09-28",
+        expected: "2026-09-29",
+      },
     ]);
   });
 
   test("website page views are held to the same rule", async () => {
     seedExpectedSeries("2026-09-29", "2026-09-28");
     expect(await loadSeriesBehind(asD1(engine), NOW, true)).toEqual([
-      { key: "pageviews", latest: "2026-09-28", expected: "2026-09-29" },
+      { section: "website", key: "pageviews", latest: "2026-09-28", expected: "2026-09-29" },
     ]);
   });
 
@@ -168,15 +198,15 @@ describe("loadSeriesBehind", () => {
   // registers the series, so health must not read the absence as "nothing to check".
   test("in production, a series that never arrived is behind", async () => {
     expect(await loadSeriesBehind(asD1(engine), NOW, true)).toEqual([
-      { key: "s3_bytes_downloaded", latest: null, expected: "2026-09-29" },
-      { key: "pageviews", latest: null, expected: "2026-09-29" },
+      { section: "egress", key: "s3_bytes_downloaded", latest: null, expected: "2026-09-29" },
+      { section: "website", key: "pageviews", latest: null, expected: "2026-09-29" },
     ]);
   });
 
   test("the website series alone missing is reported by its key", async () => {
     seedSeries("2026-09-29");
     expect(await loadSeriesBehind(asD1(engine), NOW, true)).toEqual([
-      { key: "pageviews", latest: null, expected: "2026-09-29" },
+      { section: "website", key: "pageviews", latest: null, expected: "2026-09-29" },
     ]);
   });
 
@@ -194,7 +224,7 @@ describe("loadSeriesBehind", () => {
   // enabled, so they are not expected and cannot hold health red.
   test("a website event series that is behind is not judged", async () => {
     seedExpectedSeries("2026-09-29");
-    seedSeries("2026-09-10", "event_citation_click", "website");
+    seedSeries("2026-09-10", "event_citation_click", "website", WEBSITE_SERIES);
     expect(await loadSeriesBehind(asD1(engine), NOW, true)).toEqual([]);
   });
 });
@@ -229,16 +259,16 @@ describe("loadPushedProblems", () => {
     ]);
   });
 
-  test("the website pusher missing a whole day is stale, one missed hour is not", async () => {
+  test("the website window is pinned like the others: 25 hours is fine, 27 is stale", async () => {
     seedSection("egress", hoursAgo(1));
     seedSection("storage", hoursAgo(1));
-    seedWebsite(hoursAgo(3));
+    seedWebsite(hoursAgo(1), { lastOk: hoursAgo(25) });
     expect(await loadPushedProblems(asD1(engine), NOW, true)).toEqual([]);
 
     engine.run("DELETE FROM ingested_sections WHERE key = 'website'");
-    seedWebsite(hoursAgo(28));
+    seedWebsite(hoursAgo(1), { lastOk: hoursAgo(27) });
     expect(await loadPushedProblems(asD1(engine), NOW, true)).toEqual([
-      { section: "website", problem: "stale", detail: "last success 28h ago" },
+      { section: "website", problem: "stale", detail: "last success 27h ago" },
     ]);
   });
 
@@ -248,7 +278,7 @@ describe("loadPushedProblems", () => {
   test("a website collector_health warning is delivered data, not a problem", async () => {
     seedSection("egress", hoursAgo(1));
     seedSection("storage", hoursAgo(1));
-    seedWebsite(hoursAgo(1), "warn");
+    seedWebsite(hoursAgo(1), { severity: "warn" });
     expect(await loadPushedProblems(asD1(engine), NOW, true)).toEqual([]);
   });
 
@@ -542,7 +572,7 @@ describe("Umami liveness over HTTP", () => {
 
     test("503 when the egress series never arrived", async () => {
       seedHealthy();
-      seedSeries(freshDay(), "pageviews", "website");
+      seedSeries(freshDay(), "pageviews", "website", WEBSITE_SERIES);
       seedSection("egress", new Date().toISOString());
       seedSection("storage", new Date().toISOString());
       seedWebsite(new Date().toISOString());
@@ -563,7 +593,7 @@ describe("Umami liveness over HTTP", () => {
       expect(res.status).toBe(503);
       expect(await res.json()).toMatchObject({
         ok: false,
-        series_behind: [{ key: "pageviews", latest: null }],
+        series_behind: [{ section: "website", key: "pageviews", latest: null }],
         pushed_problems: [{ section: "website", problem: "missing" }],
       });
     });
