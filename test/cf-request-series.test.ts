@@ -36,10 +36,7 @@ const day = (back: number) =>
 const settled = (date: string) => ({
   date,
   value: 100,
-  updated_at: `${date}T00:00:00Z`.replace(
-    /.*/,
-    new Date(Date.parse(`${date}T00:00:00Z`) + 2 * 86_400_000).toISOString(),
-  ),
+  updated_at: new Date(Date.parse(`${date}T00:00:00Z`) + 2 * 86_400_000).toISOString(),
 });
 
 function full(window: number) {
@@ -79,7 +76,7 @@ describe("planRequestPull", () => {
 });
 
 describe("writablePoints", () => {
-  test("a closed day never goes down, the open day is replaced", () => {
+  test("a closed day never goes down and is stamped so it settles, the open day is replaced", () => {
     const stored = [
       { date: "2026-09-29", value: 500, updated_at: "x" },
       { date: "2026-09-30", value: 50, updated_at: "x" },
@@ -92,7 +89,11 @@ describe("writablePoints", () => {
       ],
       "2026-09-30",
     );
-    expect(out).toEqual([{ date: "2026-09-30", value: 20 }]);
+    // The lower closed day is written back at its stored value so it settles.
+    expect(out).toEqual([
+      { date: "2026-09-29", value: 500 },
+      { date: "2026-09-30", value: 20 },
+    ]);
   });
 
   test("a closed day can go up and a new day is kept", () => {
@@ -143,6 +144,81 @@ describe("stored series", () => {
     expect(s?.coverage_end).toBe("2026-09-30");
     expect(s?.points.map((p) => p.date)).toEqual(["2026-08-01", "2026-09-30"]);
     expect((await loadSeriesPoints(db, "cf", "requests")).map((p) => p.value)).toEqual([100, 7]);
+  });
+
+  // HTTP fixtures of the edge's GraphQL answer (the real response shape), so the
+  // real planner, fetch, guard and store run end to end.
+  describe("syncRequestSeries against the edge", () => {
+    const realFetch = globalThis.fetch;
+    let requested: { since: string; until: string }[];
+    let answer: () => Response;
+    const zoneEnv = () =>
+      ({ OBS_DB: db, CF_ZONE_ANALYTICS_TOKEN: "t", CF_ZONE_ID: "z" }) as Bindings;
+    const graphql = (rows: { date: string; requests: number }[]) =>
+      new Response(
+        JSON.stringify({
+          data: {
+            viewer: {
+              zones: [
+                {
+                  httpRequests1dGroups: rows.map((r) => ({
+                    dimensions: { date: r.date },
+                    sum: { requests: r.requests },
+                  })),
+                },
+              ],
+            },
+          },
+        }),
+      );
+    beforeEach(() => {
+      requested = [];
+      globalThis.fetch = (async (_url: string, init: RequestInit) => {
+        const { variables } = JSON.parse(String(init.body));
+        requested.push({ since: variables.since, until: variables.until });
+        return answer();
+      }) as unknown as typeof fetch;
+    });
+    afterEach(() => {
+      globalThis.fetch = realFetch;
+    });
+
+    test("stores the answer, then asks only for the open day once settled", async () => {
+      answer = () =>
+        graphql([
+          { date: day(2), requests: 40 },
+          { date: day(1), requests: 60 },
+        ]);
+      await syncRequestSeries(zoneEnv(), NOW);
+      expect(requested[0]).toEqual({ since: day(29), until: "2026-10-01" });
+      const points = await loadSeriesPoints(db, "cf", "requests");
+      expect(points.map((p) => [p.date, p.value])).toEqual([
+        [day(2), 40],
+        [day(1), 60],
+      ]);
+      // A day later the two stored days are settled; days never stored (no
+      // traffic rows) still widen the range, so assert the range ends at the new today.
+      const later = new Date(NOW.getTime() + 86_400_000);
+      answer = () => graphql([]);
+      await syncRequestSeries(zoneEnv(), later);
+      expect(requested[1].until).toBe("2026-10-02");
+    });
+
+    test("an edge error leaves the stored series unchanged and does not throw", async () => {
+      answer = () => graphql([{ date: day(1), requests: 60 }]);
+      await syncRequestSeries(zoneEnv(), NOW);
+      answer = () => new Response("quota", { status: 429 });
+      await syncRequestSeries(zoneEnv(), NOW);
+      expect((await loadSeriesPoints(db, "cf", "requests")).map((p) => p.value)).toEqual([60]);
+    });
+
+    test("a lower closed-day answer keeps the stored value", async () => {
+      answer = () => graphql([{ date: day(1), requests: 60 }]);
+      await syncRequestSeries(zoneEnv(), NOW);
+      answer = () => graphql([{ date: day(1), requests: 10 }]);
+      await syncRequestSeries(zoneEnv(), NOW);
+      expect((await loadSeriesPoints(db, "cf", "requests")).map((p) => p.value)).toEqual([60]);
+    });
   });
 
   test("without zone credentials the sync writes nothing and does not throw", async () => {

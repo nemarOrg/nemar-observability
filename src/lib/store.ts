@@ -339,7 +339,6 @@ export interface DailySeriesRecord extends DailySeries {
   latest_observation_date: string | null;
 }
 
-/** Persist metadata and source observations; a repeated push replaces each day. */
 /**
  * Value rule for a daily point that already exists. The open day is replaced
  * with the source's fuller day-to-date figure. A closed day (before the UTC
@@ -351,6 +350,7 @@ const POINT_UPSERT_VALUE = `CASE
   WHEN excluded.date < substr(excluded.updated_at, 1, 10) AND excluded.value < daily_series_points.value
   THEN daily_series_points.value ELSE excluded.value END`;
 
+/** Persist metadata and source observations; a repeated push replaces the open day. */
 export async function saveDailySeries(
   db: D1Database,
   section: string,

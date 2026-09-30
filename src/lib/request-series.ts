@@ -52,8 +52,9 @@ export function planRequestPull(
 
 /**
  * Points worth writing. A closed day only ever goes up: a lower re-pull is a
- * partial answer, not a correction, and must not overwrite settled history.
- * The open day is replaced with the authoritative day-to-date total.
+ * partial answer, not a correction, so the stored value is written back (which
+ * stamps the day as written, letting it settle instead of being re-requested
+ * every hour). The open day is replaced with the authoritative day-to-date total.
  */
 export function writablePoints(
   stored: StoredPoint[],
@@ -68,6 +69,7 @@ export function writablePoints(
       console.error(
         `[cron] cf requests for closed day ${row.date} came back lower (${row.requests} < ${prior}); keeping the stored value`,
       );
+      out.push({ date: row.date, value: prior });
       continue;
     }
     out.push({ date: row.date, value: row.requests });

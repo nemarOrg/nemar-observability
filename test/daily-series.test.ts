@@ -52,6 +52,10 @@ describe("daily series store and API", () => {
       );
     await write(100, 10, "2026-09-03T10:00:00.000Z");
     await write(40, 4, "2026-09-03T11:00:00.000Z");
+    // An equal closed-day value is accepted; the last write at midnight is the
+    // first moment 2026-09-03 counts as closed.
+    await write(100, 4, "2026-09-03T12:00:00.000Z");
+    await write(1, 1, "2026-09-04T00:00:00.000Z");
     const [row] = await loadDailySeries(db, "2026-09-02", "2026-09-03");
     expect(row.points).toEqual([
       { date: "2026-09-02", value: 100 },
