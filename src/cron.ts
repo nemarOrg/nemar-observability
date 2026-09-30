@@ -1,7 +1,7 @@
 // Hourly snapshot recompute (wrangler crons = ["47 * * * *"]).
 
 import { fetchHostDay } from "./lib/cf-analytics";
-import { CRON_RETRY } from "./lib/d1-retry";
+import { CRON_RETRY, type RetryPolicy } from "./lib/d1-retry";
 import { buildSnapshot } from "./lib/metrics";
 import { pruneHostDays, recordCronRun, saveHostDays, saveSnapshot } from "./lib/store";
 import type { Bindings } from "./types";
@@ -61,7 +61,10 @@ async function accumulateHostDays(env: Bindings, now: Date): Promise<void> {
   }
 }
 
-export async function handleScheduled(env: Bindings): Promise<void> {
+export async function handleScheduled(
+  env: Bindings,
+  retry: RetryPolicy = CRON_RETRY,
+): Promise<void> {
   const started = Date.now();
   try {
     // Before the snapshot: computeCfSection reads the rows this writes, so
@@ -69,7 +72,13 @@ export async function handleScheduled(env: Bindings): Promise<void> {
     // previous one.
     await accumulateHostDays(env, new Date());
     let retries = 0;
-    const snapshot = await buildSnapshot(env, { ...CRON_RETRY, onRetry: () => retries++ });
+    const snapshot = await buildSnapshot(env, {
+      ...retry,
+      onRetry: (label) => {
+        retries++;
+        retry.onRetry?.(label);
+      },
+    });
     await saveSnapshot(env.OBS_DB, snapshot);
     await env.OBS_DB.prepare(
       "DELETE FROM snapshots WHERE id NOT IN (SELECT id FROM snapshots ORDER BY id DESC LIMIT ?)",

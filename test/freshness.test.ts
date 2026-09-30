@@ -98,6 +98,14 @@ describe("expectedLatestDay", () => {
     expect(expectedLatestDay(at("2026-09-30T06:00:00Z"))).toBe("2026-09-29");
     expect(expectedLatestDay(at("2026-09-30T23:59:00Z"))).toBe("2026-09-29");
   });
+
+  test("rolls back across a month, a year, and a leap day", () => {
+    expect(expectedLatestDay(at("2026-03-01T05:59:59Z"))).toBe("2026-02-27");
+    expect(expectedLatestDay(at("2026-03-01T06:00:00Z"))).toBe("2026-02-28");
+    expect(expectedLatestDay(at("2027-01-01T05:00:00Z"))).toBe("2026-12-30");
+    expect(expectedLatestDay(at("2027-01-01T06:00:00Z"))).toBe("2026-12-31");
+    expect(expectedLatestDay(at("2028-03-01T06:00:00Z"))).toBe("2028-02-29");
+  });
 });
 
 describe("loadSeriesBehind", () => {
