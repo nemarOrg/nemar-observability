@@ -223,7 +223,30 @@ function renderHealth(sections) {
     stateMessage(root, "info", "No pipeline sections in this snapshot", "Their current state is unknown until a pipeline reports.");
     return;
   }
-  sections.forEach(function (section) { root.appendChild(healthCard(section)); });
+  const cards = sections.map(healthCard);
+  const place = function () { packCards(root, cards); };
+  place();
+  if (!root.dataset.packed) {
+    root.dataset.packed = "1";
+    let timer = null;
+    window.addEventListener("resize", function () { clearTimeout(timer); timer = setTimeout(place, 150); });
+  }
+}
+// Cards go into plain stacked columns, each to the shortest one so far, so short
+// cards leave no holes. (CSS multi-column was tried and could leave the page unpainted.)
+function packCards(root, cards) {
+  const width = root.clientWidth || 0;
+  const count = Math.max(1, Math.min(3, Math.floor((width + 24) / 344)));
+  root.textContent = "";
+  const columns = [];
+  for (let i = 0; i < count; i++) { const col = el("div", "health-col"); root.appendChild(col); columns.push(col); }
+  const heights = columns.map(function () { return 0; });
+  cards.forEach(function (card) {
+    let shortest = 0;
+    heights.forEach(function (h, i) { if (h < heights[shortest]) shortest = i; });
+    columns[shortest].appendChild(card);
+    heights[shortest] += card.offsetHeight + 24;
+  });
 }
 function renderUsageSnapshot(sections) {
   const root = document.getElementById("usage-snapshot");

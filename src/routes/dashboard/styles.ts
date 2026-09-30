@@ -470,9 +470,8 @@ main > section { scroll-margin-top: calc(var(--topbar-h) + 16px); padding-top: v
 
 /* ---------- pipelines ---------- */
 .health-meta { margin: calc(-1 * var(--space-3)) 0 var(--space-4); color: var(--text-3); font-size: var(--fs-xs); }
-/* Columns pack cards by height, so there are no holes beside a short card. */
-.health-grid { column-width: 320px; column-gap: var(--space-4); }
-.health-grid > * { break-inside: avoid; margin-bottom: var(--space-4); }
+.health-grid { display: grid; gap: var(--space-4); grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); align-items: start; }
+.health-col { display: flex; flex-direction: column; gap: var(--space-4); min-width: 0; }
 .health-card { display: flex; flex-direction: column; }
 .coverage { display: flex; align-items: center; gap: var(--space-4); padding: var(--space-3); margin-bottom: var(--space-2); border-radius: var(--radius-md); background: var(--surface-2); }
 .ring { position: relative; width: 64px; height: 64px; flex: none; }
