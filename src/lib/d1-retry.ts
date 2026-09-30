@@ -15,8 +15,8 @@ export interface RetryPolicy {
 /** No retries: the right policy for a request a browser is waiting on. */
 export const NO_RETRY: RetryPolicy = { delaysMs: [] };
 
-/** The cron has minutes to spare: about 2.5 minutes of waiting in total. */
-export const CRON_RETRY: RetryPolicy = { delaysMs: [5_000, 15_000, 45_000, 90_000] };
+/** The cron has minutes to spare: 5 minutes of waiting in total. */
+export const CRON_RETRY: RetryPolicy = { delaysMs: [5_000, 15_000, 45_000, 90_000, 145_000] };
 
 const TRANSIENT = /long-running export|database is locked|\bD1_ERROR\b.*\b(busy|overloaded)\b/i;
 
