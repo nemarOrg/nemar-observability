@@ -68,7 +68,8 @@ export async function handleScheduled(env: Bindings): Promise<void> {
     // running it first means the section reflects the current hour, not the
     // previous one.
     await accumulateHostDays(env, new Date());
-    const snapshot = await buildSnapshot(env, CRON_RETRY);
+    let retries = 0;
+    const snapshot = await buildSnapshot(env, { ...CRON_RETRY, onRetry: () => retries++ });
     await saveSnapshot(env.OBS_DB, snapshot);
     await env.OBS_DB.prepare(
       "DELETE FROM snapshots WHERE id NOT IN (SELECT id FROM snapshots ORDER BY id DESC LIMIT ?)",
@@ -78,7 +79,7 @@ export async function handleScheduled(env: Bindings): Promise<void> {
     await recordCronRun(env.OBS_DB, true, snapshot.generated_at);
     const errs = snapshot.section_errors?.length ?? 0;
     console.log(
-      `[cron] snapshot ${snapshot.generated_at} sections=${snapshot.sections.length} errors=${errs} in ${Date.now() - started}ms`,
+      `[cron] snapshot ${snapshot.generated_at} sections=${snapshot.sections.length} errors=${errs} d1_retries=${retries} in ${Date.now() - started}ms`,
     );
   } catch (err) {
     console.error("[cron] snapshot failed:", err);

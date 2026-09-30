@@ -36,6 +36,13 @@ export const EXPECTED_SECTION_MAX_AGE_MS: Record<string, number> = {
   storage: 24 * HOUR_MS,
 };
 
+/**
+ * How long a third-party section's error report counts. A pipeline that was
+ * retired keeps its last stored section, so an old error must age out instead
+ * of holding /health red until someone edits the table.
+ */
+export const THIRD_PARTY_ERROR_MAX_AGE_MS = 7 * DAY_MS;
+
 /** The newest UTC day every expected daily series must already contain. */
 export function expectedLatestDay(now: Date): string {
   return new Date(now.getTime() - SERIES_GRACE_MS - DAY_MS).toISOString().slice(0, 10);
@@ -130,6 +137,13 @@ export async function loadPushedProblems(
       });
       continue;
     }
+    const received = Date.parse(row.received_at);
+    const expectedSection = row.key in EXPECTED_SECTION_MAX_AGE_MS;
+    const history =
+      !expectedSection &&
+      !Number.isNaN(received) &&
+      now.getTime() - received > THIRD_PARTY_ERROR_MAX_AGE_MS;
+    if (history) continue;
     for (const m of metrics) {
       if (m.severity === "error") {
         problems.push({

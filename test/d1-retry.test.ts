@@ -71,6 +71,20 @@ describe("withD1Retry", () => {
     expect(calls).toBe(1);
   });
 
+  test("reports each retry with the section it belongs to", async () => {
+    let calls = 0;
+    const retried: string[] = [];
+    await withD1Retry(
+      async () => {
+        if (++calls < 3) throw EXPORT_LOCK;
+        return "ok";
+      },
+      { delaysMs: [1, 1], sleep: async () => {}, onRetry: (label) => retried.push(label) },
+      "datasets",
+    );
+    expect(retried).toEqual(["datasets", "datasets"]);
+  });
+
   test("the default policy never retries", async () => {
     let calls = 0;
     await expect(

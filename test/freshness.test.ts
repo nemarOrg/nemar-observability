@@ -193,11 +193,25 @@ describe("loadPushedProblems", () => {
   test("a third-party section that reports an error is surfaced too", async () => {
     seedSection("egress", hoursAgo(1));
     seedSection("storage", hoursAgo(1));
-    seedSection("qa", hoursAgo(500), "error");
+    seedSection("qa", hoursAgo(30), "error");
     const problems = await loadPushedProblems(asD1(engine), NOW, true);
     expect(problems).toEqual([
       { section: "qa", problem: "reported_error", detail: "qa.collector.errors" },
     ]);
+  });
+
+  test("a retired third-party section's old error ages out instead of holding health red", async () => {
+    seedSection("egress", hoursAgo(1));
+    seedSection("storage", hoursAgo(1));
+    seedSection("qa", hoursAgo(24 * 8), "error");
+    expect(await loadPushedProblems(asD1(engine), NOW, true)).toEqual([]);
+  });
+
+  test("a first-party section's error never ages out; it goes stale instead", async () => {
+    seedSection("egress", hoursAgo(24 * 8), "error");
+    seedSection("storage", hoursAgo(1));
+    const problems = await loadPushedProblems(asD1(engine), NOW, true);
+    expect(problems.map((p) => p.problem).sort()).toEqual(["reported_error", "stale"]);
   });
 });
 

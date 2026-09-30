@@ -516,7 +516,8 @@ export async function buildSnapshot(
   const now = new Date().toISOString();
   const db = env.NEMAR_DB;
   // Waits out nemar-db's hourly backup export instead of dropping the tiles.
-  const guard = <T>(build: () => Promise<T>) => withD1Retry(build, retry);
+  // Only builders that read nemar-db need it; the edge section reads our own DB.
+  const guard = <T>(key: string, build: () => Promise<T>) => withD1Retry(build, retry, key);
 
   // One key per builder below, in the same order, so a failed section is
   // reported under its own key.
@@ -532,15 +533,15 @@ export async function buildSnapshot(
     "users",
   ];
   const builtins = await Promise.allSettled([
-    guard(() => datasetsSection(db, now)),
-    guard(() => sizesSection(db, now)),
-    guard(() => archiveSection(db, now)),
-    guard(() => zarrSection(db, now)),
-    guard(() => autoImportSection(db, now)),
-    guard(() => publicationSection(db, now)),
-    guard(() => computeAccessSection(env, now)),
-    guard(() => computeCfSection(env, now)),
-    guard(() => usersSection(db, now)),
+    guard("datasets", () => datasetsSection(db, now)),
+    guard("sizes", () => sizesSection(db, now)),
+    guard("archive", () => archiveSection(db, now)),
+    guard("zarr", () => zarrSection(db, now)),
+    guard("imports", () => autoImportSection(db, now)),
+    guard("publication", () => publicationSection(db, now)),
+    guard("access", () => computeAccessSection(env, now)),
+    computeCfSection(env, now),
+    guard("users", () => usersSection(db, now)),
   ]);
 
   const sections: Section[] = [];

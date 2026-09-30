@@ -10,6 +10,9 @@ export interface RetryPolicy {
   /** Wait before retry n (1-based); its length is the number of retries. */
   delaysMs: readonly number[];
   sleep?: (ms: number) => Promise<void>;
+  /** Called once per retry, so a caller can count them: a lock that keeps
+   *  needing retries is a scheduling problem worth seeing before one runs out. */
+  onRetry?: (label: string) => void;
 }
 
 /** No retries: the right policy for a request a browser is waiting on. */
@@ -28,6 +31,7 @@ export function isTransientD1Error(err: unknown): boolean {
 export async function withD1Retry<T>(
   fn: () => Promise<T>,
   policy: RetryPolicy = NO_RETRY,
+  label = "query",
 ): Promise<T> {
   const sleep = policy.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
   for (let attempt = 0; ; attempt++) {
@@ -36,7 +40,10 @@ export async function withD1Retry<T>(
     } catch (err) {
       const wait = policy.delaysMs[attempt];
       if (wait === undefined || !isTransientD1Error(err)) throw err;
-      console.warn(`[d1] transient error, retry ${attempt + 1} in ${wait}ms: ${String(err)}`);
+      console.warn(
+        `[d1] ${label}: transient error, retry ${attempt + 1} in ${wait}ms: ${String(err)}`,
+      );
+      policy.onRetry?.(label);
       await sleep(wait);
     }
   }
