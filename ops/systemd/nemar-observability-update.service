@@ -14,6 +14,8 @@ Environment=HOME=/home/yahya
 Environment=PATH=/usr/local/bin:/usr/bin:/bin
 Environment=GIT_TERMINAL_PROMPT=0
 TimeoutStartSec=3min
+# Holds update-failed-since, which the collectors read; outside the checkout.
+StateDirectory=nemar-observability
 ExecStart=/opt/nemar-observability/ops/update-checkout.sh
 NoNewPrivileges=true
 PrivateTmp=true

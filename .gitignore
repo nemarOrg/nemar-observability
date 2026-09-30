@@ -25,6 +25,3 @@ dist/
 
 # Claude Code local state and agent worktrees
 .claude/
-
-# Written by ops/update-checkout.sh on nemaring when the checkout cannot update
-.update-failed-since

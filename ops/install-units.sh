@@ -37,11 +37,28 @@ sudo -u "$OWNER" env HOME="$(getent passwd "$OWNER" | cut -d: -f6)" GIT_TERMINAL
 (cd "$REPO/ops/systemd" && systemd-analyze verify "${UNITS[@]}") \
   || echo "WARNING: systemd-analyze verify reported the problems above" >&2
 
+TIMERS=(nemar-observability-egress.timer nemar-observability-storage.timer)
+
+# Read each timer's state before installing over it: a timer someone disabled on
+# purpose (the README's way to stop a collector that is known to fail) stays off.
+declare -A PRIOR
+for timer in "${TIMERS[@]}"; do
+  PRIOR[$timer]="$(systemctl is-enabled "$timer" 2>/dev/null || true)"
+done
+
 for unit in "${UNITS[@]}"; do
   install -m 0644 "$REPO/ops/systemd/$unit" "/etc/systemd/system/$unit"
 done
 systemctl daemon-reload
-systemctl enable --now nemar-observability-egress.timer nemar-observability-storage.timer
+
+for timer in "${TIMERS[@]}"; do
+  case "${PRIOR[$timer]}" in
+    disabled | masked | masked-runtime)
+      echo "leaving $timer ${PRIOR[$timer]}; re-enable it with: systemctl enable --now $timer"
+      ;;
+    *) systemctl enable --now "$timer" ;;
+  esac
+done
 # Run the update once now, so a broken update path shows up in this output.
 systemctl start nemar-observability-update.service
 journalctl -u nemar-observability-update.service -n 5 --no-pager

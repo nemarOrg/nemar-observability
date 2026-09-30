@@ -2,8 +2,9 @@
 // Worker: the page's own script, the real router and API handlers, and a real
 // SQLite store behind the D1 surface. Requests the page makes are handed to
 // the Worker in process instead of over a socket; nothing in the page or the
-// API is replaced. Two tests shape transport only: one holds an answer back to
-// make it arrive late, one returns an HTTP error once to exercise Try again.
+// API is replaced. Some tests shape transport only: one holds an answer back to
+// make it arrive late, one returns an HTTP error once to exercise Try again, and
+// the website map tests answer /audience with captured live responses.
 
 import { Database } from "bun:sqlite";
 import { afterEach, describe, expect, test } from "bun:test";

@@ -23,14 +23,13 @@ declare const Bun: {
 
 /**
  * The update service (ops/update-checkout.sh) writes the time of its first
- * failed pull here and removes the file on the next success. A collector that
- * cannot update keeps collecting, but says so once the failure is a day old, so
- * a checkout stuck on old code becomes an alert instead of a silent drift.
+ * failed update here and removes the file on the next success. It lives in the
+ * service's systemd StateDirectory, not the checkout, so a checkout that has
+ * gone unwritable cannot hide the failure. A collector that cannot update keeps
+ * collecting, but says so once the failure is a day old, so a checkout stuck on
+ * old code becomes an alert instead of a silent drift.
  */
-export const UPDATE_MARKER = new URL(
-  "../../.update-failed-since",
-  (import.meta as ImportMeta & { url: string }).url,
-);
+export const UPDATE_MARKER = "/var/lib/nemar-observability/update-failed-since";
 export const CODE_STALE_AFTER_MS = 24 * 3_600_000;
 
 /** The ISO time the checkout stopped updating, when that is over a day ago; else null. */

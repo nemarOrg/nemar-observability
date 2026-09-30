@@ -6,15 +6,16 @@
 #
 # It resets to origin/main instead of pulling, so a dirty tree, a stray local
 # commit, or another branch cannot stop the update. On failure it records when
-# the failures began in .update-failed-since (the collectors report that marker
-# as an error metric once it is a day old) and exits non-zero; the collector
+# the failures began in the marker file (the collectors report it as an error
+# metric once it is a day old) and exits non-zero; the collector
 # still runs on the code already on disk. The whole body is one compound
 # command, so bash has parsed it all before the reset rewrites this file.
 
 {
   set -uo pipefail
   REPO="${NEMAR_OBSERVABILITY_REPO:-/opt/nemar-observability}"
-  MARKER="$REPO/.update-failed-since"
+  # In the service's StateDirectory, outside the checkout being reset.
+  MARKER="${NEMAR_OBSERVABILITY_MARKER:-/var/lib/nemar-observability/update-failed-since}"
 
   # A stuck connection must not hold the collector's start for long.
   git_bounded() {
@@ -32,7 +33,10 @@
     exit 0
   fi
 
-  [ -e "$MARKER" ] || date -u +%Y-%m-%dT%H:%M:%SZ > "$MARKER" 2> /dev/null
+  if [ ! -e "$MARKER" ]; then
+    mkdir -p "$(dirname "$MARKER")" && date -u +%Y-%m-%dT%H:%M:%SZ > "$MARKER" \
+      || echo "[update] ERROR: cannot record the failure in $MARKER" >&2
+  fi
   echo "[update] ERROR: could not update $REPO; failing since $(cat "$MARKER" 2> /dev/null || echo unknown)" >&2
   exit 1
 }

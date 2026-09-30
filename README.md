@@ -207,7 +207,7 @@ The first run after midnight publishes the UTC day that just closed, a failed ru
 Every run is an idempotent re-read of the same 14-day window.
 `Persistent=true` catches up a missed timer activation after downtime.
 Failures remain in the journal and, when possible, as a collector error metric.
-If a closed UTC day is still missing six hours after midnight, `/observability/health` turns red and the health monitor opens an issue.
+If a closed UTC day is still missing six hours after midnight, or a collector has had no successful run for 26 hours, `/observability/health` turns red and the health monitor opens an issue. One failed run does not: the failure status refreshes the section but not its `last_ok_at`, which is what health judges.
 CloudWatch's `GetMetricData` API uses an exclusive end timestamp; the collector ends each
 query at today's UTC midnight so it requests only complete UTC days
 ([API reference](https://docs.aws.amazon.com/AmazonCloudWatch/latest/APIReference/API_GetMetricData.html)).
@@ -254,8 +254,11 @@ Never run `git` as root in the checkout: the services pull as `yahya`, and root-
 `ops/install-units.sh` repairs the ownership, installs both units, and enables both timers:
 
 ```bash
-[ -d /opt/nemar-observability/.git ] \
-  || sudo -u yahya git clone https://github.com/nemarOrg/nemar-observability.git /opt/nemar-observability
+# Fresh host only: /opt is root-owned, so create the directory for yahya first.
+[ -d /opt/nemar-observability/.git ] || {
+  sudo install -d -o yahya -g yahya /opt/nemar-observability
+  sudo -u yahya git clone https://github.com/nemarOrg/nemar-observability.git /opt/nemar-observability
+}
 sudo -u yahya git -C /opt/nemar-observability pull --ff-only
 sudo /opt/nemar-observability/ops/install-units.sh
 # First install only: the one-time egress backfill.
@@ -271,13 +274,13 @@ After this, collector code updates itself: every collector run first starts `nem
 It resets rather than pulls, so a dirty tree, a stray local commit, or another branch cannot block it.
 The update service is the only unit that can write to the checkout and it holds no secrets; the collectors, which hold the AWS key and the ingest tokens, cannot write to it.
 A failed update does not block the collection.
-It records when the failures began in `.update-failed-since`, and once that is a day old each collector publishes an error metric (`egress.collector.code_stale`, `storage.collector.code_stale`), which turns `/observability/health` red and opens a health-alert issue.
+It records when the failures began in `/var/lib/nemar-observability/update-failed-since` (the update service's systemd `StateDirectory`, outside the checkout), and once that is a day old each collector publishes an error metric (`egress.collector.code_stale`, `storage.collector.code_stale`), which turns `/observability/health` red and opens a health-alert issue.
 The next successful update clears it.
 Only a change under `ops/systemd/` needs `sudo /opt/nemar-observability/ops/install-units.sh` again.
 The update trusts `main` with the collectors' secrets exactly as the Worker deploy does, so keep branch protection (green CI) on `main`.
 
 Afterward, confirm `storage.bucket_bytes` in `GET /observability/api/snapshot?cb=$(date +%s)` (the snapshot picks up a push at the next hourly cron) and the egress dates in `GET /observability/api/timeseries`.
-If either run failed, disable its timer with `sudo systemctl disable --now nemar-observability-<name>.timer` until the cause is fixed.
+If either run failed, disable its timer with `sudo systemctl disable --now nemar-observability-<name>.timer` until the cause is fixed. `ops/install-units.sh` leaves a timer you disabled that way disabled; re-enable it with `sudo systemctl enable --now nemar-observability-<name>.timer`.
 The storage timer runs at 08:45 and 14:45 UTC with up to 2 minutes of randomized delay, so a failed first run retries itself.
 It is not hourly because S3 publishes a day's size some time during the next UTC day and the collector rejects a value older than the previous UTC day, so early-morning runs could report a failure that is only S3 catching up.
 

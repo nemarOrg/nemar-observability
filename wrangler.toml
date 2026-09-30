@@ -20,7 +20,7 @@ workers_dev = true
 
 # Hourly snapshot recompute at :47. nemar-cli's nemar-db-backup workflow exports
 # nemar-db every hour (its Actions cron starts at :00 but runs commit between
-# :10 and :30), and D1 rejects other queries during an export. :47 stays clear
+# :10 and :40), and D1 rejects other queries during an export. :47 stays clear
 # of that window; the cron also retries a locked read (src/lib/d1-retry.ts).
 [triggers]
 crons = ["47 * * * *"]

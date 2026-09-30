@@ -4,9 +4,9 @@
 // stopped updating becomes an error metric the dashboard health check reports.
 
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import {
   CODE_STALE_AFTER_MS,
   codeStaleMetrics,
@@ -47,7 +47,12 @@ function publish(file: string, content: string): void {
 
 function runUpdate(): { code: number; out: string } {
   const result = Bun.spawnSync(["bash", SCRIPT], {
-    env: { PATH: process.env.PATH ?? "", HOME: root, NEMAR_OBSERVABILITY_REPO: repo },
+    env: {
+      PATH: process.env.PATH ?? "",
+      HOME: root,
+      NEMAR_OBSERVABILITY_REPO: repo,
+      NEMAR_OBSERVABILITY_MARKER: marker,
+    },
   });
   return { code: result.exitCode, out: `${result.stdout}${result.stderr}` };
 }
@@ -57,7 +62,7 @@ beforeEach(() => {
   origin = join(root, "origin.git");
   work = join(root, "work");
   repo = join(root, "checkout");
-  marker = join(repo, ".update-failed-since");
+  marker = join(root, "state", "update-failed-since");
   git(root, "init", "-q", "--bare", "-b", "main", origin);
   git(root, "clone", "-q", origin, work);
   git(work, "checkout", "-q", "-b", "main");
@@ -117,22 +122,26 @@ describe("ops/update-checkout.sh", () => {
 
 describe("collector code that has stopped updating", () => {
   const hoursAgo = (hours: number) => new Date(Date.now() - hours * 3_600_000).toISOString();
+  const writeMarker = (text: string) => {
+    mkdirSync(dirname(marker), { recursive: true });
+    writeFileSync(marker, text);
+  };
 
   test("is not reported without a marker, or while the failure is under a day old", async () => {
     expect(await codeUpdateProblem(Date.now(), join(root, "no-such-marker"))).toBeNull();
-    writeFileSync(marker, `${hoursAgo(3)}\n`);
+    writeMarker(`${hoursAgo(3)}\n`);
     expect(await codeUpdateProblem(Date.now(), marker)).toBeNull();
   });
 
   test("is reported, with the time it began, once the failure is over a day old", async () => {
     const began = hoursAgo(30);
-    writeFileSync(marker, `${began}\n`);
+    writeMarker(`${began}\n`);
     expect(await codeUpdateProblem(Date.now(), marker)).toBe(began);
     expect(CODE_STALE_AFTER_MS).toBe(24 * 3_600_000);
   });
 
   test("an unreadable marker still counts as a failure", async () => {
-    writeFileSync(marker, "garbage");
+    writeMarker("garbage");
     expect(await codeUpdateProblem(Date.now(), marker)).toBe("an unknown time");
   });
 
