@@ -76,6 +76,18 @@ describe("section ingest contract and atomic publication", () => {
     expect(response.status).toBe(422);
   });
 
+  // A pusher that zero-fills a window (or reads a restored, emptier source) must
+  // not erase a settled past day; a higher value is still accepted.
+  test("a re-push never lowers a closed day but can raise it", async () => {
+    const storedValue = async () =>
+      (await loadDailySeries(db, "2026-09-01", "2026-09-01"))[0]?.points[0]?.value;
+    expect((await post(section(50))).status).toBe(200);
+    expect((await post(section(0))).status).toBe(200);
+    expect(await storedValue()).toBe(50);
+    expect((await post(section(70))).status).toBe(200);
+    expect(await storedValue()).toBe(70);
+  });
+
   test("rejects changed series semantics without relabeling prior points", async () => {
     expect((await post(section(3))).status).toBe(200);
     const response = await post(section(30, "bytes"));

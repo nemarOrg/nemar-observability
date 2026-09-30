@@ -208,6 +208,21 @@ describe("loadSeriesBehind", () => {
 
   // A first ingest that is rejected every time (wrong token, 409, 422) never
   // registers the series, so health must not read the absence as "nothing to check".
+  // The Worker's own cron writes cf/requests, and it only runs after a deploy,
+  // so its absence must not fail the deploy check; a stalled one must.
+  test("the cron-seeded cf series is tolerated when absent but reported when stalled", async () => {
+    seedExpectedSeries("2026-09-29", "2026-09-29");
+    expect(await loadSeriesBehind(asD1(engine), NOW, true)).toEqual([]);
+    seedSeries("2026-09-27", "requests", "cf", {
+      source: "cloudflare",
+      label: "Network edge requests",
+      unit: "count",
+    });
+    expect(await loadSeriesBehind(asD1(engine), NOW, true)).toEqual([
+      { section: "cf", key: "requests", latest: "2026-09-27", expected: "2026-09-29" },
+    ]);
+  });
+
   test("in production, a series that never arrived is behind", async () => {
     expect(await loadSeriesBehind(asD1(engine), NOW, true)).toEqual([
       { section: "egress", key: "s3_bytes_downloaded", latest: null, expected: "2026-09-29" },
