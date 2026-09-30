@@ -290,7 +290,7 @@ export async function computeAccessSection(env: Bindings, now: string): Promise<
       // the 30-day sum" is a true statement that means nothing.
       metric({
         key: "access.archive_daily",
-        label: "Archive downloads / day",
+        label: "Archive links issued (median/day)",
         value: Math.round(archiveSpike.medianDaily),
         unit: "count",
         severity: archiveSpike.isSpike ? "warn" : "info",
@@ -301,7 +301,7 @@ export async function computeAccessSection(env: Bindings, now: string): Promise<
       }),
       metric({
         key: "access.zarr_opens",
-        label: "Dataset opens",
+        label: "Dataset index reads",
         value: zarrIndexHits,
         unit: "count",
         severity: "info",
@@ -321,7 +321,7 @@ export async function computeAccessSection(env: Bindings, now: string): Promise<
       // 2026-07-29: 1.22 GB of index.json against 54 MB of chunk data).
       metric({
         key: "access.science_bytes",
-        label: "Science data served",
+        label: "Viewer chunk bytes (Zarr)",
         value: zarrChunkBytes,
         unit: "bytes",
         severity: "info",
@@ -329,7 +329,7 @@ export async function computeAccessSection(env: Bindings, now: string): Promise<
       }),
       metric({
         key: "access.catalog_bytes",
-        label: "Catalog egress",
+        label: "Viewer index bytes",
         value: zarrIndexBytes,
         unit: "bytes",
         severity: "info",
@@ -343,6 +343,7 @@ export async function computeAccessSection(env: Bindings, now: string): Promise<
         severity: "info",
         breakdown: topBreakdown,
         breakdown_unit: "bytes",
+        breakdown_style: "ranked",
         hint: "Ranked by data-chunk bytes, so index crawling cannot push a dataset to the top.",
       }),
     ],

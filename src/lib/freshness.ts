@@ -56,7 +56,8 @@ export interface BehindSeries {
 }
 
 /**
- * Expected daily series whose newest day is older than expected. Outside
+ * Expected daily series whose newest closed day is older than expected. A point
+ * for the day in progress is ignored here, so it cannot hide a missing yesterday. Outside
  * production a series that has never been pushed is not a fault (dev has no
  * collectors); in production it is.
  */
@@ -70,9 +71,11 @@ export async function loadSeriesBehind(
     .prepare(
       `SELECT s.section_key AS section, s.series_key AS key,
          (SELECT MAX(p.date) FROM daily_series_points p
-           WHERE p.section_key = s.section_key AND p.series_key = s.series_key) AS latest
+           WHERE p.section_key = s.section_key AND p.series_key = s.series_key
+             AND p.date <= ?) AS latest
        FROM daily_series s`,
     )
+    .bind(expected)
     .all<{ section: string; key: string; latest: string | null }>();
   const found = new Map((rows.results ?? []).map((r) => [`${r.section}/${r.key}`, r.latest]));
   const behind: BehindSeries[] = [];

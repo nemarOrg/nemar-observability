@@ -176,6 +176,18 @@ describe("loadSeriesBehind", () => {
     ]);
   });
 
+  test("today's open point cannot hide a missing yesterday", async () => {
+    seedExpectedSeries("2026-09-28", "2026-09-29");
+    engine
+      .query(
+        `INSERT INTO daily_series_points (section_key, series_key, date, value, updated_at)
+         VALUES ('egress', 's3_bytes_downloaded', '2026-09-30', 1, '2026-09-30T08:30:00.000Z')`,
+      )
+      .run();
+    const behind = await loadSeriesBehind(asD1(engine), NOW, true);
+    expect(behind.map((s) => [s.key, s.latest])).toEqual([["s3_bytes_downloaded", "2026-09-28"]]);
+  });
+
   test("website page views are held to the same rule", async () => {
     seedExpectedSeries("2026-09-29", "2026-09-28");
     expect(await loadSeriesBehind(asD1(engine), NOW, true)).toEqual([

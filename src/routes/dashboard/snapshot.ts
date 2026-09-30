@@ -22,7 +22,8 @@ function tile(metric) {
   if (metric.hint) heading.appendChild(infoDisclosure("About " + metric.label, metric.hint));
   t.appendChild(heading);
   const valRow = el("div", "tile-value");
-  valRow.appendChild(el("span", "v", fmt(metric)));
+  const listCount = hasBreakdown && metric.breakdown_unit && metric.breakdown_unit !== metric.unit;
+  valRow.appendChild(el("span", listCount ? "tile-caption" : "v", listCount ? "Top " + metric.breakdown.length + (metric.value > metric.breakdown.length ? " of " + num(metric.value) : "") + " listed" : fmt(metric)));
   const p = pct(metric.value, metric.total);
   if (p != null) valRow.appendChild(el("span", "tile-pct", p + "% of " + (metric.unit === "bytes" ? humanBytes(metric.total) : num(metric.total))));
   t.appendChild(valRow);
