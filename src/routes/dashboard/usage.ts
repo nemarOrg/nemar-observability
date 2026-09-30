@@ -354,8 +354,10 @@ function renderSeries(payload, start, end) {
       label.appendChild(el("p", "measure-total-label", observedPoints.length === 0 ? "Range total" : gap ? "Observed total, some periods missing" : "Range total"));
       label.appendChild(el("p", "measure-total", observedPoints.length === 0 ? "Unknown" : seriesValue(observedTotal, series.unit)));
       head.appendChild(label);
-      // Freshness is a fact about the data, stated plainly rather than as an alarm.
-      head.appendChild(badge("neutral", lastDay ? "Through " + shortDay(lastDay) : "No days counted yet", "neutral"));
+      // Said only when the series is behind the newest closed day; a series that
+      // is up to date needs no flag, and a missing day is stated plainly, not as an alarm.
+      const catchUp = seriesCatchUp(series);
+      if (catchUp) head.appendChild(badge("neutral", catchUp, "neutral"));
       measure.appendChild(head);
       measure.appendChild(chart(series, buckets, grouping, start, end, group.plane.description));
       const legend = el("div", "chart-legend");

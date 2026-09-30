@@ -9,6 +9,7 @@ const {
   coveringWindow,
   seriesWindowFor,
   SERIES_CACHE_MS,
+  seriesCatchUp,
 } = clientLogic([
   "seriesBuckets",
   "seriesValue",
@@ -16,6 +17,7 @@ const {
   "coveringWindow",
   "seriesWindowFor",
   "SERIES_CACHE_MS",
+  "seriesCatchUp",
 ]);
 
 // The live S3 egress series (see the fixture's source line): one value per
@@ -167,5 +169,30 @@ describe("series freshness", () => {
         Date.parse("2026-09-27T00:00:00Z"),
       ),
     ).toBe("stale");
+  });
+});
+
+describe("the catch-up flag", () => {
+  const through = (latest: string | null) => ({ latest_observation_date: latest });
+
+  test("is absent when the series reaches the newest closed day", () => {
+    expect(seriesCatchUp(through("2026-09-29"), "2026-09-30")).toBeNull();
+  });
+
+  test("is absent for a series that is somehow ahead of the closed days", () => {
+    expect(seriesCatchUp(through("2026-09-30"), "2026-09-30")).toBeNull();
+  });
+
+  test("names the last day when a closed day is missing", () => {
+    expect(seriesCatchUp(through("2026-09-28"), "2026-09-30")).toBe("Through Sep 28");
+  });
+
+  test("appears at UTC midnight, before the collector has run", () => {
+    expect(seriesCatchUp(through("2026-09-29"), "2026-10-01")).toBe("Through Sep 29");
+  });
+
+  test("says so when no day has been counted", () => {
+    expect(seriesCatchUp(through(null), "2026-09-30")).toBe("No days counted yet");
+    expect(seriesCatchUp(null, "2026-09-30")).toBe("No days counted yet");
   });
 });

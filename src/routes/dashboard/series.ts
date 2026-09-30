@@ -77,6 +77,15 @@ function seriesFreshness(series, now) {
   const periodEnd = Date.parse(lastDay + "T00:00:00Z") + 86400000;
   return at - periodEnd > hours * 3600000 ? "stale" : "current";
 }
+// The catch-up flag for a series: null while it has every closed UTC day, which
+// is nothing to say, and otherwise the plain fact of how far it reaches. The
+// newest closed day is yesterday, so a series through yesterday needs no flag.
+function seriesCatchUp(series, today) {
+  const lastDay = series ? series.latest_observation_date : null;
+  if (!isValidDay(lastDay)) return "No days counted yet";
+  const closed = shiftDay(today || isoDay(new Date()), -1);
+  return lastDay >= closed ? null : "Through " + shortDay(lastDay);
+}
 function seriesValue(value, unit) {
   if (value === null) return "Unknown";
   if (unit === "bytes") return humanBytes(value);
