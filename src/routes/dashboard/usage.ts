@@ -202,8 +202,10 @@ function loadAudience() {
 // that is pending or has failed is said so on the map, with a retry.
 function loadGeographyDay(start, end, payload, token) {
   if (payload.country_breakdown_scope === "single_completed_day") return;
-  // A source that is already down or not set up is not asked a second time.
-  if (payload.umami.status === "unconfigured" || payload.umami.status === "unavailable") return;
+  // Nothing to ask when website analytics are not set up. An "unavailable" range
+  // is still worth one cheap single-day try: the range summary can fail on its own
+  // (a long range timing out) while the day's map would load.
+  if (payload.umami.status === "unconfigured") return;
   const day = geographyDayFor(start, end);
   if (!day) return;
   const entry = { start: start, end: end, day: day, payload: null, status: "loading", retry: null };
