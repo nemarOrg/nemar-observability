@@ -164,6 +164,6 @@ describe("stored series", () => {
       archive: { series },
       archiveWindow: { start: "2026-09-01", end: "2026-09-30" },
     }) as { label: string; value?: string }[];
-    expect(specs.find((s) => s.label === "Requests")?.value).toBe("3K");
+    expect(specs.find((s) => s.label === "Requests")?.value).toBe("3,000");
   });
 });
