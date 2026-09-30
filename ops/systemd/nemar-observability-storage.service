@@ -9,12 +9,19 @@ User=yahya
 Group=yahya
 Environment=HOME=/home/yahya
 Environment=PATH=/home/yahya/.local/bin:/home/yahya/.bun/bin:/usr/local/bin:/usr/bin:/bin
+Environment=GIT_TERMINAL_PROMPT=0
 WorkingDirectory=/opt/nemar-observability
+TimeoutStartSec=10min
+# Merging to main is the deploy: fetch the collector code before each run. The
+# leading "-" keeps a failed pull (network, local edits) from blocking the
+# collection; the run then uses the code already on disk.
+ExecStartPre=-/usr/bin/git -C /opt/nemar-observability pull --ff-only --quiet origin main
 ExecStart=/opt/nemar-observability/ops/with-collector-secrets.sh /opt/nemar-observability/scripts/push-s3-storage.ts
 NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=strict
 ProtectHome=read-only
+ReadWritePaths=/opt/nemar-observability
 ProtectKernelTunables=true
 ProtectKernelModules=true
 ProtectControlGroups=true

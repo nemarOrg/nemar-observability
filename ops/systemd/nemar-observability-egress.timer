@@ -1,14 +1,12 @@
 [Unit]
-Description=Run the NEMAR S3 egress collector shortly after each UTC midnight
+Description=Run the NEMAR S3 egress collector hourly
 
 [Timer]
-# First run right after the UTC day closes, so yesterday's bytes are on the
-# dashboard within minutes. The two later runs re-read the same 14-day window
-# (an idempotent replace), which both retries a failed first run and picks up
-# any request metrics CloudWatch delivered late.
-OnCalendar=*-*-* 00:15:00 UTC
-OnCalendar=*-*-* 02:15:00 UTC
-OnCalendar=*-*-* 05:15:00 UTC
+# Hourly, so the UTC day that just closed is published within an hour of
+# midnight, a failed run retries itself an hour later, and CloudWatch data that
+# arrives late replaces the earlier value (every run is an idempotent re-read of
+# the same 14-day window). :15 stays clear of the storage collector at :45.
+OnCalendar=*-*-* *:15:00 UTC
 Persistent=true
 RandomizedDelaySec=2m
 AccuracySec=1m
