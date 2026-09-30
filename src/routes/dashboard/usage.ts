@@ -178,7 +178,11 @@ function loadAudience() {
       );
       return;
     }
-    loadGeographyDay(start, end, payload, token);
+    try {
+      loadGeographyDay(start, end, payload, token);
+    } catch (err) {
+      console.error("[ui] website map day could not start:", err);
+    }
     loadPriorAudience(start, end, payload, token);
     renderKpis();
     renderHeadline();
@@ -194,23 +198,39 @@ function loadAudience() {
 }
 // The website map covers one completed UTC day. When the selected dates are
 // anything else, load the newest closed day inside them so the website map still
-// works, labeled with that day; the request map keeps the whole range.
+// works, labeled with that day; the request map keeps the whole range. A load
+// that is pending or has failed is said so on the map, with a retry.
 function loadGeographyDay(start, end, payload, token) {
   if (payload.country_breakdown_scope === "single_completed_day") return;
+  // A source that is already down or not set up is not asked a second time.
+  if (payload.umami.status === "unconfigured" || payload.umami.status === "unavailable") return;
   const day = geographyDayFor(start, end);
   if (!day) return;
-  state.geoDay = { start: start, end: end, day: day, payload: null };
+  const entry = { start: start, end: end, day: day, payload: null, status: "loading", retry: null };
+  entry.retry = function () {
+    if (!audienceGuard.isCurrent(token) || !isSelected(start, end)) return;
+    loadGeographyDay(start, end, payload, token);
+    renderGeography(payload, start, end);
+  };
+  state.geoDay = entry;
   fetchAudience(day, day).then(function (dayPayload) {
     if (!audienceGuard.isCurrent(token) || !isSelected(start, end)) return;
-    state.geoDay = { start: start, end: end, day: day, payload: dayPayload };
+    entry.payload = dayPayload;
+    entry.status = "loaded";
     try {
       renderGeography(payload, start, end);
     } catch (err) {
       console.error("[ui] website map display failed:", err);
     }
   }, function (err) {
-    if (!audienceGuard.isCurrent(token)) return;
+    if (!audienceGuard.isCurrent(token) || !isSelected(start, end)) return;
     console.error("[ui] website map day load failed:", err);
+    entry.status = "failed";
+    try {
+      renderGeography(payload, start, end);
+    } catch (renderErr) {
+      console.error("[ui] website map display failed:", renderErr);
+    }
   });
 }
 function loadPriorAudience(start, end, payload, token) {

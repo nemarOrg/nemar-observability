@@ -246,4 +246,88 @@ describe("dashboard page in a real DOM", () => {
     expect(text(document, "geography")).toContain("United States");
     expect(errors).toEqual([]);
   });
+
+  describe("the website map when its day cannot simply load", () => {
+    type AudienceFixture = typeof audienceDay.response;
+    const clone = (body: AudienceFixture): AudienceFixture => JSON.parse(JSON.stringify(body));
+    const json = (body: unknown, status = 200) =>
+      new Response(JSON.stringify(body), {
+        status,
+        headers: { "content-type": "application/json" },
+      });
+    const websiteButton = (document: Window["document"]) =>
+      (
+        Array.from(document.querySelectorAll(".geography-source")) as unknown as {
+          textContent: string;
+          disabled: boolean;
+        }[]
+      ).find((b) => b.textContent.includes("Website sessions"));
+    const chip = (document: Window["document"]) =>
+      document.querySelector(".scope-note")?.textContent ?? "";
+
+    test("a failed day load says so and offers Try again, which recovers", async () => {
+      let failures = 1;
+      const route: Route = async (request, env) => {
+        const url = new URL(request.url);
+        if (!url.pathname.endsWith("/audience")) return direct(request, env);
+        const single = url.searchParams.get("start") === url.searchParams.get("end");
+        if (single && failures > 0) {
+          failures--;
+          return json({ error: "Service unavailable" }, 503);
+        }
+        return json(single ? audienceDay.response : audienceWeek.response);
+      };
+      const { document, errors } = await openPage(false, route);
+      await until(() => chip(document).includes("Could not load the website map"), "the failure");
+      // Not the permanent-limitation wording: this one is a failure.
+      expect(websiteButton(document)?.textContent).toContain("Could not load");
+      expect(websiteButton(document)?.textContent).not.toContain("Single day only");
+      expect(chip(document)).toContain("Try again");
+
+      (document.querySelector(".scope-note .button") as unknown as { click(): void }).click();
+      await until(
+        () => (websiteButton(document)?.textContent ?? "").includes("Newest closed day"),
+        "the retry to load the day",
+      );
+      expect(websiteButton(document)?.disabled).toBe(false);
+      expect(errors).toEqual([]);
+    });
+
+    test("a day with no country data is labeled by its coverage, not as a map", async () => {
+      const partialDay = clone(audienceDay.response);
+      partialDay.umami.status = "partial";
+      partialDay.umami.country_coverage = null as never;
+      partialDay.umami.countries = [];
+      const route: Route = async (request, env) => {
+        const url = new URL(request.url);
+        if (!url.pathname.endsWith("/audience")) return direct(request, env);
+        const single = url.searchParams.get("start") === url.searchParams.get("end");
+        return json(single ? partialDay : audienceWeek.response);
+      };
+      const { document, errors } = await openPage(false, route);
+      await until(() => chip(document).includes("no country data"), "the no-data notice");
+      expect(websiteButton(document)?.textContent).toContain("Partial coverage");
+      expect(websiteButton(document)?.textContent).not.toContain("Newest closed day");
+      expect(websiteButton(document)?.disabled).toBe(true);
+      expect(errors).toEqual([]);
+    });
+
+    test("no day request is made when website analytics are already unavailable", async () => {
+      const down = clone(audienceWeek.response);
+      down.umami.status = "unavailable";
+      const requested: string[] = [];
+      const route: Route = async (request, env) => {
+        const url = new URL(request.url);
+        if (!url.pathname.endsWith("/audience")) return direct(request, env);
+        requested.push(`${url.searchParams.get("start")}..${url.searchParams.get("end")}`);
+        return json(down);
+      };
+      const { document, errors } = await openPage(false, route);
+      await until(() => websiteButton(document) !== undefined, "the map toolbar");
+      await Bun.sleep(150);
+      const single = requested.filter((r) => r.split("..")[0] === r.split("..")[1]);
+      expect(single).toEqual([]);
+      expect(errors).toEqual([]);
+    });
+  });
 });

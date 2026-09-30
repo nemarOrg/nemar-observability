@@ -28,15 +28,49 @@ function countryName(label) {
   return (WORLD_COUNTRY_NAMES[code] && WORLD_COUNTRY_NAMES[code][0]) || label;
 }
 // Requests use the selected range. Website sessions map one completed day: the
-// selected day itself, or for a longer range the newest closed day inside it once
-// that day has loaded (state.geoDay), so the source says which day it shows.
+// selected day itself, or for a longer range the newest closed day inside it
+// (state.geoDay), which is loaded on its own. The source says which day it shows
+// and, while that day is loading or has failed, says that instead.
 function geographySources(payload) {
-  const dayLoaded = state.geoDay && state.geoDay.payload ? state.geoDay : null;
+  const geo = state.geoDay;
+  const dayLoaded = geo && geo.payload ? geo : null;
   const umami = dayLoaded ? dayLoaded.payload.umami : payload.umami;
   return [
     { key: "cloudflare", label: "Requests", unit: "requests", totalLabel: "Requests to NEMAR", total: payload.cloudflare.country_requests, source: payload.cloudflare },
-    { key: "umami", label: "Website sessions", unit: "anonymous sessions", totalLabel: "Anonymous unique sessions", total: umami.visitors, source: umami, day: dayLoaded ? dayLoaded.day : null }
+    { key: "umami", label: "Website sessions", unit: "anonymous sessions", totalLabel: "Anonymous unique sessions", total: umami.visitors, source: umami, day: dayLoaded ? dayLoaded.day : null, dayState: geo ? geo.status : null, dayFor: geo ? geo.day : null }
   ];
+}
+// What the website source says about itself. Country data first, then why not.
+function geographyStatusText(item, start, end, hasValues, available) {
+  if (item.key !== "umami") return audienceStatus(item.source.status);
+  if (item.dayState === "loading") return "Loading newest day";
+  if (item.dayState === "failed") return "Could not load " + shortDay(item.dayFor);
+  if (item.day) return hasValues ? "Newest closed day" : audienceStatus(item.source.status);
+  if (available && start !== end) return "Single day only";
+  if (available && end >= isoDay(new Date())) return "Completed day only";
+  return audienceStatus(item.source.status);
+}
+// The plain sentence beside the source switch, when the website map is not the
+// selected range itself.
+function geographyScopeChip(website) {
+  const chip = el("span", "scope-chip scope-note");
+  chip.setAttribute("role", "status");
+  if (website.dayState === "loading") {
+    chip.textContent = "Loading the website map for " + longDay(website.dayFor) + ", the newest completed UTC day in these dates";
+  } else if (website.dayState === "failed") {
+    chip.textContent = "Could not load the website map for " + longDay(website.dayFor) + ". ";
+    const retry = el("button", "button", "Try again");
+    retry.type = "button";
+    retry.addEventListener("click", function () { if (state.geoDay && state.geoDay.retry) state.geoDay.retry(); });
+    chip.appendChild(retry);
+  } else if (website.day && hasCountryData(website)) {
+    chip.textContent = "Website sessions map " + longDay(website.day) + " only, the newest completed UTC day in these dates";
+  } else if (website.day) {
+    chip.textContent = "The website map has no country data for " + longDay(website.day) + ", the newest completed UTC day in these dates";
+  } else {
+    chip.textContent = "Website sessions map one completed UTC day only";
+  }
+  return chip;
 }
 function hasCountryData(item) {
   return Boolean(item.source.country_coverage);
@@ -51,7 +85,6 @@ function renderGeography(payload, start, end) {
     || sources.find(hasCountryData)
     || requested
     || sources[0];
-  geographySourceKey = active.key;
   const countryCoverage = active.source.country_coverage;
   const period = countryCoverage && countryCoverage.start && countryCoverage.end
     ? countryCoverage.start === countryCoverage.end
@@ -74,13 +107,7 @@ function renderGeography(payload, start, end) {
     button.type = "button";
     button.disabled = !available || !hasValues;
     button.setAttribute("aria-pressed", String(item.key === active.key));
-    const sourceStatus = available && item.key === "umami" && item.day
-      ? "Newest closed day"
-      : available && item.key === "umami" && start !== end
-      ? "Single day only"
-      : available && item.key === "umami" && end >= isoDay(new Date())
-        ? "Completed day only"
-        : audienceStatus(item.source.status);
+    const sourceStatus = geographyStatusText(item, start, end, hasValues, available);
     button.appendChild(el("span", "geography-source-status", sourceStatus));
     button.addEventListener("click", function () {
       geographySourceKey = item.key;
@@ -92,10 +119,7 @@ function renderGeography(payload, start, end) {
   // Website analytics report countries for one completed UTC day at a time; say so once,
   // plainly, whenever the chosen dates are anything else.
   if (payload.country_breakdown_scope && payload.country_breakdown_scope !== "single_completed_day") {
-    const websiteDay = sources.find(function (item) { return item.key === "umami"; }).day;
-    toolbar.appendChild(el("span", "scope-chip scope-note", websiteDay
-      ? "Website sessions map " + longDay(websiteDay) + " only, the newest completed UTC day in these dates"
-      : "Website sessions map one completed UTC day only"));
+    toolbar.appendChild(geographyScopeChip(sources.find(function (item) { return item.key === "umami"; })));
   }
   root.appendChild(toolbar);
 
