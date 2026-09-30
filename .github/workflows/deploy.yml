@@ -114,7 +114,7 @@ jobs:
           bun -e '
             const j = JSON.parse(await Bun.file("/tmp/health.json").text());
             if (j.ok !== true) {
-              console.error(`::error::health reports unhealthy: ok=${j.ok} stale=${j.stale} snapshot=${j.snapshot} section_errors=${(j.section_errors ?? []).join(",")}`);
+              console.error(`::error::health reports unhealthy: ${JSON.stringify(j)}`);
               process.exit(1);
             }
             console.log("health ok");
