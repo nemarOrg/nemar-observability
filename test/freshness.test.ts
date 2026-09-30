@@ -16,15 +16,8 @@ import {
 import { fetchUmamiLiveness, resetUmamiLivenessCache } from "../src/lib/umami";
 import type { Bindings } from "../src/types";
 import { asD1 } from "./helpers/d1";
+import { MIGRATIONS } from "./helpers/migrations";
 
-const MIGRATIONS = await Promise.all(
-  [
-    "0001_init.sql",
-    "0002_cf_daily_host.sql",
-    "0003_daily_series.sql",
-    "0004_atomic_section_ingest.sql",
-  ].map((name) => Bun.file(new URL(`../src/db/migrations/${name}`, import.meta.url)).text()),
-);
 const ctx = { waitUntil() {}, passThroughOnException() {} } as unknown as ExecutionContext;
 const at = (iso: string) => new Date(iso);
 const NOW = at("2026-09-30T08:30:00Z");
@@ -51,28 +44,41 @@ function seedSeries(latestDate: string | null, key = "s3_bytes_downloaded", sect
   }
 }
 
+/**
+ * A stored collector section. `failedRun` is a collector that reported its own
+ * failure (the error-only status); `lastOk` is when its last successful run
+ * was (default: this delivery, unless the run failed).
+ */
 function seedSection(
   key: string,
   receivedAt: string,
-  severity: "ok" | "error" = "ok",
-  raw?: string,
+  opts: { failedRun?: boolean; lastOk?: string | null; raw?: string; extraMetric?: object } = {},
 ): void {
+  const failed = opts.failedRun === true;
   const json =
-    raw ??
+    opts.raw ??
     JSON.stringify({
       key,
       label: key,
       source: "aws-s3-cloudwatch",
       updated_at: receivedAt,
       metrics: [
-        { key: `${key}.collector.errors`, label: "Errors", value: 0, unit: "errors", severity },
+        {
+          key: `${key}.collector.errors`,
+          label: "Errors",
+          value: failed ? 1 : 0,
+          unit: "errors",
+          severity: failed ? "error" : "ok",
+        },
+        ...(opts.extraMetric ? [opts.extraMetric] : []),
       ],
     });
+  const lastOk = opts.lastOk === undefined ? (failed ? null : receivedAt) : opts.lastOk;
   engine
     .query(
-      "INSERT INTO ingested_sections (key, section_json, source, received_at) VALUES (?, ?, 'aws-s3-cloudwatch', ?)",
+      "INSERT INTO ingested_sections (key, section_json, source, received_at, last_ok_at) VALUES (?, ?, 'aws-s3-cloudwatch', ?, ?)",
     )
-    .run(key, json, receivedAt);
+    .run(key, json, receivedAt, lastOk);
 }
 
 beforeEach(() => {
@@ -138,7 +144,7 @@ describe("loadSeriesBehind", () => {
 });
 
 describe("loadPushedProblems", () => {
-  test("nothing is wrong when both collectors delivered recently and report no error", async () => {
+  test("nothing is wrong when both collectors succeeded recently", async () => {
     seedSection("egress", hoursAgo(1));
     seedSection("storage", hoursAgo(10));
     expect(await loadPushedProblems(asD1(engine), NOW, true)).toEqual([]);
@@ -156,62 +162,79 @@ describe("loadPushedProblems", () => {
     expect(await loadPushedProblems(asD1(engine), NOW, false)).toEqual([]);
   });
 
-  test("egress silent for more than three hours is stale", async () => {
-    seedSection("egress", hoursAgo(4));
-    seedSection("storage", hoursAgo(1));
+  test("a day and two hours without a successful run is stale, less is not", async () => {
+    seedSection("egress", hoursAgo(1), { lastOk: hoursAgo(25) });
+    seedSection("storage", hoursAgo(1), { lastOk: hoursAgo(27) });
     expect(await loadPushedProblems(asD1(engine), NOW, true)).toEqual([
-      { section: "egress", problem: "stale", detail: "last received 4h ago" },
+      { section: "storage", problem: "stale", detail: "last success 27h ago" },
     ]);
   });
 
-  test("storage tolerates its overnight gap but not a missed day", async () => {
-    seedSection("egress", hoursAgo(1));
+  test("the old once-a-day timer stays green until the hourly one is installed", async () => {
+    seedSection("egress", hoursAgo(24));
     seedSection("storage", hoursAgo(19));
     expect(await loadPushedProblems(asD1(engine), NOW, true)).toEqual([]);
-    engine
-      .query("UPDATE ingested_sections SET received_at = ? WHERE key = 'storage'")
-      .run(hoursAgo(25));
-    const problems = await loadPushedProblems(asD1(engine), NOW, true);
-    expect(problems.map((p) => `${p.section}:${p.problem}`)).toEqual(["storage:stale"]);
   });
 
-  test("an error metric from a collector is reported by its key, not its text", async () => {
-    seedSection("egress", hoursAgo(1), "error");
+  test("one failed run is not a problem while an earlier run succeeded", async () => {
+    seedSection("egress", hoursAgo(0.1), { failedRun: true, lastOk: hoursAgo(1.1) });
+    seedSection("storage", hoursAgo(1));
+    expect(await loadPushedProblems(asD1(engine), NOW, true)).toEqual([]);
+  });
+
+  test("failures that persist past the window are stale even though each refreshed the section", async () => {
+    seedSection("egress", hoursAgo(0.1), { failedRun: true, lastOk: hoursAgo(30) });
     seedSection("storage", hoursAgo(1));
     expect(await loadPushedProblems(asD1(engine), NOW, true)).toEqual([
-      { section: "egress", problem: "reported_error", detail: "egress.collector.errors" },
+      { section: "egress", problem: "stale", detail: "last success 30h ago" },
+    ]);
+  });
+
+  test("a collector that has never succeeded is stale", async () => {
+    seedSection("egress", hoursAgo(0.1), { failedRun: true });
+    seedSection("storage", hoursAgo(1));
+    expect(await loadPushedProblems(asD1(engine), NOW, true)).toEqual([
+      { section: "egress", problem: "stale", detail: "no successful run yet" },
+    ]);
+  });
+
+  test("a collector whose code has stopped updating is reported by its metric key", async () => {
+    seedSection("egress", hoursAgo(1), {
+      extraMetric: {
+        key: "egress.collector.code_stale",
+        label: "Collector code updates",
+        value: 1,
+        unit: "errors",
+        severity: "error",
+      },
+    });
+    seedSection("storage", hoursAgo(1));
+    expect(await loadPushedProblems(asD1(engine), NOW, true)).toEqual([
+      { section: "egress", problem: "code_stale", detail: "egress.collector.code_stale" },
     ]);
   });
 
   test("a stored section that is not valid JSON is unreadable", async () => {
-    seedSection("egress", hoursAgo(1), "ok", "{not json");
+    seedSection("egress", hoursAgo(1), { raw: "{not json" });
     seedSection("storage", hoursAgo(1));
     const problems = await loadPushedProblems(asD1(engine), NOW, true);
     expect(problems.map((p) => p.problem)).toEqual(["unreadable"]);
   });
 
-  test("a third-party section that reports an error is surfaced too", async () => {
+  test("a third-party section is not judged: its severity is a display level", async () => {
     seedSection("egress", hoursAgo(1));
     seedSection("storage", hoursAgo(1));
-    seedSection("qa", hoursAgo(30), "error");
-    const problems = await loadPushedProblems(asD1(engine), NOW, true);
-    expect(problems).toEqual([
-      { section: "qa", problem: "reported_error", detail: "qa.collector.errors" },
-    ]);
-  });
-
-  test("a retired third-party section's old error ages out instead of holding health red", async () => {
-    seedSection("egress", hoursAgo(1));
-    seedSection("storage", hoursAgo(1));
-    seedSection("qa", hoursAgo(24 * 8), "error");
+    seedSection("qa", hoursAgo(900), { failedRun: true, lastOk: null });
+    engine.query("UPDATE ingested_sections SET section_json = ? WHERE key = 'qa'").run(
+      JSON.stringify({
+        key: "qa",
+        label: "QA",
+        source: "qa-pipeline",
+        updated_at: NOW.toISOString(),
+        metrics: [{ key: "qa.failed_validations", label: "Failed", value: 9, severity: "error" }],
+      }),
+    );
     expect(await loadPushedProblems(asD1(engine), NOW, true)).toEqual([]);
-  });
-
-  test("a first-party section's error never ages out; it goes stale instead", async () => {
-    seedSection("egress", hoursAgo(24 * 8), "error");
-    seedSection("storage", hoursAgo(1));
-    const problems = await loadPushedProblems(asD1(engine), NOW, true);
-    expect(problems.map((p) => p.problem).sort()).toEqual(["reported_error", "stale"]);
   });
 });
 
@@ -439,16 +462,16 @@ describe("Umami liveness over HTTP", () => {
       ]);
     });
 
-    test("503 when a collector reports an error", async () => {
+    test("503 when a collector has not succeeded for over a day", async () => {
       seedHealthy();
       seedSeries(freshDay());
-      seedSection("egress", new Date().toISOString(), "error");
+      seedSection("egress", new Date().toISOString(), { lastOk: hoursAgo(80) });
       seedSection("storage", new Date().toISOString());
       const res = await call(production());
       expect(res.status).toBe(503);
       expect(await res.json()).toMatchObject({
         ok: false,
-        pushed_problems: [{ section: "egress", problem: "reported_error" }],
+        pushed_problems: [{ section: "egress", problem: "stale" }],
       });
     });
 

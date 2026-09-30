@@ -48,16 +48,16 @@ describe("verdictFor", () => {
     );
   });
 
-  test("names collector sections that are missing, stale, or reporting an error", () => {
+  test("names collector sections that are missing, stale, or running old code", () => {
     const v = verdictFor(503, {
       ok: false,
       pushed_problems: [
         { section: "egress", problem: "stale", detail: "last received 4h ago" },
-        { section: "storage", problem: "reported_error", detail: "storage.collector.errors" },
+        { section: "storage", problem: "code_stale", detail: "storage.collector.code_stale" },
       ],
     });
     expect(v.summary).toContain("egress stale (last received 4h ago)");
-    expect(v.summary).toContain("storage reported_error (storage.collector.errors)");
+    expect(v.summary).toContain("storage code_stale (storage.collector.code_stale)");
   });
 
   test("says when a health check itself could not run", () => {

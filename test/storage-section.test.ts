@@ -16,12 +16,8 @@ import { BUILTIN_SECTION_KEYS, type MetricSnapshot } from "../src/lib/schema";
 import { loadDailySeries, loadPushedSections, saveSnapshot } from "../src/lib/store";
 import type { Bindings } from "../src/types";
 import { asD1 } from "./helpers/d1";
+import { MIGRATIONS } from "./helpers/migrations";
 
-const MIGRATIONS = await Promise.all(
-  ["0001_init.sql", "0003_daily_series.sql", "0004_atomic_section_ingest.sql"].map((name) =>
-    Bun.file(new URL(`../src/db/migrations/${name}`, import.meta.url)).text(),
-  ),
-);
 const capture = await readFile(
   new URL("./fixtures/cloudwatch-s3-storage-2026-09-22-to-2026-09-28.json", import.meta.url),
   "utf8",

@@ -16,15 +16,8 @@ import audienceDay from "./fixtures/audience-day-2026-09-29-to-2026-09-29.json";
 import audienceWeek from "./fixtures/audience-week-2026-09-23-to-2026-09-29.json";
 import timeseries from "./fixtures/timeseries-2026-07-01-to-2026-09-28.json";
 import { asD1 } from "./helpers/d1";
+import { MIGRATIONS } from "./helpers/migrations";
 
-const MIGRATIONS = await Promise.all(
-  [
-    "0001_init.sql",
-    "0002_cf_daily_host.sql",
-    "0003_daily_series.sql",
-    "0004_atomic_section_ingest.sql",
-  ].map((name) => Bun.file(new URL(`../src/db/migrations/${name}`, import.meta.url)).text()),
-);
 const ctx = { waitUntil() {}, passThroughOnException() {} } as unknown as ExecutionContext;
 const ORIGIN = "https://dashboard.nemar.org";
 

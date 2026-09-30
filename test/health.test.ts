@@ -9,16 +9,7 @@ import worker from "../src/index";
 import { recordCronRun } from "../src/lib/store";
 import type { Bindings } from "../src/types";
 import { asD1 } from "./helpers/d1";
-
-// Every migration, in order: health now reads the daily-series tables too.
-const MIGRATIONS = await Promise.all(
-  [
-    "0001_init.sql",
-    "0002_cf_daily_host.sql",
-    "0003_daily_series.sql",
-    "0004_atomic_section_ingest.sql",
-  ].map((name) => Bun.file(new URL(`../src/db/migrations/${name}`, import.meta.url)).text()),
-);
+import { MIGRATIONS } from "./helpers/migrations";
 
 const ctx = { waitUntil() {}, passThroughOnException() {} } as unknown as ExecutionContext;
 

@@ -3,12 +3,8 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import worker from "../src/index";
 import { loadDailySeries, saveDailySeries } from "../src/lib/store";
 import { asD1 } from "./helpers/d1";
+import { MIGRATIONS } from "./helpers/migrations";
 
-const MIGRATIONS = await Promise.all(
-  ["0001_init.sql", "0003_daily_series.sql", "0004_atomic_section_ingest.sql"].map((name) =>
-    Bun.file(new URL(`../src/db/migrations/${name}`, import.meta.url)).text(),
-  ),
-);
 let engine: Database;
 let db: D1Database;
 beforeEach(() => {

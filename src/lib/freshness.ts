@@ -27,21 +27,16 @@ export const UMAMI_SILENT_AFTER_MS = 6 * HOUR_MS;
 export const EXPECTED_SERIES = [{ section: "egress", key: "s3_bytes_downloaded" }] as const;
 
 /**
- * The first-party pushed sections and the longest they may go without a
- * delivery. Egress runs hourly, so three hours is two missed runs. Storage runs
- * at 08:45 and 14:45 UTC, an 18 hour gap overnight, so a day is one missed day.
+ * The first-party pushed sections and the longest each may go without a
+ * successful collector run. A day and two hours: the collectors run hourly (egress)
+ * or twice a day (storage) and retry by themselves, so only a day with no success
+ * at all is a fault, and one failed run never is. It is also long enough that the
+ * old once-a-day timer stays green until the new ones are installed.
  */
 export const EXPECTED_SECTION_MAX_AGE_MS: Record<string, number> = {
-  egress: 3 * HOUR_MS,
-  storage: 24 * HOUR_MS,
+  egress: 26 * HOUR_MS,
+  storage: 26 * HOUR_MS,
 };
-
-/**
- * How long a third-party section's error report counts. A pipeline that was
- * retired keeps its last stored section, so an old error must age out instead
- * of holding /health red until someone edits the table.
- */
-export const THIRD_PARTY_ERROR_MAX_AGE_MS = 7 * DAY_MS;
 
 /** The newest UTC day every expected daily series must already contain. */
 export function expectedLatestDay(now: Date): string {
@@ -89,16 +84,18 @@ export async function loadSeriesBehind(
 
 export interface PushedProblem {
   section: string;
-  problem: "missing" | "stale" | "reported_error" | "unreadable";
+  problem: "missing" | "stale" | "code_stale" | "unreadable";
   detail: string;
 }
 
 /**
- * Faults in what the collectors push, for the first-party sections: one that
- * never arrived (production only), one that stopped arriving, and one that
- * arrived carrying an error metric (a failed collector run, or a collector
- * whose own code has stopped updating). Reports the metric key and the age,
- * never the free-text hint, so an alert body stays small and safe.
+ * Faults in what the first-party collectors push: a section that never arrived
+ * (production only), one whose collector has not succeeded within its window
+ * (`last_ok_at`, which one failed run does not move), one whose collector code
+ * has stopped updating (its `code_stale` metric), and one that cannot be read.
+ * Third-party sections are not judged: their `severity` is a tile's display level,
+ * not a health report. Reports ages and metric keys, never free-text hints, so an
+ * alert body stays small and safe.
  */
 export async function loadPushedProblems(
   db: D1Database,
@@ -106,8 +103,8 @@ export async function loadPushedProblems(
   production: boolean,
 ): Promise<PushedProblem[]> {
   const rows = await db
-    .prepare("SELECT key, section_json, received_at FROM ingested_sections")
-    .all<{ key: string; section_json: string; received_at: string }>();
+    .prepare("SELECT key, section_json, last_ok_at FROM ingested_sections")
+    .all<{ key: string; section_json: string; last_ok_at: string | null }>();
   const bySection = new Map((rows.results ?? []).map((r) => [r.key, r]));
   const problems: PushedProblem[] = [];
   for (const [section, maxAgeMs] of Object.entries(EXPECTED_SECTION_MAX_AGE_MS)) {
@@ -116,41 +113,28 @@ export async function loadPushedProblems(
       if (production) problems.push({ section, problem: "missing", detail: "never received" });
       continue;
     }
-    const received = Date.parse(row.received_at);
-    if (Number.isNaN(received) || now.getTime() - received > maxAgeMs) {
-      const hours = Number.isNaN(received)
-        ? "unknown"
-        : `${Math.floor((now.getTime() - received) / HOUR_MS)}h`;
-      problems.push({ section, problem: "stale", detail: `last received ${hours} ago` });
+    const lastOk = row.last_ok_at ? Date.parse(row.last_ok_at) : Number.NaN;
+    if (Number.isNaN(lastOk)) {
+      problems.push({ section, problem: "stale", detail: "no successful run yet" });
+    } else if (now.getTime() - lastOk > maxAgeMs) {
+      const hours = Math.floor((now.getTime() - lastOk) / HOUR_MS);
+      problems.push({ section, problem: "stale", detail: `last success ${hours}h ago` });
     }
-  }
-  for (const row of bySection.values()) {
     let metrics: { key?: unknown; severity?: unknown }[];
     try {
       metrics = (JSON.parse(row.section_json) as { metrics: typeof metrics }).metrics;
       if (!Array.isArray(metrics)) throw new Error("no metrics");
     } catch {
-      problems.push({
-        section: row.key,
-        problem: "unreadable",
-        detail: "stored section is invalid",
-      });
+      problems.push({ section, problem: "unreadable", detail: "stored section is invalid" });
       continue;
     }
-    const received = Date.parse(row.received_at);
-    const expectedSection = row.key in EXPECTED_SECTION_MAX_AGE_MS;
-    const history =
-      !expectedSection &&
-      !Number.isNaN(received) &&
-      now.getTime() - received > THIRD_PARTY_ERROR_MAX_AGE_MS;
-    if (history) continue;
     for (const m of metrics) {
-      if (m.severity === "error") {
-        problems.push({
-          section: row.key,
-          problem: "reported_error",
-          detail: typeof m.key === "string" ? m.key : "unknown metric",
-        });
+      if (
+        m.severity === "error" &&
+        typeof m.key === "string" &&
+        m.key.endsWith(".collector.code_stale")
+      ) {
+        problems.push({ section, problem: "code_stale", detail: m.key });
       }
     }
   }

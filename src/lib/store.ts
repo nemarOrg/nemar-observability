@@ -141,13 +141,24 @@ export async function loadCronStatus(db: D1Database): Promise<CronStatus | null>
   );
 }
 
+/**
+ * SQL that is true when a stored section reports a failed collector run: its
+ * `<section>.collector.errors` metric carries severity error. `column` names the
+ * JSON text to inspect. A collector's failure status is that metric alone.
+ */
+const runFailedSql = (column: string) => `EXISTS (
+  SELECT 1 FROM json_each(${column}, '$.metrics') AS m
+  WHERE json_extract(m.value, '$.key') LIKE '%.collector.errors'
+    AND json_extract(m.value, '$.severity') = 'error')`;
+
 /** Replace the stored section for a pushed pipeline key (push mode). */
 export async function savePushedSection(db: D1Database, section: Section): Promise<void> {
   await db
     .prepare(
-      `INSERT INTO ingested_sections (key, section_json, source, received_at)
-       VALUES (?1, ?2, ?3, ?4)
-       ON CONFLICT(key) DO UPDATE SET section_json = ?2, source = ?3, received_at = ?4`,
+      `INSERT INTO ingested_sections (key, section_json, source, received_at, last_ok_at)
+       VALUES (?1, ?2, ?3, ?4, CASE WHEN ${runFailedSql("?2")} THEN NULL ELSE ?4 END)
+       ON CONFLICT(key) DO UPDATE SET section_json = ?2, source = ?3, received_at = ?4,
+         last_ok_at = COALESCE(excluded.last_ok_at, ingested_sections.last_ok_at)`,
     )
     .bind(section.key, JSON.stringify(section), section.source, section.updated_at)
     .run();
@@ -267,11 +278,13 @@ export async function commitPushedSectionIngest(
       ON CONFLICT(section_key, series_key, date) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at`)
       .bind(ingestId),
     db
-      .prepare(`INSERT INTO ingested_sections (key, section_json, source, received_at)
-      SELECT key, section_json, source, received_at
+      .prepare(`INSERT INTO ingested_sections (key, section_json, source, received_at, last_ok_at)
+      SELECT key, section_json, source, received_at,
+        CASE WHEN ${runFailedSql("section_json")} THEN NULL ELSE received_at END
       FROM section_ingest_staging WHERE ingest_id=? AND key=?
       ON CONFLICT(key) DO UPDATE SET section_json=excluded.section_json,
-        source=excluded.source, received_at=excluded.received_at`)
+        source=excluded.source, received_at=excluded.received_at,
+        last_ok_at=COALESCE(excluded.last_ok_at, ingested_sections.last_ok_at)`)
       .bind(ingestId, sectionKey),
     db.prepare("DELETE FROM daily_series_point_ingest_staging WHERE ingest_id=?").bind(ingestId),
     db.prepare("DELETE FROM daily_series_ingest_staging WHERE ingest_id=?").bind(ingestId),
