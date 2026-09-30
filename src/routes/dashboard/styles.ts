@@ -384,6 +384,7 @@ main > section { scroll-margin-top: calc(var(--topbar-h) + 16px); padding-top: v
 .tile-value { display: flex; flex-wrap: wrap; align-items: center; gap: 4px var(--space-2); }
 .tile-value .v { font-size: var(--fs-xl); font-weight: 600; letter-spacing: -0.02em; line-height: 1.25; }
 .tile-list .tile-value .v { font-size: var(--fs-md); letter-spacing: -0.01em; }
+.tile-caption { color: var(--text-2); font-size: var(--fs-sm); font-weight: 600; }
 .tile-pct { color: var(--text-3); font-size: var(--fs-xs); font-variant-numeric: tabular-nums; }
 .tile .portal-cta { margin-top: var(--space-2); }
 .tile .hbars-wrap { margin-top: var(--space-2); }

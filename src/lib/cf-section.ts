@@ -157,12 +157,12 @@ export async function computeCfSection(env: Bindings, now: string): Promise<Sect
       }),
       metric({
         key: "cf.visits_by_surface",
-        label: `Visits by surface (${coverage})`,
+        label: `Calls by surface (${coverage})`,
         value: rollup.hosts.reduce((n, h) => n + h.visits, 0),
         unit: "count",
         severity: hostSeverity,
         breakdown: byClass(rollup.hosts),
-        hint: `Visits (session starts) at the network edge for each NEMAR site. Meaningful only where a person browses; the API and storage register almost none by nature. Internal rate-limit traffic is excluded.${hostNote}`,
+        hint: `Calls (requests that start a session) at the network edge for each NEMAR site. Meaningful only where a person browses; the API and storage register almost none by nature. Internal rate-limit traffic is excluded.${hostNote}`,
       }),
       metric({
         key: "cf.bytes_by_host",
@@ -175,6 +175,7 @@ export async function computeCfSection(env: Bindings, now: string): Promise<Sect
           .sort((a, b) => b.value - a.value)
           .slice(0, 10),
         breakdown_unit: "bytes",
+        breakdown_style: "ranked",
         hint: `From a separate per-site edge report, so these values are not reconciled to the total and may include the edge provider's own traffic. Downloads served straight from storage bypass the edge.${hostNote}`,
       }),
       metric({

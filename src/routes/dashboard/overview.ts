@@ -234,7 +234,7 @@ function renderKpis() {
       delta: full ? audienceComparison(function (prior, period) {
         return fullyMeasured(prior.umami, period.start, period.end, "coverage") ? percentDelta(umami.visitors, prior.umami.visitors, comparisonLabel(period.days)) : null;
       }) : PARTIAL_PERIOD,
-      context: "Anonymous unique sessions" + (umami.status === "partial" ? ", partial coverage" : "")
+      context: "Anonymous unique browsers" + (umami.status === "partial" ? ", partial coverage" : "")
     };
   }));
   root.setAttribute("aria-busy", String((!state.audience && !state.audienceFailed && !state.audienceInvalid) || (!selectedSeries() && !state.seriesFailed)));
