@@ -199,8 +199,8 @@ function allTimeSpecs(input) {
     label: labels.requests,
     value: "Not recorded",
     muted: true,
-    note: "The network edge keeps only the last 30 days",
-    info: "Request totals come from the network edge, which keeps 30 days of analytics. No daily record older than that exists yet, so a lifetime total would be a guess."
+    note: "Daily totals are not stored yet",
+    info: "Request totals come from the network edge, which keeps only 30 days of analytics. Each day is saved as it is fetched, so the lifetime total starts once the first day is stored."
   });
   const starts = (archive.series || []).map(function (s) { return s.coverage_start; }).filter(isValidDay).sort();
   specs.push(starts.length
