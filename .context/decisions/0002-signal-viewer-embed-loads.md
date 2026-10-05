@@ -55,6 +55,9 @@ The third-party view needs `CF_ANALYTICS_TOKEN` and `EMBED_AE_DATASET` on the Wo
 Production reads `nemar_website_embeds` and `env.dev` reads `nemar_website_embeds_dev`, which also takes staging and website preview traffic.
 Without them the view says "Not configured" instead of showing zeros.
 
+Before the website's counting ships to production, `nemar_website_embeds` has no points.
+Analytics Engine answers a query on such a dataset with HTTP 200 and no rows (captured 2026-10-05), not an error, so the page says "None recorded" for the daily totals and "No embedded loads" for the lists.
+
 A range wider than three months shows daily totals for all of it (from D1, from the day counting began) but sites and datasets only for the part the edge still holds, and the page says so.
 
 Every load of the embed route counts, including its two message pages and cache hits, and a browser may reuse the page for a minute (website ADR 0024).

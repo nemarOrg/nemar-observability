@@ -48,26 +48,22 @@ selected UTC dates, snapshot/API revision, deployed revision, and observed
 results. CI currently covers none of these client-side behaviors; do not claim
 otherwise before the browser acceptance is complete.
 
-## Signal viewer: captured embed answers
+## Signal viewer: embed answers
 
-The rules for what the public page may name (`src/lib/embeds.ts`), the daily store
-(`src/lib/embed-store.ts`) and the page are tested on explicit inputs, a real SQLite store with
-the real migrations, and the real Worker. What is not covered yet is the edge's own answer to the
-embed queries, because reading `nemar_website_embeds_dev` needs `CF_ANALYTICS_TOKEN` on the dev
-Worker and none was set when this was written (`secret list --env dev` showed only
-`CF_ZONE_ANALYTICS_TOKEN`). Do not invent those answers.
+The Analytics Engine answers in `test/fixtures/embed-ae-*.json` and the `/embeds` answer in
+`test/fixtures/embeds-api-2026-09-06-to-2026-10-05.json` were captured on 2026-10-05 from the dev
+Worker (dataset `nemar_website_embeds_dev`, the website's staging and preview test traffic), read
+through a temporary diagnostic route that was never merged. `test/embed-captured.test.ts` and
+`test/viewer-entry.test.ts` run the rules and the page over them.
 
-Once the secret is installed on the dev Worker and the branch is deployed there:
+Still not covered by a real capture, and why:
 
-1. Capture the answer of each query in `embedDaysSql`, `embedSitesSql`, `embedDatasetsSql` and
-   `embedTotalSql` over the 2026-10-05 09:55 to 10:30 UTC test window (hosts `localhost`,
-   `127.0.0.1`, `example.org`, `after-review.invalid`; kinds `iframe`, `document`, `none`) into
-   `test/fixtures/embed-*.json`, with the query text and the capture time beside the response, as
-   the existing `audience-*.json` fixtures do.
-2. Add tests that run `parseEmbedDayRows`, `buildEmbedDays`, `summarizeEmbedSites` and
-   `summarizeEmbedDatasets` over them, including that `localhost` and `127.0.0.1` are never named
-   and that no host from the `must-not-count` requests appears.
-3. Capture one real `GET /observability/api/embeds` answer from the dev Worker and add a page test
-   that draws it, so the ranked lists are exercised on a real payload.
-4. Run the success path of `syncEmbedDays` against that capture. Until then only its not
-   configured and refused-read paths are tested.
+- A site at or above the floor, and a public dataset, being named. The test traffic has no site at
+  10 or more embedded loads except `localhost` and `127.0.0.1` (never named), and `nemar-db-dev`
+  holds no public managed dataset (`xx099901` is a public sandbox dataset, `on007753` and
+  `nm000292` are not in it). Both paths are tested on the real captured rows with a changed count
+  or a catalog that lists the dataset, and the public predicate is tested as real SQL. Re-capture
+  once production has real partner traffic and a public dataset is embedded.
+- The success path of `syncEmbedDays` is exercised against the real dataset on the dev Worker
+  (see PR 98) but not in `bun test`, which would need the network and a token. Its planning,
+  zero-fill and storage rules are tested directly.
