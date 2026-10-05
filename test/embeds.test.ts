@@ -87,6 +87,13 @@ describe("isUnknownOrLocalHost", () => {
     "files.intranet",
     "vault.private",
     "app.test",
+    "after-review.invalid",
+    "smoke.invalid",
+    "probe.example",
+    "a.b.example",
+    "x.localhost",
+    "INVALID",
+    "example",
     "192-168-1-5.nip.io",
     "10.0.0.5.nip.io",
     "anything.sslip.io",
@@ -104,14 +111,15 @@ describe("isUnknownOrLocalHost", () => {
     "example.org",
     "Example.ORG",
     "example.org.",
-    "after-review.invalid",
     "docs.nemar.org",
-    "xn--bcher-kva.example",
+    "xn--bcher-kva.org",
     "a.b.c.example.co.uk",
     "www.example.org",
     "notnip.io.example.org",
+    "invalid.example.org",
+    "example.invalid.org",
     "example.test.org",
-    "mylocal.example",
+    "mylocal.org",
   ])("%j is a site on the public internet", (host) => {
     expect(isUnknownOrLocalHost(host)).toBe(false);
   });
@@ -133,8 +141,8 @@ describe("summarizeEmbedSites", () => {
 
   test("the public answer is counts and carries no hostname at all", () => {
     const input = rows([
-      ["big-partner.example", 400],
-      ["small.example", 3],
+      ["big-partner.org", 400],
+      ["small.org", 3],
       ["localhost", 500],
       ["127.0.0.1", 40],
       ["", 9],
@@ -149,7 +157,7 @@ describe("summarizeEmbedSites", () => {
       capped: false,
     });
     const text = JSON.stringify(out);
-    for (const host of ["big-partner", "small.example", "localhost", "127.0.0.1", "intranet"]) {
+    for (const host of ["big-partner", "small.org", "localhost", "127.0.0.1", "intranet"]) {
       expect(text).not.toContain(host);
     }
     // Nothing in the shape can carry a name or a floor.
@@ -163,8 +171,8 @@ describe("summarizeEmbedSites", () => {
   });
 
   test("a host is counted whatever its count: there is no floor to probe", () => {
-    const one = summarizeEmbedSites(rows([["tiny.example", 1]]), 1);
-    const many = summarizeEmbedSites(rows([["tiny.example", 5000]]), 5000);
+    const one = summarizeEmbedSites(rows([["tiny.org", 1]]), 1);
+    const many = summarizeEmbedSites(rows([["tiny.org", 5000]]), 5000);
     expect(one.distinct_sites).toBe(1);
     expect(many.distinct_sites).toBe(1);
     expect(Object.keys(one)).toEqual(Object.keys(many));
@@ -173,11 +181,11 @@ describe("summarizeEmbedSites", () => {
   test("spellings of one site are one distinct site", () => {
     const out = summarizeEmbedSites(
       rows([
-        ["Partner.Example", 6],
-        ["partner.example", 5],
-        ["partner.example.", 4],
-        ["www.partner.example", 3],
-        ["other.example", 1],
+        ["Partner.Org", 6],
+        ["partner.org", 5],
+        ["partner.org.", 4],
+        ["www.partner.org", 3],
+        ["other.org", 1],
       ]),
       19,
     );
@@ -188,7 +196,7 @@ describe("summarizeEmbedSites", () => {
   test("the parts add up to the total", () => {
     const out = summarizeEmbedSites(
       rows([
-        ["a.example", 40],
+        ["a.org", 40],
         ["localhost", 7],
         ["", 3],
       ]),
@@ -198,13 +206,13 @@ describe("summarizeEmbedSites", () => {
   });
 
   test("a total above the rows (a capped read) is real-site loads, never a name", () => {
-    const out = summarizeEmbedSites(rows([["big.example", 100]]), 130, true);
+    const out = summarizeEmbedSites(rows([["big.org", 100]]), 130, true);
     expect(out.sites_loads).toBe(130);
     expect(out.capped).toBe(true);
   });
 
   test("a total below the rows is raised to them rather than going negative", () => {
-    const out = summarizeEmbedSites(rows([["big.example", 100]]), 80);
+    const out = summarizeEmbedSites(rows([["big.org", 100]]), 80);
     expect(out.total).toBe(100);
     expect(out.sites_loads).toBe(100);
   });
@@ -212,9 +220,9 @@ describe("summarizeEmbedSites", () => {
   test("zero, negative and non-finite counts are ignored", () => {
     const out = summarizeEmbedSites(
       rows([
-        ["a.example", 0],
-        ["b.example", -4],
-        ["c.example", Number.NaN],
+        ["a.org", 0],
+        ["b.org", -4],
+        ["c.org", Number.NaN],
       ]),
       0,
     );
@@ -231,23 +239,23 @@ describe("summarizeEmbedSites", () => {
 describe("summarizeSitesForAdmin", () => {
   test("one row per host with loads by kind, embedded first, local hosts flagged", () => {
     const out = summarizeSitesForAdmin([
-      { host: "Partner.Example", kind: "iframe", loads: 30 },
-      { host: "partner.example", kind: "document", loads: 2 },
-      { host: "partner.example", kind: "none", loads: 1 },
-      { host: "partner.example", kind: "other", loads: 4 },
+      { host: "Partner.Org", kind: "iframe", loads: 30 },
+      { host: "partner.org", kind: "document", loads: 2 },
+      { host: "partner.org", kind: "none", loads: 1 },
+      { host: "partner.org", kind: "other", loads: 4 },
       { host: "localhost", kind: "iframe", loads: 90 },
-      { host: "quiet.example", kind: "document", loads: 7 },
+      { host: "quiet.org", kind: "document", loads: 7 },
     ]);
     expect(out).toEqual([
       { host: "localhost", embedded: 90, opened_directly: 0, other: 0, unknown_or_local: true },
       {
-        host: "partner.example",
+        host: "partner.org",
         embedded: 30,
         opened_directly: 2,
         other: 5,
         unknown_or_local: false,
       },
-      { host: "quiet.example", embedded: 0, opened_directly: 7, other: 0, unknown_or_local: false },
+      { host: "quiet.org", embedded: 0, opened_directly: 7, other: 0, unknown_or_local: false },
     ]);
   });
 });

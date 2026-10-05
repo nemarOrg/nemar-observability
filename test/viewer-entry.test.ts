@@ -241,8 +241,8 @@ describe("Signal viewer entry", () => {
     // Days not recorded are unknown, not zero.
     expect(body).toContain("of 30 days");
     // Sites are counted, never named; the real hosts are in the admin list only.
-    expect(body).toMatch(/From 6 distinct sites\s*9/);
-    expect(body).toMatch(/Unknown or local\s*298/);
+    expect(body).toMatch(/From 1 distinct site\s*1/);
+    expect(body).toMatch(/Unknown or local\s*306/);
     for (const host of ["localhost", "127.0.0.1", "example.org", "after-review.invalid"]) {
       const rows = Array.from(document.querySelectorAll("#viewer-body .ranked-row"))
         .map((r) => r.textContent)

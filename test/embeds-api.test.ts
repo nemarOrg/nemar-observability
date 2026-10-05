@@ -114,9 +114,9 @@ describe("GET /embeds", () => {
     const text = await res.text();
     const body = JSON.parse(text) as EmbedsResponse;
     expect(body.sites.summary).toEqual({
-      unknown_or_local: 298,
-      sites_loads: 9,
-      distinct_sites: 6,
+      unknown_or_local: 306,
+      sites_loads: 1,
+      distinct_sites: 1,
       total: 307,
       capped: false,
     });

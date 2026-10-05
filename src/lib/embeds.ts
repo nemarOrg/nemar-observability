@@ -122,7 +122,7 @@ export function normalizeKind(raw: unknown): EmbedKind {
 
 const IPV4 = /^\d{1,3}(\.\d{1,3}){3}$/;
 const HOSTNAME = /^[a-z0-9.-]+$/;
-/** Names that only resolve on a private network or are reserved for testing. */
+/** Names that only resolve on a private network, or are reserved and never resolve. */
 const PRIVATE_SUFFIXES = [
   ".localhost",
   ".local",
@@ -135,6 +135,9 @@ const PRIVATE_SUFFIXES = [
   ".intranet",
   ".private",
   ".test",
+  // RFC 2606 reserved top-level names: they never resolve on the public internet.
+  ".invalid",
+  ".example",
 ];
 /** Wildcard DNS that turns any IP address, usually a private one, into a name. */
 const IP_WILDCARD_DOMAINS = [

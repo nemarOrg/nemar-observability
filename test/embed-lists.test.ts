@@ -110,9 +110,10 @@ describe("loadEmbedLists on the captured answers", () => {
     ae = stubAe();
     const { sites } = await loadEmbedLists(env(), "2026-10-04", "2026-10-05", NOW);
     expect(sites.summary).toEqual({
-      unknown_or_local: 298,
-      sites_loads: 9,
-      distinct_sites: 6,
+      // The reserved .example and .invalid hosts are unknown or local; only example.org is a site.
+      unknown_or_local: 306,
+      sites_loads: 1,
+      distinct_sites: 1,
       total: 307,
       capped: false,
     });
@@ -240,7 +241,7 @@ describe("loadEmbedLists on the captured answers", () => {
 
   test("when a row cap is hit the total is queried, so the remainder stays right", async () => {
     const many = Array.from({ length: AE_ROW_LIMIT }, (_, i) => ({
-      host: `h${i}.example`,
+      host: `h${i}.org`,
       loads: "1",
     }));
     ae = stubAe({

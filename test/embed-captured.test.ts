@@ -115,13 +115,15 @@ describe("daily totals from the captured answer", () => {
 describe("embedding sites from the captured answer", () => {
   const out = summarizeEmbedSites(siteRows(sites), totalLoads);
 
-  test("localhost, 127.0.0.1 and the empty host are counted as unknown or local", () => {
-    expect(out.unknown_or_local).toBe(260 + 34 + 4);
+  test("localhost, 127.0.0.1, the empty host and the reserved .example and .invalid names are unknown or local", () => {
+    // 260 + 34 + 4, plus probe.example, repeat.example, miss-then-hit.example,
+    // final-head.invalid and after-review.invalid (2 + 2 + 2 + 1 + 1).
+    expect(out.unknown_or_local).toBe(260 + 34 + 4 + 2 + 2 + 2 + 1 + 1);
   });
 
-  test("the six real hosts are counted, and none is named", () => {
-    expect(out.sites_loads).toBe(2 + 2 + 2 + 1 + 1 + 1);
-    expect(out.distinct_sites).toBe(6);
+  test("the one remaining real host, example.org, is counted, and none is named", () => {
+    expect(out.sites_loads).toBe(1);
+    expect(out.distinct_sites).toBe(1);
     const text = JSON.stringify(out);
     for (const host of [
       "localhost",
@@ -167,9 +169,10 @@ describe("embedding sites from the captured answer", () => {
       other: 1,
       unknown_or_local: false,
     });
+    // A reserved .invalid name never resolves, so the admin list flags it too.
     expect(byHost.get("after-review.invalid")).toMatchObject({
       embedded: 1,
-      unknown_or_local: false,
+      unknown_or_local: true,
     });
     expect(byHost.get("")).toMatchObject({
       opened_directly: 19,
