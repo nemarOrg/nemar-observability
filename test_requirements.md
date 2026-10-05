@@ -47,3 +47,27 @@ formatting, drilldown links, and the `section_errors` banner. Record the source,
 selected UTC dates, snapshot/API revision, deployed revision, and observed
 results. CI currently covers none of these client-side behaviors; do not claim
 otherwise before the browser acceptance is complete.
+
+## Signal viewer: captured embed answers
+
+The rules for what the public page may name (`src/lib/embeds.ts`), the daily store
+(`src/lib/embed-store.ts`) and the page are tested on explicit inputs, a real SQLite store with
+the real migrations, and the real Worker. What is not covered yet is the edge's own answer to the
+embed queries, because reading `nemar_website_embeds_dev` needs `CF_ANALYTICS_TOKEN` on the dev
+Worker and none was set when this was written (`secret list --env dev` showed only
+`CF_ZONE_ANALYTICS_TOKEN`). Do not invent those answers.
+
+Once the secret is installed on the dev Worker and the branch is deployed there:
+
+1. Capture the answer of each query in `embedDaysSql`, `embedSitesSql`, `embedDatasetsSql` and
+   `embedTotalSql` over the 2026-10-05 09:55 to 10:30 UTC test window (hosts `localhost`,
+   `127.0.0.1`, `example.org`, `after-review.invalid`; kinds `iframe`, `document`, `none`) into
+   `test/fixtures/embed-*.json`, with the query text and the capture time beside the response, as
+   the existing `audience-*.json` fixtures do.
+2. Add tests that run `parseEmbedDayRows`, `buildEmbedDays`, `summarizeEmbedSites` and
+   `summarizeEmbedDatasets` over them, including that `localhost` and `127.0.0.1` are never named
+   and that no host from the `must-not-count` requests appears.
+3. Capture one real `GET /observability/api/embeds` answer from the dev Worker and add a page test
+   that draws it, so the ranked lists are exercised on a real payload.
+4. Run the success path of `syncEmbedDays` against that capture. Until then only its not
+   configured and refused-read paths are tested.

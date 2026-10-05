@@ -17,6 +17,14 @@ Usage is grouped by reporting source: anonymous browser page views and action ev
 
 The range-aware audience panel reports Umami visitors as anonymous unique-session estimates, not identified people. Umami visits use a separate visit identifier; sessions can be assigned to more than one country during a range. Cloudflare country counts are zone-wide HTTP requests, not visitors or completed downloads. Summary values use the selected UTC range; website country breakdowns are limited to a single completed UTC day, so for a longer range the website map shows the newest completed day inside it and says which day. The day/week/month selector applies only to additive daily time series.
 
+### The Signal viewer entry
+
+A section of its own with a First-party and a Third-party filter.
+First-party is viewer opens and interactions on nemar.org, from website analytics events recorded after consent.
+Third-party is page loads of the embeddable viewer on other sites, counted by NEMAR's own servers: loads per day split into embedded, opened directly and other requests, the top embedding sites, and the top embedded datasets.
+The two measure different things, viewer mounts on our pages and embed page loads on partner pages, and are never added together.
+Only public datasets are named, and a site is named only at 10 or more embedded loads in the selected dates; localhost, IP addresses and unknown hosts are grouped, and the rest is counted without names (ADR 0002).
+
 ## How it works
 
 One Cloudflare Worker (Hono) does the UI, a JSON API, and an hourly cron. It is a **reader**:
@@ -33,13 +41,15 @@ src/
 ├── index.ts            worker entry: { fetch, scheduled } + route mounting
 ├── cron.ts             hourly snapshot recompute
 ├── routes/
-│   ├── api.ts          /api/snapshot, /snapshot/history, /timeseries, /drilldown/:key, /sections/:key
+│   ├── api.ts          /api/snapshot, /snapshot/history, /timeseries, /audience, /embeds, /drilldown/:key, /sections/:key
 │   └── ui.ts           the server-rendered dashboard page
 ├── lib/
 │   ├── schema.ts       the MetricSnapshot standard (Zod = source of truth)
 │   ├── metric-snapshot.schema.json   JSON Schema mirror for non-TS consumers
 │   ├── metrics.ts      built-in sections (datasets, archive, zarr, imports, publication, users) + buildSnapshot
-│   ├── access.ts       Analytics Engine access section
+│   ├── access.ts       Analytics Engine access section, and the shared Analytics Engine SQL client
+│   ├── embeds.ts       signal viewer embed loads: edge queries and the public naming rules
+│   ├── embed-store.ts  daily embed loads kept in own D1 (embed_daily_loads)
 │   ├── drilldown.ts    admin drill-down queries
 │   ├── store.ts        own-DB reads/writes (snapshot history, pushed sections)
 │   ├── auth.ts         admin check via /users/me delegation
