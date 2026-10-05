@@ -2,6 +2,20 @@
 
 import { fetchHostDay, fetchZoneDailyRequests } from "./lib/cf-analytics";
 import { CRON_RETRY, type RetryPolicy } from "./lib/d1-retry";
+import {
+  loadEmbedDayStamps,
+  loadEmbedDays,
+  loadFirstEmbedDay,
+  saveEmbedDays,
+} from "./lib/embed-store";
+import {
+  buildEmbedDays,
+  embedRetentionStart,
+  fetchEmbedDays,
+  isEmbedConfigured,
+  planEmbedPull,
+  writableEmbedDays,
+} from "./lib/embeds";
 import { buildSnapshot } from "./lib/metrics";
 import { isSettled, planRequestPull, writablePoints } from "./lib/request-series";
 import {
@@ -122,6 +136,33 @@ export async function syncRequestSeries(env: Bindings, now: Date): Promise<void>
   }
 }
 
+/**
+ * Keep every UTC day's embed loads by kind beyond the edge's retention (about
+ * three months), from the website's embed dataset (migration 0006). One ranged
+ * read per run covers the open day plus any day not yet stored or not yet
+ * settled; a settled day is not asked for again and a closed day is never
+ * overwritten with less. Rows are never deleted.
+ *
+ * Isolated like the request series: an edge outage must not stop the snapshot,
+ * and zero embeds is a normal state, so a failure here is logged and nothing
+ * else (no health rule watches it).
+ */
+export async function syncEmbedDays(env: Bindings, now: Date): Promise<void> {
+  if (!isEmbedConfigured(env)) return;
+  try {
+    const today = now.toISOString().slice(0, 10);
+    const first = await loadFirstEmbedDay(env.OBS_DB);
+    const stamps = await loadEmbedDayStamps(env.OBS_DB, embedRetentionStart(now));
+    const { since, until } = planEmbedPull(first, stamps, now);
+    const fetched = buildEmbedDays(await fetchEmbedDays(env, since, until), since, today, first);
+    if (fetched.length === 0) return;
+    const stored = await loadEmbedDays(env.OBS_DB, since, today);
+    await saveEmbedDays(env.OBS_DB, writableEmbedDays(stored, fetched, today), now.toISOString());
+  } catch (err) {
+    console.error("[cron] embed loads sync failed:", err);
+  }
+}
+
 export async function handleScheduled(
   env: Bindings,
   retry: RetryPolicy = CRON_RETRY,
@@ -134,6 +175,7 @@ export async function handleScheduled(
     const now = new Date();
     await accumulateHostDays(env, now);
     await syncRequestSeries(env, now);
+    await syncEmbedDays(env, now);
     let retries = 0;
     const snapshot = await buildSnapshot(env, {
       ...retry,
