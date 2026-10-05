@@ -21,9 +21,12 @@ The range-aware audience panel reports Umami visitors as anonymous unique-sessio
 
 A section of its own with a First-party and a Third-party filter.
 First-party is viewer opens and interactions on nemar.org, from website analytics events, recorded unless the visitor has opted out.
-Third-party is page loads of the embeddable viewer on other sites, counted by NEMAR's own servers: loads per day split into embedded, opened directly and other requests, the top embedding sites, and the top embedded datasets.
+Third-party is page loads of the embeddable viewer on other sites, counted by NEMAR's own servers: loads per day split into embedded, opened directly and other requests, counts of embedding sites, and the top embedded datasets.
 The two measure different things, viewer mounts on our pages and embed page loads on partner pages, and are never added together.
-Only public datasets are named, and a site is named only at 10 or more embedded loads in the selected dates; localhost, IP addresses and unknown hosts are grouped, and the rest is counted without names (ADR 0002).
+Embedding sites are counted, never named on the page: the site that framed the viewer comes from the visitor's browser, which can claim any name.
+The page shows loads from unknown or local hosts, loads from other sites, and how many distinct other sites there were.
+Administrators read the full host list, with loads by kind, through the bearer drill-down `embed-sites` (see the API table).
+Only datasets that are public now are named (ADR 0002).
 
 ## How it works
 
@@ -125,7 +128,7 @@ The body must conform to `src/lib/metric-snapshot.schema.json` (`$defs/sectionIn
 | `POST /observability/api/sections/:key` | ingest Bearer | push a pipeline section |
 | `GET /observability/api/timeseries?start=YYYY-MM-DD&end=YYYY-MM-DD` | public | daily points and metadata, inclusive UTC range (maximum 3660 days) |
 | `GET /observability/api/audience?start=YYYY-MM-DD&end=YYYY-MM-DD` | public | selected-range Umami session/page-view summary and Cloudflare request totals; Umami country values for one completed day and Cloudflare country values across completed days |
-| `GET /observability/api/embeds?start=YYYY-MM-DD&end=YYYY-MM-DD` | public | embed loads of the signal viewer for the range: `loads` (daily totals by kind from the Worker's own store), `sites` (counts only, never hostnames) and `datasets` (public datasets only). Inclusive UTC dates, maximum 3660 days (3661 is a 400). Cached for at most 60 seconds, `no-store` when a block is `unavailable`. See below |
+| `GET /observability/api/embeds?start=YYYY-MM-DD&end=YYYY-MM-DD` | public | embed loads of the signal viewer for the range: `loads` (daily totals by kind from the Worker's own store), `sites` (counts only, never hostnames) and `datasets` (public datasets only). Inclusive UTC dates, maximum 3660 days (3661 is a 400). Browsers may keep it 30 seconds (`max-age=30`); the Worker reuses a window for 60 seconds; `no-store` when a block is `unavailable`. There is no edge cache in front of Worker responses. See below |
 | `GET /observability/health` | public | liveness |
 
 The **public snapshot and time-series API contain aggregate measures**; built-in snapshot sections may include bounded breakdowns labeled with public dataset IDs. Pushed sections are also public, and schema validation does not check their labels against dataset visibility. Pipeline producers must keep private identifiers and credentials out of all pushed fields. The page is zero-auth and zero-write. Daily usage controls support 7/30/90/365-day presets, custom UTC dates, and day/week/month grouping. Chart gaps mean missing or out-of-coverage observations.

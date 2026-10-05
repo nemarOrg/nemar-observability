@@ -40,7 +40,7 @@ Every metric is a headline number (a total, or a percent like "% with archive");
 ### Privacy boundary
 Public snapshot (the tiles) carries **headline numbers only, no private dataset IDs**.
 
-**The dashboard page has zero auth and zero writes** (#8). It holds no credential, so a spoof of this origin has nothing to steal and nothing to trigger. Every admin action lives in the website portal at `app.nemar.org/admin`, behind an HttpOnly host-scoped session cookie; tiles with a `drilldown` key link there. The only write left on this Worker is the token-gated `POST /api/sections/:key` pipeline push.
+**The dashboard page has zero auth and zero writes** (#8). It holds no credential, so a spoof of this origin has nothing to steal and nothing to trigger. Every admin action lives in the website portal at `app.nemar.org/admin`, behind an HttpOnly host-scoped session cookie; tiles with a `drilldown` key link there. The writes on this Worker are the token-gated `POST /api/sections/:key` pipeline push, the cron, and one counter: the public `GET /api/embeds` claims its Analytics Engine queries from a per-minute budget row in D1 (`embed_query_budget`), which holds no credential and changes no NEMAR state (ADR 0002).
 
 `GET /api/drilldown/:key` survives as an admin-only (Bearer, delegated `/users/me`) **programmatic** endpoint — the page never calls it. Phase 3 (#13) removes it, along with `resolveAdmin` and `NEMAR_API_BASE`, once the website carries equivalent dataset-health lists (phase 2: nemar-cli#1032 + website#195).
 
@@ -112,7 +112,7 @@ env -u CLOUDFLARE_API_TOKEN CLOUDFLARE_ACCOUNT_ID=da8d7a2a8680dab01592bbbc6f67f1
   npx cfman wrangler --account sccn d1 migrations apply nemar-observability-db --remote -c wrangler.toml
 ```
 
-**Verifying a deploy:** `/observability/api/snapshot` carries `s-maxage=300`, so the bare URL can serve the PREVIOUS build's snapshot for minutes after a deploy and make a good deploy look broken. Always cache-bust (`?cb=$(date +%s)`) when checking. `/health` is `no-store` and safe to read directly.
+**Verifying a deploy:** `/observability/api/snapshot` is the snapshot the hourly cron last stored, so right after a deploy it is still the PREVIOUS build's until the next cron run, and its `max-age=60` lets a browser keep it. Cloudflare does not cache these Worker responses at the edge (no `cf-cache-status` or `age` header is sent, probed 2026-10-05 on `/snapshot`, `/audience`, `/timeseries` and `/embeds`), so the `s-maxage` values are only a hint. Always cache-bust (`?cb=$(date +%s)`) when checking. `/health` is `no-store` and safe to read directly.
 
 ## Monitoring
 

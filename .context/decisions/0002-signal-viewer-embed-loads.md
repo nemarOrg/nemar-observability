@@ -48,7 +48,7 @@ Why:
 - **Identification.** A personal site's hostname is named after its owner.
 
 Admins get the full host list, with loads by kind (embedded, opened directly, other) and whether each host counts as unknown or local, through the existing admin drill-down: `GET /observability/api/drilldown/embed-sites?start=&end=`, bearer admin (delegated to nemar-cli `/users/me`), `Cache-Control: no-store`, default the last 30 UTC days.
-The page cannot call it (it holds no credential, `test/no-write-surface.test.ts`), so the sites card carries the same "administrators" link into the admin portal that the other drill-down tiles carry. The admin portal has no screen for this list yet; until it does, an admin reads the endpoint with their API key. That follow-up is nemarOrg/website#425.
+The page cannot call it (it holds no credential, `test/no-write-surface.test.ts`), so the sites card says the list is available to administrators through the API and does not link to the admin portal: the portal has no screen for this list, and the other tiles' links lead to screens that exist. Until nemarOrg/website#425 adds one, an admin reads the endpoint with their API key.
 
 A host is "unknown or local" when it is empty, `localhost`, an IPv4 or IPv6 literal, a name whose last label is all digits, a name with no dot, a private or test suffix (`.local`, `.internal`, `.lan`, `.corp`, `.home`, `.home.arpa`, `.intranet`, `.private`, `.test`, `.localhost`, `.localdomain`), or wildcard DNS that embeds an IP address (`nip.io`, `sslip.io`, `xip.io`, `localtest.me`, `lvh.me`, `traefik.me`).
 Every trailing dot is dropped before comparing.
@@ -58,7 +58,13 @@ This only sorts a claimed host into a bucket.
 
 Only datasets that are public now in `nemar-db` (`status='active' AND visibility='public'`, excluding folded and sandbox rows, the `PUBLIC_MANAGED` predicate) are named, and each links to the dataset's page on the website of the same environment (`WEBSITE_BASE_URL`: nemar.org, and test.nemar.org for dev).
 Every other embedded load is folded into one unnamed "Other datasets" count, and if `nemar-db` cannot answer, no dataset is named.
-The check runs on every uncached answer, and an answer is reused for at most a minute (the Worker's memo and the edge cache), so a dataset made private stops being named within about a minute.
+The check runs on every uncached answer. The Worker reuses an answer for 60 seconds and a browser may keep it for another 30 (`max-age=30`), so a dataset made private can stay named for up to about 90 seconds. There is no edge cache in front of these Worker responses: none of `/embeds`, `/audience`, `/snapshot` and `/timeseries` carries `cf-cache-status` or `age`.
+
+### The boundary of the distinct count
+
+`distinct_sites` can be inflated by anyone, and probed for membership: injecting a single load with a guessed `Referer` and watching the count move answers "was this host already counted", a yes or no, never a name or a count of loads.
+That is accepted: the answer reveals nothing the prober did not already supply, it names no one, and a count of claimed hosts cannot be made unspoofable while `Referer` is client-controlled; the only alternative is to drop the figure.
+The page labels it as claimed.
 
 ### The daily store
 
@@ -96,13 +102,18 @@ The analytics token is shared with the access section (and its owner's other API
 What an uncached public request costs: two Analytics Engine queries (sites, datasets; a third for the total only when a 5,000 row cap is hit), plus D1 reads of the stored totals and `nemar-db` for the public check.
 The hourly cron adds one query.
 
+There is no edge cache in front of these Worker responses (probed 2026-10-05: no `cf-cache-status` or `age` on `/embeds`, `/audience`, `/snapshot` or `/timeseries`), so every request that is not a memo hit reaches the Worker, and the bounds are the memo and the budget.
+Caching with `caches.default` was considered and rejected: it is per colo and keyed by URL, so it helps repeated identical requests but not a flood of distinct windows, which is the risk, and it would add a second place a dataset's visibility could go stale.
+
 Bounds:
 
-- the edge cache keeps an answer for at most 60 seconds and never serves stale, and an answer with an unreadable block is `no-store`;
-- the Worker memoizes the same window for a minute and concurrent identical requests share one load;
-- every uncached load first claims its two queries from a shared per-UTC-minute budget of 60 in `embed_query_budget` (D1, so it holds across isolates), and is refused ("busy") without asking the edge when the minute is spent; the rare third query (a capped read) claims one more and is skipped when the minute is spent. That caps the public endpoint at 300 queries in five minutes, a quarter of the global limit, so a flood can never take more than that from the token. A budget that cannot be claimed fails closed.
+- the Worker memoizes a window for 60 seconds per isolate, and concurrent identical requests in one isolate share one load; a failure or a refusal is not memoized; browsers may keep an answer 30 seconds (`max-age=30`), and an answer with an unreadable block is `no-store`;
+- every uncached load first claims its two queries from a shared per-UTC-minute budget in `embed_query_budget` (D1, so it holds across isolates), and is refused ("busy") without asking the edge when its pool is spent; the rare third query (a capped read) claims one more and is skipped when the pool is spent. The budget is 60 queries a minute, 300 in five minutes, a quarter of the global limit, so a flood can never take more than that from the token;
+- the 60 are two pools of 30. The windows the page itself offers (7, 30, 90 and 365 days ending yesterday or today) draw on a "preset" pool; every other window draws on a "custom" pool. There are at most eight distinct preset windows, each memoized, so the preset pool's demand is small and bounded, and a flood of distinct custom windows (about half a request a second is enough to drain 30 queries a minute) exhausts only the custom pool: the presets the page opens with keep loading for everyone. Precomputing the presets in the cron was the alternative; the reserved pool keeps live data and adds no storage;
+- a budget that cannot be claimed fails closed, with its own note ("currently unavailable"), not "busy";
+- old budget rows are deleted by the cron, not on the request path.
 
-The remaining exposure is to the budget itself: a flood can use the minute's budget and make the lists read "busy", never the whole token.
+The remaining exposure is to the custom pool: a flood can make custom ranges read "busy", never the presets and never the whole token.
 The per-site list for admins is not budgeted, because it needs a bearer.
 
 ## Consequences
@@ -118,7 +129,7 @@ Every load of the embed route counts, including its two message pages and cache 
 The kinds are what the request claims, not proof, so the figures are for usage reporting.
 
 The public endpoint now writes one counter row per uncached list load to D1.
-That is a write on a public GET, which AGENTS.md's "zero writes" statement did not anticipate; it holds no credential and mutates no NEMAR state.
+That is a write on a public GET; it holds no credential and mutates no NEMAR state, and AGENTS.md's privacy-boundary paragraph now names it.
 
 Changing what the page names, or showing a hostname publicly again, is a privacy decision and needs a new ADR.
 
