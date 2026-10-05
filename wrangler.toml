@@ -70,6 +70,13 @@ name = "nemar-observability-dev"
 workers_dev = true
 routes = []
 
+# The same hourly :47 cron, stated for env.dev instead of relying on inheritance
+# from the top-level [triggers]. On 2026-10-05 the dev Worker ran at :17 (the
+# old schedule) and never at :47 after repeated deploys that printed "schedule:
+# 47 * * * *", so an inherited trigger could not be trusted to reach it.
+[env.dev.triggers]
+crons = ["47 * * * *"]
+
 [[env.dev.d1_databases]]
 binding = "NEMAR_DB"
 database_name = "nemar-db-dev"

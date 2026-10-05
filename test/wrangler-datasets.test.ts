@@ -9,7 +9,8 @@ const config = Bun.TOML.parse(
   await Bun.file(new URL("../wrangler.toml", import.meta.url)).text(),
 ) as {
   vars: Record<string, string>;
-  env: { dev: { vars: Record<string, string> } };
+  triggers: { crons: string[] };
+  env: { dev: { vars: Record<string, string>; triggers?: { crons: string[] } } };
 };
 
 describe("wrangler.toml embed datasets", () => {
@@ -22,5 +23,14 @@ describe("wrangler.toml embed datasets", () => {
   test("the access dataset stays separate from the embed dataset", () => {
     expect(config.vars.AE_DATASET).not.toBe(config.vars.EMBED_AE_DATASET);
     expect(config.env.dev.vars.AE_DATASET).not.toBe(config.env.dev.vars.EMBED_AE_DATASET);
+  });
+});
+
+describe("wrangler.toml cron", () => {
+  test("production and env.dev both run the hourly :47 snapshot, stated for each", () => {
+    expect(config.triggers.crons).toEqual(["47 * * * *"]);
+    // Stated for env.dev rather than inherited: the dev Worker was seen running at
+    // :17, the old schedule, after deploys that printed :47 (2026-10-05).
+    expect(config.env.dev.triggers?.crons).toEqual(["47 * * * *"]);
   });
 });
