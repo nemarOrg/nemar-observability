@@ -31,6 +31,7 @@ import {
   LIST_QUERY_COST,
   buildLoadsBlock,
   datasetName,
+  dayOf,
   detailWindow,
   embedDatasetsSql,
   embedSiteKindsSql,
@@ -43,6 +44,7 @@ import {
   parseHostRows,
   parseTotalRow,
   rangeDays,
+  shiftDay,
   summarizeEmbedDatasets,
   summarizeEmbedSites,
   summarizeSitesForAdmin,
@@ -50,9 +52,7 @@ import {
 } from "./embeds";
 import { publicDatasetIds } from "./sql";
 
-const DAY_MS = 86_400_000;
-const dayOf = (ms: number) => new Date(ms).toISOString().slice(0, 10);
-const nextDay = (day: string) => dayOf(Date.parse(`${day}T00:00:00Z`) + DAY_MS);
+const nextDay = (day: string) => shiftDay(day, 1);
 
 export interface EmbedLists {
   sites: EmbedListBlock<EmbedSiteCounts>;

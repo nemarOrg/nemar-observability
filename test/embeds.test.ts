@@ -307,11 +307,27 @@ describe("summarizeEmbedDatasets", () => {
 });
 
 describe("websiteBase", () => {
-  test("the configured origin, without a trailing slash, else nemar.org", () => {
-    expect(websiteBase({} as Bindings)).toBe("https://nemar.org");
-    expect(websiteBase({ WEBSITE_BASE_URL: "https://test.nemar.org/" } as Bindings)).toBe(
-      "https://test.nemar.org",
-    );
+  const base = (value?: string) => websiteBase({ WEBSITE_BASE_URL: value } as Bindings);
+
+  test("the configured https origin, without a trailing slash or path, else nemar.org", () => {
+    expect(base()).toBe("https://nemar.org");
+    expect(base("")).toBe("https://nemar.org");
+    expect(base("https://test.nemar.org/")).toBe("https://test.nemar.org");
+    expect(base("https://test.nemar.org/some/path?x=1")).toBe("https://test.nemar.org");
+  });
+
+  test("anything that is not an https URL is never put in a link", () => {
+    for (const bad of [
+      "http://test.nemar.org",
+      "javascript:alert(1)",
+      "//evil.example",
+      "test.nemar.org",
+      "not a url",
+      "ftp://x.example",
+      "https://",
+    ]) {
+      expect(base(bad)).toBe("https://nemar.org");
+    }
   });
 });
 

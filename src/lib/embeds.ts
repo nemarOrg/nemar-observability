@@ -100,10 +100,10 @@ export function isPresetRange(start: string, end: string, now: Date): boolean {
   return [7, 30, 90, 365].includes(rangeDays(start, end));
 }
 
-const DAY_MS = 86_400_000;
+export const DAY_MS = 86_400_000;
 const DAY_RE = /^\d{4}-\d{2}-\d{2}$/;
-const dayOf = (ms: number) => new Date(ms).toISOString().slice(0, 10);
-const shiftDay = (day: string, offset: number) =>
+export const dayOf = (ms: number) => new Date(ms).toISOString().slice(0, 10);
+export const shiftDay = (day: string, offset: number) =>
   dayOf(Date.parse(`${day}T00:00:00Z`) + offset * DAY_MS);
 export const rangeDays = (start: string, end: string) =>
   Math.round((Date.parse(`${end}T00:00:00Z`) - Date.parse(`${start}T00:00:00Z`)) / DAY_MS) + 1;
@@ -301,7 +301,7 @@ export function summarizeEmbedDatasets(
   rows: readonly { dataset_id: string; loads: number }[],
   publicIds: ReadonlySet<string>,
   total: number,
-  siteBase = "https://nemar.org",
+  siteBase = DEFAULT_WEBSITE_BASE,
 ): EmbedDatasetSummary {
   const byId = new Map<string, number>();
   let seen = 0;
@@ -321,9 +321,25 @@ export function summarizeEmbedDatasets(
   return { rows: named, other: all - listed, total: all };
 }
 
-/** The website origin dataset links point at: WEBSITE_BASE_URL, else nemar.org. */
+/** The website origin dataset links point at when none is configured. */
+export const DEFAULT_WEBSITE_BASE = "https://nemar.org";
+
+/**
+ * The website origin dataset links point at: WEBSITE_BASE_URL when it is an
+ * https URL, else nemar.org. A value that is not https (a typo, a javascript:
+ * URL) is never put in a link.
+ */
 export function websiteBase(env: Bindings): string {
-  return (env.WEBSITE_BASE_URL?.trim() || "https://nemar.org").replace(/\/+$/, "");
+  const configured = env.WEBSITE_BASE_URL?.trim();
+  if (configured) {
+    try {
+      const url = new URL(configured);
+      if (url.protocol === "https:" && url.hostname) return url.origin;
+    } catch {
+      // fall through to the default
+    }
+  }
+  return DEFAULT_WEBSITE_BASE;
 }
 
 // ---------- daily totals ----------

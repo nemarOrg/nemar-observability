@@ -9,7 +9,9 @@ import { syncEmbedDays } from "../src/cron";
 import {
   loadEmbedDayStamps,
   loadEmbedDays,
+  loadEmbedSync,
   loadFirstEmbedDay,
+  recordEmbedSync,
   saveEmbedDays,
 } from "../src/lib/embed-store";
 import type { EmbedDayRow } from "../src/lib/embeds";
@@ -121,6 +123,33 @@ describe("embed_daily_loads", () => {
     );
     const rows = await loadEmbedDays(db, "2026-10-02", "2026-10-02");
     expect(new Set(rows.map((r) => r.date))).toEqual(new Set(["2026-10-02"]));
+  });
+});
+
+describe("recordEmbedSync", () => {
+  test("creates the status row when it is missing, for success and failure", async () => {
+    engine.run("DELETE FROM embed_sync_status");
+    await recordEmbedSync(db, false, "2026-10-05T10:00:00Z", "read the edge: AE SQL 403");
+    expect(await loadEmbedSync(db)).toEqual({
+      last_ok_at: null,
+      last_error: "read the edge: AE SQL 403",
+      last_run_at: "2026-10-05T10:00:00Z",
+    });
+    engine.run("DELETE FROM embed_sync_status");
+    await recordEmbedSync(db, true, "2026-10-05T11:00:00Z");
+    expect(await loadEmbedSync(db)).toEqual({
+      last_ok_at: "2026-10-05T11:00:00Z",
+      last_error: null,
+      last_run_at: "2026-10-05T11:00:00Z",
+    });
+  });
+
+  test("a failure keeps the last success, and a success clears the error", async () => {
+    await recordEmbedSync(db, true, "2026-10-05T10:00:00Z");
+    await recordEmbedSync(db, false, "2026-10-05T11:00:00Z", "boom");
+    expect((await loadEmbedSync(db))?.last_ok_at).toBe("2026-10-05T10:00:00Z");
+    await recordEmbedSync(db, true, "2026-10-05T12:00:00Z");
+    expect((await loadEmbedSync(db))?.last_error).toBeNull();
   });
 });
 

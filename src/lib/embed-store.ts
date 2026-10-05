@@ -138,7 +138,7 @@ export interface EmbedSyncState {
 }
 
 /** Record one sync attempt. Success clears last_error and advances last_ok_at;
- *  failure keeps the prior last_ok_at. */
+ *  failure keeps the prior last_ok_at. Upserts, so a missing row is created. */
 export async function recordEmbedSync(
   db: D1Database,
   ok: boolean,
@@ -148,13 +148,17 @@ export async function recordEmbedSync(
   if (ok) {
     await db
       .prepare(
-        "UPDATE embed_sync_status SET last_ok_at = ?1, last_error = NULL, last_run_at = ?1 WHERE id = 1",
+        `INSERT INTO embed_sync_status (id, last_ok_at, last_error, last_run_at) VALUES (1, ?1, NULL, ?1)
+         ON CONFLICT(id) DO UPDATE SET last_ok_at = ?1, last_error = NULL, last_run_at = ?1`,
       )
       .bind(at)
       .run();
   } else {
     await db
-      .prepare("UPDATE embed_sync_status SET last_error = ?1, last_run_at = ?2 WHERE id = 1")
+      .prepare(
+        `INSERT INTO embed_sync_status (id, last_ok_at, last_error, last_run_at) VALUES (1, NULL, ?1, ?2)
+         ON CONFLICT(id) DO UPDATE SET last_error = ?1, last_run_at = ?2`,
+      )
       .bind((error ?? "unknown").slice(0, 500), at)
       .run();
   }
