@@ -543,27 +543,32 @@ export function strictCount(value: unknown): number | null {
  */
 export function parseEmbedDayRows(rows: readonly AeRow[]): EmbedDayRow[] {
   const out: EmbedDayRow[] = [];
-  for (const row of rows) {
+  rows.forEach((row, index) => {
     const date = typeof row.day === "string" ? row.day.slice(0, 10) : "";
     const loads = strictCount(row.loads);
-    if (!DAY_RE.test(date) || loads === null) {
-      throw new Error(`embed day row could not be parsed: ${JSON.stringify(row).slice(0, 120)}`);
-    }
+    const bad = [!DAY_RE.test(date) && "day", loads === null && "loads"].filter(Boolean);
+    if (bad.length || loads === null) throw badRow("embed day", index, bad as string[]);
     out.push({ date, kind: normalizeKind(row.kind), loads });
-  }
+  });
   return out;
 }
 
-function badRow(what: string, row: unknown): Error {
-  return new Error(`${what} row could not be parsed: ${JSON.stringify(row).slice(0, 120)}`);
+/**
+ * An error for a row that does not parse. It names the row's position and the
+ * fields that failed, never their values: this message is logged and recorded,
+ * and a value can be a hostname or a dataset id.
+ */
+function badRow(what: string, index: number, fields: string[]): Error {
+  return new Error(`${what} row ${index} could not be parsed (bad fields: ${fields.join(", ")})`);
 }
 
 /** Per-host embedded loads. A row that does not parse fails the read. */
 export function parseHostRows(rows: readonly AeRow[]): { host: string; loads: number }[] {
-  return rows.map((row) => {
+  return rows.map((row, index) => {
     const loads = strictCount(row.loads);
-    if (typeof row.host !== "string" || loads === null) throw badRow("embed host", row);
-    return { host: row.host, loads };
+    const bad = [typeof row.host !== "string" && "host", loads === null && "loads"].filter(Boolean);
+    if (bad.length || loads === null) throw badRow("embed host", index, bad as string[]);
+    return { host: row.host as string, loads };
   });
 }
 
@@ -571,19 +576,24 @@ export function parseHostRows(rows: readonly AeRow[]): { host: string; loads: nu
 export function parseHostKindRows(
   rows: readonly AeRow[],
 ): { host: string; kind: EmbedKind; loads: number }[] {
-  return rows.map((row) => {
+  return rows.map((row, index) => {
     const loads = strictCount(row.loads);
-    if (typeof row.host !== "string" || loads === null) throw badRow("embed host and kind", row);
-    return { host: row.host, kind: normalizeKind(row.kind), loads };
+    const bad = [typeof row.host !== "string" && "host", loads === null && "loads"].filter(Boolean);
+    if (bad.length || loads === null) throw badRow("embed host and kind", index, bad as string[]);
+    return { host: row.host as string, kind: normalizeKind(row.kind), loads };
   });
 }
 
 /** Per-dataset embedded loads. A row that does not parse fails the read. */
 export function parseDatasetRows(rows: readonly AeRow[]): { dataset_id: string; loads: number }[] {
-  return rows.map((row) => {
+  return rows.map((row, index) => {
     const loads = strictCount(row.loads);
-    if (typeof row.dataset_id !== "string" || loads === null) throw badRow("embed dataset", row);
-    return { dataset_id: row.dataset_id, loads };
+    const bad = [
+      typeof row.dataset_id !== "string" && "dataset_id",
+      loads === null && "loads",
+    ].filter(Boolean);
+    if (bad.length || loads === null) throw badRow("embed dataset", index, bad as string[]);
+    return { dataset_id: row.dataset_id as string, loads };
   });
 }
 
@@ -591,7 +601,7 @@ export function parseDatasetRows(rows: readonly AeRow[]): { dataset_id: string; 
 export function parseTotalRow(rows: readonly AeRow[]): number | null {
   if (rows.length === 0) return null;
   const loads = strictCount(rows[0].loads);
-  if (loads === null) throw badRow("embed total", rows[0]);
+  if (loads === null) throw badRow("embed total", 0, ["loads"]);
   return loads;
 }
 

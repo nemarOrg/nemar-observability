@@ -746,6 +746,51 @@ describe("buildLoadsBlock", () => {
   });
 });
 
+describe("parse errors carry no values", () => {
+  const SECRET_HOST = "secret-partner.example";
+  const SECRET_ID = "nm-secret-private-dataset";
+  const message = (call: () => unknown) => {
+    try {
+      call();
+    } catch (err) {
+      return String(err);
+    }
+    throw new Error("did not throw");
+  };
+
+  test("a bad row is named by position and field, never by value", () => {
+    const messages = [
+      message(() => parseHostRows([{ host: SECRET_HOST, loads: "abc" }])),
+      message(() => parseHostKindRows([{ host: SECRET_HOST, kind: "iframe", loads: null }])),
+      message(() => parseDatasetRows([{ dataset_id: SECRET_ID, loads: -1 }])),
+      message(() => parseEmbedDayRows([{ day: "2026-10-05", kind: SECRET_HOST, loads: "x" }])),
+      message(() => parseTotalRow([{ loads: SECRET_ID }])),
+    ];
+    for (const m of messages) {
+      expect(m).not.toContain(SECRET_HOST);
+      expect(m).not.toContain(SECRET_ID);
+      expect(m).toContain("could not be parsed");
+    }
+    expect(messages[0]).toBe("Error: embed host row 0 could not be parsed (bad fields: loads)");
+    expect(
+      message(() =>
+        parseHostRows([
+          { host: 5, loads: 1 },
+          { host: "a", loads: 1 },
+        ]),
+      ),
+    ).toBe("Error: embed host row 0 could not be parsed (bad fields: host)");
+    expect(
+      message(() =>
+        parseHostRows([
+          { host: "a", loads: 1 },
+          { host: "b", loads: "z" },
+        ]),
+      ),
+    ).toContain("row 1");
+  });
+});
+
 describe("strict list rows", () => {
   test("host, dataset and total rows parse counts, strings included", () => {
     expect(parseHostRows([{ host: "a.example", loads: "12" }])).toEqual([

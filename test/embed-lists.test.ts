@@ -172,6 +172,26 @@ describe("loadEmbedLists on the captured answers", () => {
     expect(lists.sites.status).toBe("partial");
   });
 
+  // What is logged when the edge sends an odd row must not leak a hostname or a
+  // dataset id into the Worker's logs.
+  test("an odd row is logged without its host or dataset id", async () => {
+    const logged: string[] = [];
+    const real = console.error;
+    console.error = (...args: unknown[]) => logged.push(args.map(String).join(" "));
+    ae = stubAe({
+      sites: () => ({ data: [{ host: "secret-partner.example", loads: "many" }] }),
+      datasets: () => ({ data: [{ dataset_id: "nm-secret-private", loads: "1" }] }),
+    });
+    const lists = await loadEmbedLists(env(), "2026-10-04", "2026-10-05", NOW);
+    console.error = real;
+    expect(lists.sites.status).toBe("unavailable");
+    const text = logged.join("\n");
+    expect(text).toContain("could not be parsed");
+    expect(text).not.toContain("secret-partner.example");
+    expect(text).not.toContain("nm-secret-private");
+    expect(JSON.stringify(lists)).not.toContain("secret-partner.example");
+  });
+
   test("an empty dataset answers with zero counts, not a fault", async () => {
     ae = stubAe({
       sites: () => ({ data: [] }),
