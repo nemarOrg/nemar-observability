@@ -31,6 +31,7 @@ import sites from "./fixtures/embed-ae-sites-2026-10-05.json";
 import total from "./fixtures/embed-ae-total-2026-10-05.json";
 import unwrittenDays from "./fixtures/embed-ae-unwritten-dataset-days-2026-10-05.json";
 import unwrittenSites from "./fixtures/embed-ae-unwritten-dataset-sites-2026-10-05.json";
+import embedsApi from "./fixtures/embeds-api-2026-09-06-to-2026-10-05.json";
 import { asD1 } from "./helpers/d1";
 
 type AeRow = Record<string, string | number | null>;
@@ -177,6 +178,54 @@ describe("embedding sites from the captured answer", () => {
       unknown_or_local: true,
     });
     expect(admin[0].host).toBe("localhost");
+  });
+});
+
+describe("the public /embeds answer captured from the dev Worker", () => {
+  const body = embedsApi.response;
+  const text = JSON.stringify(body);
+
+  test("carries no hostname, no dataset name and no naming floor", () => {
+    for (const secret of [
+      "localhost",
+      "127.0.0.1",
+      "example.org",
+      "after-review.invalid",
+      "probe.example",
+      "repeat.example",
+      "final-head.invalid",
+      "miss-then-hit.example",
+      "on007753",
+      "xx099901",
+      "nm000292",
+      "min_named_loads",
+    ]) {
+      expect(text).not.toContain(secret);
+    }
+  });
+
+  test("sites are counts that add up, and datasets are folded into one unnamed count", () => {
+    const sites = body.sites.summary;
+    expect(Object.keys(sites).sort()).toEqual([
+      "capped",
+      "distinct_sites",
+      "sites_loads",
+      "total",
+      "unknown_or_local",
+    ]);
+    expect(sites.unknown_or_local + sites.sites_loads).toBe(sites.total);
+    expect(sites.distinct_sites).toBeGreaterThan(0);
+    expect(body.datasets.summary.rows).toEqual([]);
+    expect(body.datasets.summary.other).toBe(body.datasets.summary.total);
+    expect(body.datasets.summary.total).toBe(sites.total);
+  });
+
+  test("the loads block reports its sync and what it does not know", () => {
+    expect(body.loads.last_synced_at).toMatch(/^2026-10-05T/);
+    expect(body.loads.counting_began).toBe("2026-10-05");
+    expect(body.loads.days_recorded).toBe(1);
+    expect(body.loads.days_in_range).toBe(30);
+    expect(body.loads.note).toContain("not zero");
   });
 });
 
