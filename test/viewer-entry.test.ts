@@ -246,6 +246,8 @@ describe("Signal viewer entry", () => {
     expect(errors).toEqual([]);
     const body = text(document, "viewer-body");
     expect(body).toContain("None recorded");
+    expect(body).toContain("None recorded yet");
+    expect(body).not.toContain("Measured Embedded in another site");
     expect(body).toContain("No embed loads are recorded for these dates");
     expect(body).not.toContain("Could not load");
   });

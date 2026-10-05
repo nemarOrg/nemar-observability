@@ -116,13 +116,21 @@ function embedLoadsCard(loads, start, end) {
   titleRow.appendChild(infoDisclosure("About embed page loads", "Each load of the embeddable signal viewer is counted once when NEMAR's servers answer the request. No script runs on the partner's page or on the visitor's device. A load is not a person: a browser may reuse a page for a minute, and some requests come from scripts and crawlers, which are counted separately."));
   titles.appendChild(titleRow);
   head.appendChild(titles);
-  head.appendChild(audienceBadge(loads.status));
+  // "Measured" would overstate a card with nothing recorded: say so instead.
+  const nothingRecorded = loads.status === "available" && !loads.days_recorded;
+  head.appendChild(nothingRecorded ? badge("neutral", "None recorded yet") : audienceBadge(loads.status));
   card.appendChild(head);
   if (loads.status === "unconfigured" || loads.status === "unavailable") {
     card.appendChild(el("p", "fine", loads.note || "Embed loads are unavailable."));
     return card;
   }
   const headline = embedHeadline(loads);
+  if (nothingRecorded) {
+    card.appendChild(el("p", "measure-total-label", "Embedded in another site"));
+    card.appendChild(figure("p", "measure-total is-muted", headline.text));
+    card.appendChild(el("p", "fine", loads.note || "No embed loads are recorded for these dates."));
+    return card;
+  }
   card.appendChild(el("p", "measure-total-label", "Embedded in another site"));
   card.appendChild(figure("p", "measure-total" + (headline.muted ? " is-muted" : ""), headline.text));
   const measures = el("div", "measures viewer-split");
