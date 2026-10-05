@@ -1,7 +1,7 @@
 // GET /observability/api/embeds and its admin drill-down against the real Worker,
 // with a real SQLite store behind the D1 surface and the real migrations. Where
-// the edge is involved the answers are the live captures (test/helpers/ae-fixtures)
-// or a refused read; the identity check of the drill-down is stood in for by a
+// the edge is involved the answers are the live captures (test/helpers/ae-fixtures),
+// a refused read, or a hand-written body where a case needs one (not a capture); the identity check of the drill-down is stood in for by a
 // local HTTP server answering the one request the Worker makes of nemar-cli.
 
 import { Database } from "bun:sqlite";

@@ -1,8 +1,11 @@
 // The cron's embed sync end to end against the real Analytics Engine answers
 // captured for nemar_website_embeds_dev, with a real SQLite store and the real
 // migrations. Only the HTTP transport is stood in for (test/helpers/ae-fixtures).
-// The failure cases are real shapes the edge can send: a 200 with an errors body,
-// a row that does not parse, a refused read.
+// The success cases use the captures. The failure and quiet-dataset cases use
+// hand-written bodies of shapes the edge can send (a 200 with an errors body, a
+// row that does not parse, a refused read, an empty answer, rows around a quiet
+// stretch); those are NOT captures, and only the unwritten-dataset answer
+// (HTTP 200, no rows) was ever seen live.
 
 import { Database } from "bun:sqlite";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";

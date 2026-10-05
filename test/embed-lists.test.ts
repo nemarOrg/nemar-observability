@@ -1,6 +1,8 @@
 // loadEmbedLists over the captured live answers (test/helpers/ae-fixtures): the
 // public sites counts, the public dataset check against a real SQLite catalog,
 // the notes, the failure paths, the per-isolate memo and the shared query budget.
+// The success cases use the captures; the failure, odd-row, capped-read and flood
+// cases use hand-written bodies of shapes the edge can send, which are not captures.
 
 import { Database } from "bun:sqlite";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
