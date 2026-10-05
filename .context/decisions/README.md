@@ -26,3 +26,4 @@ Add new entries here as you create ADRs:
 
 - ADR 0000 - template (do not edit)
 - ADR 0001 - store source-backed daily series separately
+- ADR 0002 - signal viewer embed loads, and what the public page may name

@@ -217,7 +217,7 @@ function renderKpis() {
       caveat: "Includes automated traffic."
     };
   }));
-  const visitorInfo = "Website analytics estimate anonymous unique sessions after consent. A session is not an identified person, and sessions are not added across days.";
+  const visitorInfo = "Website analytics estimate anonymous unique sessions, recorded unless the visitor has opted out. A session is not an identified person, and sessions are not added across days.";
   root.appendChild(audienceKpi("Website sessions (anonymous)", visitorInfo, function (payload, start, end) {
     const umami = payload.umami;
     if (typeof umami.visitors !== "number") {

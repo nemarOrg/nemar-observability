@@ -1,0 +1,25 @@
+{
+  "source": "live Analytics Engine answer for nemar_website_embeds, which no point has been written to yet (the production situation before the website's counting ships), read through the same temporary diagnostic route",
+  "query": "SELECT toDate(timestamp) AS day, blob3 AS kind, SUM(_sample_interval) AS loads FROM nemar_website_embeds WHERE timestamp >= toDateTime('2026-10-05 00:00:00') AND timestamp < toDateTime('2026-10-06 00:00:00') GROUP BY day, kind ORDER BY day",
+  "captured_at": "2026-10-05T14:30:07.805Z",
+  "http_status": 200,
+  "response": {
+    "meta": [
+      {
+        "name": "day",
+        "type": "Date"
+      },
+      {
+        "name": "kind",
+        "type": "String"
+      },
+      {
+        "name": "loads",
+        "type": "UInt64"
+      }
+    ],
+    "data": [],
+    "rows": 0,
+    "rows_before_limit_at_least": 0
+  }
+}

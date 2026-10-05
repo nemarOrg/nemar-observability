@@ -12,6 +12,14 @@ export interface Bindings {
   CF_ACCOUNT_ID: string;
   /** Analytics Engine dataset name written by nemar-cli's data-plane. */
   AE_DATASET: string;
+  /** Analytics Engine dataset the website writes one point to per embed load
+   *  (nemar_website_embeds in production, nemar_website_embeds_dev for staging
+   *  and previews). Optional: without it the signal viewer entry reports the
+   *  third-party view as not configured. */
+  EMBED_AE_DATASET?: string;
+  /** The website origin dataset links on the page point at: https://nemar.org in
+   *  production, https://test.nemar.org for env.dev. Defaults to nemar.org. */
+  WEBSITE_BASE_URL?: string;
 
   /** nemar.org zone id, for the zone GraphQL Analytics API. */
   CF_ZONE_ID: string;
@@ -31,7 +39,7 @@ export interface Bindings {
   /** Server-only Umami API key. Install as a Worker secret; never expose it to
    *  the dashboard page or include it in a public API response. */
   UMAMI_API_KEY?: string;
-  /** First complete UTC day covered by consent-gated event instrumentation.
+  /** First complete UTC day covered by event instrumentation (recorded unless the visitor has opted out).
    *  This is non-secret deployment configuration and must match the website's
    *  verified production instrumentation date. */
   UMAMI_EVENTS_COVERAGE_START?: string;

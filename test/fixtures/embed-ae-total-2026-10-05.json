@@ -1,0 +1,21 @@
+{
+  "source": "live Analytics Engine answer for nemar_website_embeds_dev, read by the dev Worker itself through a temporary diagnostic route (not merged)",
+  "query": "SELECT SUM(_sample_interval) AS loads FROM nemar_website_embeds_dev WHERE blob3 = 'iframe' AND timestamp >= toDateTime('2026-10-05 00:00:00') AND timestamp < toDateTime('2026-10-06 00:00:00')",
+  "captured_at": "2026-10-05T14:30:07.399Z",
+  "http_status": 200,
+  "response": {
+    "meta": [
+      {
+        "name": "loads",
+        "type": "UInt64"
+      }
+    ],
+    "data": [
+      {
+        "loads": "307"
+      }
+    ],
+    "rows": 1,
+    "rows_before_limit_at_least": 208
+  }
+}

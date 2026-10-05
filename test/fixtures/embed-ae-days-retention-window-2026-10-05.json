@@ -1,0 +1,41 @@
+{
+  "source": "live Analytics Engine answer for nemar_website_embeds_dev, read by the dev Worker itself through a temporary diagnostic route (not merged); the cron's first pull, from the start of its retention window",
+  "query": "SELECT toDate(timestamp) AS day, blob3 AS kind, SUM(_sample_interval) AS loads FROM nemar_website_embeds_dev WHERE timestamp >= toDateTime('2026-07-12 00:00:00') AND timestamp < toDateTime('2026-10-06 00:00:00') GROUP BY day, kind ORDER BY day",
+  "captured_at": "2026-10-05T14:30:23.987Z",
+  "http_status": 200,
+  "response": {
+    "meta": [
+      {
+        "name": "day",
+        "type": "Date"
+      },
+      {
+        "name": "kind",
+        "type": "String"
+      },
+      {
+        "name": "loads",
+        "type": "UInt64"
+      }
+    ],
+    "data": [
+      {
+        "day": "2026-10-05",
+        "kind": "iframe",
+        "loads": "307"
+      },
+      {
+        "day": "2026-10-05",
+        "kind": "none",
+        "loads": "6"
+      },
+      {
+        "day": "2026-10-05",
+        "kind": "document",
+        "loads": "19"
+      }
+    ],
+    "rows": 3,
+    "rows_before_limit_at_least": 233
+  }
+}

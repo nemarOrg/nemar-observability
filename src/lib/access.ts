@@ -33,27 +33,41 @@ import type { Bindings } from "../types";
 import { type Section, type Severity, metric } from "./schema";
 import { PUBLIC_MANAGED } from "./sql";
 
-interface AeRow {
+export interface AeRow {
   [col: string]: string | number | null;
 }
 
-/** Run one SQL statement against the AE SQL API. Throws on a non-ok response so
- *  the caller can distinguish "query failed" from "genuinely zero activity". */
-async function queryAe(env: Bindings, sql: string): Promise<AeRow[]> {
+/**
+ * Run one SQL statement against the AE SQL API. Throws on a non-ok response, on
+ * a timeout when `timeoutMs` is given, and on a 200 whose body has no `data`
+ * array (an `errors` body, an empty object), so the caller can tell "query
+ * failed" from "genuinely zero activity". A 200 with `data: []` is a real empty
+ * answer and is returned.
+ *
+ * No timeout unless asked for: the access section's three 30-day queries have
+ * always run unbounded and a bound there would turn a slow answer into a
+ * missing section. The embed callers, which run on a public request path and in
+ * the cron, pass one.
+ */
+export async function queryAe(env: Bindings, sql: string, timeoutMs?: number): Promise<AeRow[]> {
   const url = `https://api.cloudflare.com/client/v4/accounts/${env.CF_ACCOUNT_ID}/analytics_engine/sql`;
   const res = await fetch(url, {
     method: "POST",
     headers: { Authorization: `Bearer ${env.CF_ANALYTICS_TOKEN}`, "Content-Type": "text/plain" },
     body: sql,
+    signal: timeoutMs === undefined ? undefined : AbortSignal.timeout(timeoutMs),
   });
   if (!res.ok) {
     throw new Error(`AE SQL ${res.status}: ${(await res.text()).slice(0, 200)}`);
   }
-  const json = (await res.json()) as { data?: AeRow[] };
-  return json.data ?? [];
+  const json = (await res.json()) as { data?: unknown };
+  if (!Array.isArray(json.data)) {
+    throw new Error("AE SQL answered 200 with no data array");
+  }
+  return json.data as AeRow[];
 }
 
-function num(v: string | number | null | undefined): number {
+export function num(v: string | number | null | undefined): number {
   const n = typeof v === "string" ? Number(v) : (v ?? 0);
   return Number.isFinite(n) ? (n as number) : 0;
 }

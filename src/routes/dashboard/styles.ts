@@ -406,6 +406,22 @@ main > section { scroll-margin-top: calc(var(--topbar-h) + 16px); padding-top: v
 .ranked-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ranked-value { font-variant-numeric: tabular-nums; font-weight: 500; white-space: nowrap; text-align: right; }
 
+/* ---------- signal viewer ---------- */
+.viewer-filter button { display: inline-flex; flex-direction: column; align-items: flex-start; gap: 0; padding: 5px 12px; line-height: 1.25; }
+.viewer-filter-note { color: var(--text-3); font-size: 12px; font-weight: 400; }
+.viewer-measure { margin-top: 0; }
+.viewer-grid { display: grid; gap: var(--space-4); }
+.viewer-lists { display: grid; gap: var(--space-4); grid-template-columns: repeat(auto-fit, minmax(min(100%, 340px), 1fr)); align-items: start; }
+.viewer-loads .measure-total-label { margin-top: 0; }
+.viewer-loads .measure-total.is-muted { color: var(--text-3); font-weight: 500; font-size: var(--fs-lg); }
+.viewer-split { margin-top: var(--space-3); }
+.viewer-loads .fine { margin-top: var(--space-3); }
+.viewer-loads .chart { margin-top: var(--space-4); }
+.viewer-card .ranked-label a { color: var(--accent-text); }
+.ranked-aggregate { color: var(--text-3); }
+.ranked-aggregate .ranked-value { font-weight: 400; }
+.viewer-card > .ranked + .fine { margin-top: var(--space-3); }
+
 /* ---------- reach ---------- */
 .geo-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-3); margin-bottom: var(--space-4); }
 .geography-sources button { display: inline-flex; flex-direction: column; align-items: flex-start; gap: 0; padding: 5px 12px; line-height: 1.25; }

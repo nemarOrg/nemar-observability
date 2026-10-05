@@ -179,7 +179,13 @@ export async function fetchZoneDailyRequests(
         httpRequests1dGroups: { dimensions: { date: string }; sum: { requests: number } }[];
       }[];
     };
-  }>(env, ZONE_DAILY_REQUESTS_QUERY, { zone: env.CF_ZONE_ID, since, until });
+  }>(
+    env,
+    ZONE_DAILY_REQUESTS_QUERY,
+    { zone: env.CF_ZONE_ID, since, until },
+    // The cron awaits this; a hung edge call must not hold the snapshot behind it.
+    10_000,
+  );
   return firstZone(data.viewer.zones).httpRequests1dGroups.map((r) => ({
     date: r.dimensions.date,
     requests: r.sum.requests,
