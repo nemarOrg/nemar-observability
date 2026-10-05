@@ -1,0 +1,120 @@
+{
+  "source": "live Analytics Engine answer for nemar_website_embeds_dev, read by the dev Worker itself through a temporary diagnostic route (not merged); last 24 hours by dataset, host and kind (the owner's ground truth)",
+  "query": "SELECT blob1 AS dataset_id, blob2 AS host, blob3 AS kind, SUM(_sample_interval) AS loads FROM nemar_website_embeds_dev WHERE timestamp > NOW() - INTERVAL '1' DAY GROUP BY dataset_id, host, kind ORDER BY loads DESC",
+  "captured_at": "2026-10-05T14:29:52.530Z",
+  "http_status": 200,
+  "response": {
+    "meta": [
+      {
+        "name": "dataset_id",
+        "type": "String"
+      },
+      {
+        "name": "host",
+        "type": "String"
+      },
+      {
+        "name": "kind",
+        "type": "String"
+      },
+      {
+        "name": "loads",
+        "type": "UInt64"
+      }
+    ],
+    "data": [
+      {
+        "dataset_id": "on007753",
+        "host": "localhost",
+        "kind": "iframe",
+        "loads": "260"
+      },
+      {
+        "dataset_id": "xx099901",
+        "host": "127.0.0.1",
+        "kind": "iframe",
+        "loads": "28"
+      },
+      {
+        "dataset_id": "xx099901",
+        "host": "",
+        "kind": "document",
+        "loads": "18"
+      },
+      {
+        "dataset_id": "on007753",
+        "host": "127.0.0.1",
+        "kind": "iframe",
+        "loads": "6"
+      },
+      {
+        "dataset_id": "on007753",
+        "host": "",
+        "kind": "iframe",
+        "loads": "4"
+      },
+      {
+        "dataset_id": "xx099901",
+        "host": "",
+        "kind": "none",
+        "loads": "3"
+      },
+      {
+        "dataset_id": "on007753",
+        "host": "probe.example",
+        "kind": "iframe",
+        "loads": "2"
+      },
+      {
+        "dataset_id": "on007753",
+        "host": "repeat.example",
+        "kind": "iframe",
+        "loads": "2"
+      },
+      {
+        "dataset_id": "on007753",
+        "host": "",
+        "kind": "none",
+        "loads": "2"
+      },
+      {
+        "dataset_id": "nm000292",
+        "host": "miss-then-hit.example",
+        "kind": "iframe",
+        "loads": "2"
+      },
+      {
+        "dataset_id": "on007753",
+        "host": "example.org",
+        "kind": "iframe",
+        "loads": "1"
+      },
+      {
+        "dataset_id": "on007753",
+        "host": "final-head.invalid",
+        "kind": "iframe",
+        "loads": "1"
+      },
+      {
+        "dataset_id": "on007753",
+        "host": "after-review.invalid",
+        "kind": "iframe",
+        "loads": "1"
+      },
+      {
+        "dataset_id": "on007753",
+        "host": "example.org",
+        "kind": "none",
+        "loads": "1"
+      },
+      {
+        "dataset_id": "on007753",
+        "host": "",
+        "kind": "document",
+        "loads": "1"
+      }
+    ],
+    "rows": 15,
+    "rows_before_limit_at_least": 233
+  }
+}

@@ -1,0 +1,21 @@
+{
+  "source": "live Analytics Engine answer for nemar_website_embeds, which no point has been written to yet, read through the same temporary diagnostic route",
+  "query": "SELECT blob2 AS host, SUM(_sample_interval) AS loads FROM nemar_website_embeds WHERE blob3 = 'iframe' AND timestamp >= toDateTime('2026-10-05 00:00:00') AND timestamp < toDateTime('2026-10-06 00:00:00') GROUP BY host ORDER BY loads DESC LIMIT 5000",
+  "captured_at": "2026-10-05T14:30:08.165Z",
+  "http_status": 200,
+  "response": {
+    "meta": [
+      {
+        "name": "host",
+        "type": "String"
+      },
+      {
+        "name": "loads",
+        "type": "UInt64"
+      }
+    ],
+    "data": [],
+    "rows": 0,
+    "rows_before_limit_at_least": 0
+  }
+}

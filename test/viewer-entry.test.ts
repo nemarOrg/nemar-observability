@@ -13,6 +13,7 @@ import { saveEmbedDays } from "../src/lib/embed-store";
 import { renderDashboardPage } from "../src/routes/ui";
 import type { Bindings } from "../src/types";
 import audienceWeek from "./fixtures/audience-week-2026-09-23-to-2026-09-29.json";
+import embedsCapture from "./fixtures/embeds-api-2026-09-06-to-2026-10-05.json";
 import { clientLogic } from "./helpers/client-logic";
 import { asD1 } from "./helpers/d1";
 import { MIGRATIONS } from "./helpers/migrations";
@@ -32,7 +33,9 @@ afterEach(async () => {
 
 const day = (back: number) => new Date(Date.now() - back * 86_400_000).toISOString().slice(0, 10);
 
-async function openPage(options: { embeds?: boolean; configured?: boolean } = {}) {
+async function openPage(
+  options: { embeds?: boolean; configured?: boolean; capturedEmbeds?: boolean } = {},
+) {
   const engine = new Database(":memory:");
   for (const migration of MIGRATIONS) engine.run(migration);
   const db = asD1(engine);
@@ -77,6 +80,13 @@ async function openPage(options: { embeds?: boolean; configured?: boolean } = {}
     // dashboard-page.test.ts; everything else is the real Worker.
     if (url.pathname.endsWith("/audience")) {
       return new window.Response(JSON.stringify(audienceWeek.response), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    }
+    // A captured live /embeds answer from the dev Worker, as for the audience.
+    if (options.capturedEmbeds && url.pathname.endsWith("/embeds")) {
+      return new window.Response(JSON.stringify(embedsCapture.response), {
         status: 200,
         headers: { "content-type": "application/json" },
       });
@@ -167,6 +177,45 @@ describe("Signal viewer entry", () => {
     expect(body).toContain("Top embedded datasets");
     expect(body).toContain("Embed detail is currently unavailable");
     expect(body).not.toContain("forbidden");
+  });
+
+  // The answer the dev Worker gave for the website's own test traffic: localhost,
+  // 127.0.0.1 and the empty host, sites under the floor, and datasets that are not
+  // public in the dev catalog.
+  test("a captured live answer is drawn with every withheld name folded into counts", async () => {
+    const { document, errors } = await openPage({ capturedEmbeds: true });
+    await until(() => text(document, "viewer-body").includes("Viewer mounts"), "first-party");
+    filter(document, "third").click();
+    await until(() => text(document, "viewer-body").includes("Top embedding sites"), "third-party");
+    expect(errors).toEqual([]);
+    const body = text(document, "viewer-body");
+    expect(body).toMatch(/Embedded in another site\s*307/);
+    expect(body).toMatch(/Opened directly\s*19/);
+    expect(body).toMatch(/Other requests \(scripts, crawlers\)\s*6/);
+    expect(body).toMatch(/Unknown or local\s*298/);
+    expect(body).toMatch(/Other sites\s*9/);
+    expect(body).toMatch(/Other datasets \(not named\)\s*307/);
+    expect(body).toContain("Sites with fewer than 10 embedded loads are not named");
+    // The help text names localhost as a kind of host; no figure row may.
+    const rowsText = Array.from(document.querySelectorAll("#viewer-body .ranked-row"))
+      .map((row) => row.textContent)
+      .join(" | ");
+    expect(rowsText).toContain("Unknown or local");
+    expect(rowsText).not.toContain("localhost");
+    for (const withheld of [
+      "127.0.0.1",
+      "example.org",
+      "after-review.invalid",
+      "xx099901",
+      "on007753",
+      "nm000292",
+    ]) {
+      expect(body).not.toContain(withheld);
+    }
+    // No ranked row carries a name: nothing here is above the floor or public.
+    expect(
+      document.querySelectorAll("#viewer-body .ranked-row:not(.ranked-aggregate)"),
+    ).toHaveLength(0);
   });
 
   test("with embed counting not configured, Third-party says so and shows no zero", async () => {
