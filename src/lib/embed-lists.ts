@@ -4,10 +4,12 @@
 // from the edge, shaped for a public page (see the header of embeds.ts).
 //
 // The detail is an outbound call to a quota-limited API on a public request
-// path, with a date range the caller chooses. Three things bound it: the edge
-// cache (embed answers cache for at most a minute), a short per-isolate memo
-// with concurrent identical requests sharing one load, and a shared per-minute
-// budget in D1 that every uncached load must claim first (embed-store.ts).
+// path, with a date range the caller chooses. There is no edge cache in front of
+// Worker responses, so three things bound it: a short per-isolate memo with
+// concurrent identical requests sharing one load; the page's own preset windows
+// shared across isolates through D1 for a minute; and a shared per-minute budget
+// in D1, in two pools (preset and custom), that every uncached load must claim
+// first (embed-store.ts). ADR 0002 has the numbers.
 
 import type { Bindings } from "../types";
 import { queryAe } from "./access";
@@ -17,6 +19,8 @@ import {
   loadEmbedDays,
   loadEmbedSync,
   loadFirstEmbedDay,
+  readPresetAnswer,
+  writePresetAnswer,
 } from "./embed-store";
 import {
   AE_ROW_LIMIT,
@@ -171,7 +175,10 @@ export async function loadEmbedLists(
   const key = `${env.EMBED_AE_DATASET}|${window.start}|${window.end}|${today}|${websiteBase(env)}`;
   const hit = memo.get(key);
   if (hit && now.getTime() - hit.at < MEMO_TTL_MS) return hit.lists;
-  const lists = computeLists(env, start, end, window, now);
+  const preset = isPresetRange(start, end, now);
+  const lists = preset
+    ? loadSharedPreset(env, start, end, window, now)
+    : computeLists(env, start, end, window, now);
   if (memo.size >= MEMO_MAX) memo.delete(memo.keys().next().value as string);
   memo.set(key, { at: now.getTime(), lists });
   const settled = await lists;
@@ -180,11 +187,58 @@ export async function loadEmbedLists(
   return settled;
 }
 
+/**
+ * A preset window's answer, shared across isolates through D1 for up to the
+ * memo's 60 seconds: a fresh row answers it with no budget and no query, and an
+ * isolate that computes one stores it for the others. So the preset pool's demand
+ * is the number of distinct preset windows a minute, not that times the isolates.
+ * A read or write that fails is logged and skipped: it costs a recomputation, which
+ * the budget still bounds.
+ */
+async function loadSharedPreset(
+  env: Bindings,
+  start: string,
+  end: string,
+  window: { start: string; end: string; clipped: boolean },
+  now: Date,
+): Promise<EmbedLists> {
+  const key = presetKey(env, window, now);
+  try {
+    const shared = await readPresetAnswer(env.OBS_DB, key, now, MEMO_TTL_MS);
+    if (shared) {
+      const parsed = JSON.parse(shared) as EmbedLists;
+      if (parsed?.sites && parsed?.datasets) return parsed;
+    }
+  } catch (err) {
+    console.error("[embeds] shared preset answer could not be read:", String(err).slice(0, 120));
+  }
+  const lists = await computeLists(env, start, end, window, now);
+  if (!isUnavailable(lists)) {
+    try {
+      await writePresetAnswer(env.OBS_DB, key, JSON.stringify(lists), now);
+    } catch (err) {
+      console.error(
+        "[embeds] shared preset answer could not be stored:",
+        String(err).slice(0, 120),
+      );
+    }
+  }
+  return lists;
+}
+
+const presetKey = (env: Bindings, window: { start: string; end: string }, now: Date): string =>
+  `${env.EMBED_AE_DATASET}|${window.start}|${window.end}|${dayOf(now.getTime())}|${websiteBase(env)}`;
+
 /** One more query, only when a row cap was hit; if the budget is spent the rows' own sum stands in. */
 async function claimExtraQuery(env: Bindings, now: Date, pool: BudgetPool): Promise<boolean> {
   try {
     return await claimQueryBudget(env.OBS_DB, now, 1, LIST_QUERIES_PER_MINUTE[pool], pool);
-  } catch {
+  } catch (err) {
+    // Cannot claim: skip the extra query, and say why without any value.
+    console.error(
+      "[embeds] extra query budget could not be claimed:",
+      err instanceof Error ? err.message.slice(0, 120) : "unknown error",
+    );
     return false;
   }
 }

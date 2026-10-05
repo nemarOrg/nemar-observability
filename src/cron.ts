@@ -7,6 +7,7 @@ import {
   loadEmbedDays,
   loadFirstEmbedDay,
   loadLastNonzeroEmbedDay,
+  prunePresetAnswers,
   pruneQueryBudget,
   recordEmbedSync,
   saveEmbedDays,
@@ -265,6 +266,9 @@ export async function handleScheduled(
   const now = new Date();
   await pruneQueryBudget(env.OBS_DB, now).catch((e) =>
     console.error("[cron] could not prune the embed query budget:", e),
+  );
+  await prunePresetAnswers(env.OBS_DB, now).catch((e) =>
+    console.error("[cron] could not prune the shared preset answers:", e),
   );
   await syncEmbedDays(env, now);
 }

@@ -7,7 +7,7 @@
 import { Database } from "bun:sqlite";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { loadEmbedLists, loadEmbedSitesAdmin, resetEmbedListsMemo } from "../src/lib/embed-lists";
-import { claimQueryBudget, pruneQueryBudget } from "../src/lib/embed-store";
+import { claimQueryBudget, prunePresetAnswers, pruneQueryBudget } from "../src/lib/embed-store";
 import {
   AE_ROW_LIMIT,
   LIST_QUERIES_PER_MINUTE,
@@ -278,6 +278,149 @@ describe("loadEmbedLists on the captured answers", () => {
     ae = stubAe();
     await loadEmbedLists(env(), "2026-10-04", "2026-10-05", NOW);
     expect(ae.asked).toHaveLength(2);
+  });
+});
+
+// The page's own windows, as of NOW: 7, 30, 90 and 365 days ending yesterday or
+// today. 90 and 365 clip to the same retention window, so six windows are computed.
+const PRESETS: [string, string][] = [
+  ["2026-09-28", "2026-10-04"],
+  ["2026-09-05", "2026-10-04"],
+  ["2026-07-07", "2026-10-04"],
+  ["2025-10-05", "2026-10-04"],
+  ["2026-09-29", "2026-10-05"],
+  ["2026-09-06", "2026-10-05"],
+  ["2026-07-08", "2026-10-05"],
+  ["2025-10-06", "2026-10-05"],
+];
+const budgetUsed = (db: Database, pool: string) =>
+  (
+    db
+      .query("SELECT COALESCE(SUM(used), 0) AS n FROM embed_query_budget WHERE minute LIKE ?")
+      .get(`%|${pool}`) as { n: number }
+  ).n;
+
+describe("preset answers shared across isolates", () => {
+  test("three cold isolates loading the page's presets cost one load per distinct window, not three", async () => {
+    ae = stubAe();
+    for (let isolate = 0; isolate < 3; isolate++) {
+      resetEmbedListsMemo(); // a cold isolate has no memo
+      for (const [start, end] of PRESETS) {
+        const { sites } = await loadEmbedLists(env(), start, end, NOW);
+        expect(sites.status === "available" || sites.status === "partial").toBe(true);
+      }
+    }
+    // Eight requested presets are six distinct windows (90 and 365 days clip to
+    // one), two queries each, asked once for all three isolates.
+    expect(ae.asked).toHaveLength(6 * 2);
+    expect(budgetUsed(obs, "preset")).toBe(6 * 2);
+    expect(budgetUsed(obs, "custom")).toBe(0);
+  });
+
+  test("a shared answer is reused for 60 seconds and recomputed after", async () => {
+    ae = stubAe();
+    const [start, end] = PRESETS[0];
+    await loadEmbedLists(env(), start, end, NOW);
+    resetEmbedListsMemo();
+    await loadEmbedLists(env(), start, end, new Date(NOW.getTime() + 59_000));
+    expect(ae.asked).toHaveLength(2);
+    resetEmbedListsMemo();
+    await loadEmbedLists(env(), start, end, new Date(NOW.getTime() + 61_000));
+    expect(ae.asked).toHaveLength(4);
+  });
+
+  test("a dataset made private stops being named when the shared answer expires", async () => {
+    catalog.query("INSERT INTO datasets VALUES ('on007753', 1, 0, 'active', 'public')").run();
+    ae = stubAe();
+    const [start, end] = PRESETS[1];
+    let lists = await loadEmbedLists(env(), start, end, NOW);
+    expect(lists.datasets.summary?.rows.map((r) => r.label)).toEqual(["on007753"]);
+    catalog.query("UPDATE datasets SET visibility = 'private' WHERE dataset_id = 'on007753'").run();
+    resetEmbedListsMemo();
+    lists = await loadEmbedLists(env(), start, end, new Date(NOW.getTime() + 61_000));
+    expect(lists.datasets.summary?.rows).toEqual([]);
+  });
+
+  test("the stored answer is the public one: counts, public names only", async () => {
+    catalog.query("INSERT INTO datasets VALUES ('on007753', 1, 0, 'active', 'public')").run();
+    ae = stubAe();
+    await loadEmbedLists(env(), PRESETS[0][0], PRESETS[0][1], NOW);
+    const stored = (
+      obs.query("SELECT answer FROM embed_preset_answers").get() as { answer: string }
+    ).answer;
+    expect(stored).toContain("on007753");
+    for (const hidden of ["xx099901", "nm000292", "localhost", "127.0.0.1", "example.org"]) {
+      expect(stored).not.toContain(hidden);
+    }
+  });
+
+  test("a custom window is never shared", async () => {
+    ae = stubAe();
+    await loadEmbedLists(env(), "2026-09-20", "2026-10-03", NOW);
+    resetEmbedListsMemo();
+    await loadEmbedLists(env(), "2026-09-20", "2026-10-03", NOW);
+    expect(ae.asked).toHaveLength(4);
+    expect(obs.query("SELECT COUNT(*) AS n FROM embed_preset_answers").get()).toEqual({ n: 0 });
+  });
+
+  test("an answer that is not good is not shared", async () => {
+    const restore = quiet();
+    ae = stubAe({ sites: () => new Response("forbidden", { status: 403 }) });
+    const lists = await loadEmbedLists(env(), PRESETS[0][0], PRESETS[0][1], NOW);
+    restore();
+    expect(lists.sites.status).toBe("unavailable");
+    expect(obs.query("SELECT COUNT(*) AS n FROM embed_preset_answers").get()).toEqual({ n: 0 });
+  });
+
+  test("a shared table that cannot be read costs a recomputation, logged without values", async () => {
+    obs.run("DROP TABLE embed_preset_answers");
+    const logged: string[] = [];
+    const real = console.error;
+    console.error = (...args: unknown[]) => logged.push(args.map(String).join(" "));
+    ae = stubAe();
+    const { sites } = await loadEmbedLists(env(), PRESETS[0][0], PRESETS[0][1], NOW);
+    console.error = real;
+    expect(sites.status).toBe("available");
+    expect(ae.asked).toHaveLength(2);
+    expect(logged.join("\n")).toContain("[embeds] shared preset answer could not be");
+  });
+
+  test("the cron prunes answers older than ten minutes", async () => {
+    ae = stubAe();
+    await loadEmbedLists(env(), PRESETS[0][0], PRESETS[0][1], NOW);
+    await prunePresetAnswers(asD1(obs), new Date(NOW.getTime() + 5 * 60_000));
+    expect(obs.query("SELECT COUNT(*) AS n FROM embed_preset_answers").get()).toEqual({ n: 1 });
+    await prunePresetAnswers(asD1(obs), new Date(NOW.getTime() + 11 * 60_000));
+    expect(obs.query("SELECT COUNT(*) AS n FROM embed_preset_answers").get()).toEqual({ n: 0 });
+  });
+});
+
+describe("the extra capped-read claim", () => {
+  test("a claim that cannot be made skips the total, falls back to the rows, and logs without values", async () => {
+    const many = Array.from({ length: AE_ROW_LIMIT }, (_, i) => ({
+      host: `h${i}.org`,
+      loads: "1",
+    }));
+    const logged: string[] = [];
+    const real = console.error;
+    console.error = (...args: unknown[]) => logged.push(args.map(String).join(" "));
+    ae = stubAe({
+      // The budget table disappears after the first claim, so the extra claim fails.
+      sites: () => {
+        obs.run("DROP TABLE embed_query_budget");
+        return { data: many };
+      },
+    });
+    const { sites } = await loadEmbedLists(env(), "2026-09-20", "2026-10-03", NOW);
+    console.error = real;
+    expect(sites.summary?.capped).toBe(true);
+    expect(sites.summary?.total).toBe(AE_ROW_LIMIT);
+    expect(
+      ae.asked.some((q) => q.includes("SUM(_sample_interval) AS loads") && !q.includes("GROUP BY")),
+    ).toBe(false);
+    const text = logged.join("\n");
+    expect(text).toContain("[embeds] extra query budget could not be claimed");
+    expect(text).not.toContain("h0.org");
   });
 });
 

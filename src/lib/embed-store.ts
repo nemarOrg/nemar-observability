@@ -180,3 +180,41 @@ export async function loadEmbedSync(db: D1Database): Promise<EmbedSyncState | nu
       .first<EmbedSyncState>()) ?? null
   );
 }
+
+/** A shared preset answer computed at most `ttlMs` ago, or null. */
+export async function readPresetAnswer(
+  db: D1Database,
+  key: string,
+  now: Date,
+  ttlMs: number,
+): Promise<string | null> {
+  const row = await db
+    .prepare("SELECT answer, computed_at FROM embed_preset_answers WHERE key = ?1")
+    .bind(key)
+    .first<{ answer: string; computed_at: string }>();
+  if (!row) return null;
+  const age = now.getTime() - Date.parse(row.computed_at);
+  return age >= 0 && age < ttlMs ? row.answer : null;
+}
+
+/** Share a good preset answer with every isolate. */
+export async function writePresetAnswer(
+  db: D1Database,
+  key: string,
+  answer: string,
+  now: Date,
+): Promise<void> {
+  await db
+    .prepare(
+      `INSERT INTO embed_preset_answers (key, answer, computed_at) VALUES (?1, ?2, ?3)
+       ON CONFLICT(key) DO UPDATE SET answer = ?2, computed_at = ?3`,
+    )
+    .bind(key, answer, now.toISOString())
+    .run();
+}
+
+/** Delete preset answers that are long past their use. Called by the hourly cron. */
+export async function prunePresetAnswers(db: D1Database, now: Date): Promise<void> {
+  const cutoff = new Date(now.getTime() - 10 * 60_000).toISOString();
+  await db.prepare("DELETE FROM embed_preset_answers WHERE computed_at < ?1").bind(cutoff).run();
+}
