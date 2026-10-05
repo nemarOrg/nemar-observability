@@ -84,8 +84,21 @@ export const LIST_QUERY_COST = 2;
  * user, with a five minute lockout of ALL API calls when exceeded, and the
  * analytics token shares that with the access section. 60 a minute is at most
  * 300 of the 1,200 in five minutes (a quarter), and the hourly cron adds a few.
+ *
+ * The 60 are two pools of 30. The windows the page itself offers (7, 30, 90 and
+ * 365 days ending yesterday or today) draw on "preset", which has at most eight
+ * distinct windows and so a small, bounded demand; every other window draws on
+ * "custom". A flood of distinct custom windows therefore exhausts only the
+ * custom pool: the presets the page opens with keep loading for everyone.
  */
-export const LIST_QUERIES_PER_MINUTE = 60;
+export const LIST_QUERIES_PER_MINUTE = { preset: 30, custom: 30 } as const;
+
+/** True for a range the page's own preset buttons send (or the same ending today). */
+export function isPresetRange(start: string, end: string, now: Date): boolean {
+  const today = dayOf(now.getTime());
+  if (end !== today && end !== shiftDay(today, -1)) return false;
+  return [7, 30, 90, 365].includes(rangeDays(start, end));
+}
 
 const DAY_MS = 86_400_000;
 const DAY_RE = /^\d{4}-\d{2}-\d{2}$/;

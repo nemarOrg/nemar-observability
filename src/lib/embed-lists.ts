@@ -11,7 +11,13 @@
 
 import type { Bindings } from "../types";
 import { queryAe } from "./access";
-import { claimQueryBudget, loadEmbedDays, loadEmbedSync, loadFirstEmbedDay } from "./embed-store";
+import {
+  type BudgetPool,
+  claimQueryBudget,
+  loadEmbedDays,
+  loadEmbedSync,
+  loadFirstEmbedDay,
+} from "./embed-store";
 import {
   AE_ROW_LIMIT,
   type EmbedDatasetSummary,
@@ -29,6 +35,7 @@ import {
   embedSitesSql,
   embedTotalSql,
   isEmbedConfigured,
+  isPresetRange,
   parseDatasetRows,
   parseHostKindRows,
   parseHostRows,
@@ -50,6 +57,7 @@ export interface EmbedLists {
   datasets: EmbedListBlock<EmbedDatasetSummary>;
 }
 
+export const BUSY_NOTE = "Embed detail is busy. Try again in a minute.";
 const FUTURE_NOTE = "These dates are in the future, so nothing has been counted yet.";
 const EXPIRED_NOTE =
   "Per-site and per-dataset detail covers about the last three months, and none of the selected dates fall inside it.";
@@ -147,7 +155,7 @@ export async function loadEmbedLists(
   const key = `${env.EMBED_AE_DATASET}|${window.start}|${window.end}|${today}|${websiteBase(env)}`;
   const hit = memo.get(key);
   if (hit && now.getTime() - hit.at < MEMO_TTL_MS) return hit.lists;
-  const lists = computeLists(env, window, now);
+  const lists = computeLists(env, start, end, window, now);
   if (memo.size >= MEMO_MAX) memo.delete(memo.keys().next().value as string);
   memo.set(key, { at: now.getTime(), lists });
   const settled = await lists;
@@ -157,9 +165,9 @@ export async function loadEmbedLists(
 }
 
 /** One more query, only when a row cap was hit; if the budget is spent the rows' own sum stands in. */
-async function claimExtraQuery(env: Bindings, now: Date): Promise<boolean> {
+async function claimExtraQuery(env: Bindings, now: Date, pool: BudgetPool): Promise<boolean> {
   try {
-    return await claimQueryBudget(env.OBS_DB, now, 1, LIST_QUERIES_PER_MINUTE);
+    return await claimQueryBudget(env.OBS_DB, now, 1, LIST_QUERIES_PER_MINUTE[pool], pool);
   } catch {
     return false;
   }
@@ -167,17 +175,28 @@ async function claimExtraQuery(env: Bindings, now: Date): Promise<boolean> {
 
 async function computeLists(
   env: Bindings,
+  start: string,
+  end: string,
   window: { start: string; end: string; clipped: boolean },
   now: Date,
 ): Promise<EmbedLists> {
-  let claimed = false;
+  const pool = isPresetRange(start, end, now) ? "preset" : "custom";
+  let claimed: boolean;
   try {
-    claimed = await claimQueryBudget(env.OBS_DB, now, LIST_QUERY_COST, LIST_QUERIES_PER_MINUTE);
+    claimed = await claimQueryBudget(
+      env.OBS_DB,
+      now,
+      LIST_QUERY_COST,
+      LIST_QUERIES_PER_MINUTE[pool],
+      pool,
+    );
   } catch (err) {
-    // Without the budget the quota cannot be protected: do not ask.
+    // Without the budget the quota cannot be protected, so the edge is not asked.
+    // That is a fault, not load: it does not say "busy".
     console.error("[embeds] query budget could not be claimed:", err);
+    return bothBlocks("unavailable", "Embed detail is currently unavailable.");
   }
-  if (!claimed) return bothBlocks("unavailable", "Embed detail is busy. Try again in a minute.");
+  if (!claimed) return bothBlocks("unavailable", BUSY_NOTE);
 
   const until = nextDay(window.end);
   let siteRows: ReturnType<typeof parseHostRows>;
@@ -195,7 +214,7 @@ async function computeLists(
     capped = rawSites.length >= AE_ROW_LIMIT || rawDatasets.length >= AE_ROW_LIMIT;
     // The rows add up to the total unless a row cap cut them short.
     total = siteRows.reduce((n, r) => n + r.loads, 0);
-    if (capped && (await claimExtraQuery(env, now))) {
+    if (capped && (await claimExtraQuery(env, now, pool))) {
       const queried = parseTotalRow(
         await queryAe(env, embedTotalSql(dataset, window.start, until)),
       );

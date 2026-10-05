@@ -5,8 +5,13 @@
 import { Database } from "bun:sqlite";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { loadEmbedLists, resetEmbedListsMemo } from "../src/lib/embed-lists";
-import { claimQueryBudget } from "../src/lib/embed-store";
-import { AE_ROW_LIMIT, LIST_QUERIES_PER_MINUTE, LIST_QUERY_COST } from "../src/lib/embeds";
+import { claimQueryBudget, pruneQueryBudget } from "../src/lib/embed-store";
+import {
+  AE_ROW_LIMIT,
+  LIST_QUERIES_PER_MINUTE,
+  LIST_QUERY_COST,
+  isPresetRange,
+} from "../src/lib/embeds";
 import type { Bindings } from "../src/types";
 import { type AeStub, stubAe } from "./helpers/ae-fixtures";
 import { asD1 } from "./helpers/d1";
@@ -252,21 +257,42 @@ describe("the memo and the shared query budget", () => {
     expect(ae.asked).toHaveLength(4);
   });
 
-  test("once the minute's budget is spent, further windows are refused without asking the edge", async () => {
+  test("a flood of distinct custom windows exhausts only the custom pool: the presets keep loading", async () => {
     ae = stubAe();
-    const perMinute = Math.floor(LIST_QUERIES_PER_MINUTE / LIST_QUERY_COST);
+    const perMinute = Math.floor(LIST_QUERIES_PER_MINUTE.custom / LIST_QUERY_COST);
     const statuses: string[] = [];
     // Distinct windows defeat the memo, as a flood of random ranges would.
     for (let i = 0; i < perMinute + 5; i++) {
       const start = new Date(Date.UTC(2026, 7, 1 + i)).toISOString().slice(0, 10);
-      const { sites } = await loadEmbedLists(env(), start, "2026-10-04", NOW);
+      const { sites } = await loadEmbedLists(env(), start, "2026-10-03", NOW);
       statuses.push(`${sites.status}:${sites.note ?? ""}`);
     }
-    const refused = statuses.filter((s) => s.includes("busy"));
-    expect(refused.length).toBe(5);
+    expect(statuses.filter((s) => s.includes("busy"))).toHaveLength(5);
     expect(statuses.slice(0, perMinute).some((x) => x.includes("busy"))).toBe(false);
-    // 2 queries per allowed load, none for a refused one.
-    expect(ae.asked.length).toBeLessThanOrEqual(LIST_QUERIES_PER_MINUTE);
+    // Custom windows are refused without asking the edge: 2 queries per allowed load.
+    expect(ae.asked.length).toBe(perMinute * LIST_QUERY_COST);
+    // The windows the page offers still answer, for everyone, in the same minute.
+    for (const [start, end] of [
+      ["2026-09-28", "2026-10-04"],
+      ["2026-09-05", "2026-10-04"],
+      ["2026-07-07", "2026-10-04"],
+      ["2025-10-05", "2026-10-04"],
+      ["2026-09-29", "2026-10-05"],
+    ]) {
+      const { sites } = await loadEmbedLists(env(), start, end, NOW);
+      expect(sites.status === "available" || sites.status === "partial").toBe(true);
+    }
+  });
+
+  test("isPresetRange is the page's 7, 30, 90 and 365 days ending yesterday or today", () => {
+    expect(isPresetRange("2026-09-28", "2026-10-04", NOW)).toBe(true);
+    expect(isPresetRange("2026-09-29", "2026-10-05", NOW)).toBe(true);
+    expect(isPresetRange("2026-09-05", "2026-10-04", NOW)).toBe(true);
+    expect(isPresetRange("2026-07-07", "2026-10-04", NOW)).toBe(true);
+    expect(isPresetRange("2025-10-05", "2026-10-04", NOW)).toBe(true);
+    // Not a preset: another length, or ending another day.
+    expect(isPresetRange("2026-09-27", "2026-10-04", NOW)).toBe(false);
+    expect(isPresetRange("2026-09-27", "2026-10-03", NOW)).toBe(false);
   });
 
   test("a budget that cannot be claimed fails closed", async () => {
@@ -282,20 +308,32 @@ describe("the memo and the shared query budget", () => {
     restore();
     bare.close();
     expect(sites.status).toBe("unavailable");
+    // A fault in the limiter is not "busy": it must not tell people to retry in a minute.
+    expect(sites.note).toBe("Embed detail is currently unavailable.");
+    expect(sites.note).not.toContain("busy");
     expect(ae.asked).toHaveLength(0);
   });
 
-  test("claimQueryBudget counts per UTC minute, refuses past the cap, and forgets old minutes", async () => {
+  test("claimQueryBudget counts per UTC minute and pool, and refuses past the cap", async () => {
     const db = asD1(obs);
     const t = (s: string) => new Date(`2026-10-05T14:${s}Z`);
-    expect(await claimQueryBudget(db, t("47:05"), 3, 5)).toBe(true);
-    expect(await claimQueryBudget(db, t("47:40"), 2, 5)).toBe(true);
-    expect(await claimQueryBudget(db, t("47:59"), 1, 5)).toBe(false);
-    // A new minute starts fresh.
-    expect(await claimQueryBudget(db, t("48:01"), 3, 5)).toBe(true);
-    // Much later, the old rows are gone.
+    expect(await claimQueryBudget(db, t("47:05"), 3, 5, "custom")).toBe(true);
+    expect(await claimQueryBudget(db, t("47:40"), 2, 5, "custom")).toBe(true);
+    expect(await claimQueryBudget(db, t("47:59"), 1, 5, "custom")).toBe(false);
+    // The other pool is untouched, and a new minute starts fresh.
+    expect(await claimQueryBudget(db, t("47:59"), 3, 5, "preset")).toBe(true);
+    expect(await claimQueryBudget(db, t("48:01"), 3, 5, "custom")).toBe(true);
+  });
+
+  test("a claim never deletes anything: pruning is the cron's job", async () => {
+    const db = asD1(obs);
+    await claimQueryBudget(db, new Date("2026-10-05T14:00:00Z"), 1, 5);
     await claimQueryBudget(db, new Date("2026-10-05T15:30:00Z"), 1, 5);
-    const left = obs.query("SELECT COUNT(*) AS n FROM embed_query_budget").get() as { n: number };
-    expect(left.n).toBe(1);
+    expect(
+      (obs.query("SELECT COUNT(*) AS n FROM embed_query_budget").get() as { n: number }).n,
+    ).toBe(2);
+    await pruneQueryBudget(db, new Date("2026-10-05T15:30:00Z"));
+    const left = obs.query("SELECT minute FROM embed_query_budget").all() as { minute: string }[];
+    expect(left.map((r) => r.minute)).toEqual(["2026-10-05T15:30|custom"]);
   });
 });

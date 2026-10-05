@@ -6,6 +6,7 @@ import {
   loadEmbedDayStamps,
   loadEmbedDays,
   loadFirstEmbedDay,
+  pruneQueryBudget,
   recordEmbedSync,
   saveEmbedDays,
 } from "./lib/embed-store";
@@ -232,5 +233,9 @@ export async function handleScheduled(
   // After the snapshot and its status are saved, whatever happened to them: the
   // embed read is the one outbound call a slow edge could hold up, and it must
   // not delay either (nor be skipped because the snapshot failed).
-  await syncEmbedDays(env, new Date());
+  const now = new Date();
+  await pruneQueryBudget(env.OBS_DB, now).catch((e) =>
+    console.error("[cron] could not prune the embed query budget:", e),
+  );
+  await syncEmbedDays(env, now);
 }

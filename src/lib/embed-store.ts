@@ -97,29 +97,38 @@ export async function loadEmbedDayStamps(
   return new Map((rows.results ?? []).map((r) => [r.date, r.at]));
 }
 
+/** Which share of the minute's budget a load draws on (see embeds.ts). */
+export type BudgetPool = "preset" | "custom";
+
 /**
  * Claim `cost` Analytics Engine queries from this UTC minute's shared budget of
- * `perMinute`. True when the claim fits. The counter is in D1, so it holds across
- * every isolate; a claim that does not fit still counts, which only makes a flood
- * refuse sooner. Old minutes are deleted as new ones are claimed.
+ * `perMinute` in `pool`. True when the claim fits. The counter is in D1, so it
+ * holds across every isolate; a claim that does not fit still counts, which only
+ * makes a flood refuse sooner. Old minutes are deleted by the cron
+ * (pruneQueryBudget), not on this public request path.
  */
 export async function claimQueryBudget(
   db: D1Database,
   now: Date,
   cost: number,
   perMinute: number,
+  pool: BudgetPool = "custom",
 ): Promise<boolean> {
-  const minute = now.toISOString().slice(0, 16);
+  const key = `${now.toISOString().slice(0, 16)}|${pool}`;
   const row = await db
     .prepare(
       `INSERT INTO embed_query_budget (minute, used) VALUES (?1, ?2)
        ON CONFLICT(minute) DO UPDATE SET used = used + ?2 RETURNING used`,
     )
-    .bind(minute, cost)
+    .bind(key, cost)
     .first<{ used: number }>();
+  return row !== null && row.used <= perMinute;
+}
+
+/** Delete budget rows from minutes that are over. Called by the hourly cron. */
+export async function pruneQueryBudget(db: D1Database, now: Date): Promise<void> {
   const cutoff = new Date(now.getTime() - 10 * 60_000).toISOString().slice(0, 16);
   await db.prepare("DELETE FROM embed_query_budget WHERE minute < ?1").bind(cutoff).run();
-  return row !== null && row.used <= perMinute;
 }
 
 export interface EmbedSyncState {
