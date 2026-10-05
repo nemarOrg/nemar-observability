@@ -12,12 +12,15 @@ import {
   buildLoadsBlock,
   embedDatasetsSql,
   embedDaysSql,
+  embedRetentionStart,
   embedSitesSql,
   embedTotalSql,
   groupEmbedDays,
+  normalizeKind,
   parseEmbedDayRows,
   summarizeEmbedDatasets,
   summarizeEmbedSites,
+  summarizeSitesForAdmin,
 } from "../src/lib/embeds";
 import { publicDatasetIds } from "../src/lib/sql";
 import datasets from "./fixtures/embed-ae-datasets-2026-10-05.json";
@@ -61,10 +64,28 @@ describe("daily totals from the captured answer", () => {
     ]);
   });
 
+  // The retention-window fixture was captured for a window starting 2026-07-12,
+  // one day wider than the cron's first pull (embedRetentionStart is 2026-07-13:
+  // 85 days including the day itself). The answer is the same for both, since
+  // the edge holds rows for one day only, and the query is pinned here so a
+  // reader sees exactly what was captured.
+  test("the retention-window fixture is the days query over 2026-07-12 to 2026-10-06", () => {
+    expect(daysRetention.query.replace(/\s+/g, " ")).toBe(
+      embedDaysSql("nemar_website_embeds_dev", "2026-07-12", "2026-10-06")
+        .replace(/\s+/g, " ")
+        .trim(),
+    );
+    expect(embedRetentionStart(new Date("2026-10-05T15:00:00Z"))).toBe("2026-07-13");
+  });
+
   test("the first pull stores the first counted day with all four kinds, other as a measured zero", () => {
     const parsed = parseEmbedDayRows(dataOf(daysRetention));
-    // The pull reaches back 85 days, but the edge has rows for one day only.
-    const out = buildEmbedDays(parsed, "2026-07-12", "2026-10-05", null);
+    const out = buildEmbedDays(
+      parsed,
+      embedRetentionStart(new Date("2026-10-05T15:00:00Z")),
+      "2026-10-05",
+      null,
+    );
     expect(out).toEqual([
       { date: "2026-10-05", kind: "iframe", loads: 307 },
       { date: "2026-10-05", kind: "document", loads: 19 },
@@ -93,18 +114,17 @@ describe("daily totals from the captured answer", () => {
 describe("embedding sites from the captured answer", () => {
   const out = summarizeEmbedSites(siteRows(sites), totalLoads);
 
-  test("localhost and 127.0.0.1 and the empty host are grouped as unknown or local", () => {
+  test("localhost, 127.0.0.1 and the empty host are counted as unknown or local", () => {
     expect(out.unknown_or_local).toBe(260 + 34 + 4);
-    const text = JSON.stringify(out);
-    expect(text).not.toContain("localhost");
-    expect(text).not.toContain("127.0.0.1");
   });
 
-  test("every real site here has fewer than 10 embedded loads, so none is named", () => {
-    expect(out.rows).toEqual([]);
-    expect(out.other_sites).toBe(2 + 2 + 2 + 1 + 1 + 1);
+  test("the six real hosts are counted, and none is named", () => {
+    expect(out.sites_loads).toBe(2 + 2 + 2 + 1 + 1 + 1);
+    expect(out.distinct_sites).toBe(6);
     const text = JSON.stringify(out);
     for (const host of [
+      "localhost",
+      "127.0.0.1",
       "example.org",
       "after-review.invalid",
       "probe.example",
@@ -118,9 +138,7 @@ describe("embedding sites from the captured answer", () => {
 
   test("the pieces add up to the 307 embedded loads", () => {
     expect(out.total).toBe(307);
-    expect(out.rows.reduce((n, r) => n + r.value, 0) + out.unknown_or_local + out.other_sites).toBe(
-      307,
-    );
+    expect(out.unknown_or_local + out.sites_loads).toBe(307);
   });
 
   test("the requests that must not count left no row in the dataset", () => {
@@ -128,12 +146,37 @@ describe("embedding sites from the captured answer", () => {
     for (const host of hosts) expect(host).not.toContain("must-not-count");
   });
 
-  test("a site that did reach the floor would be named, and local hosts still would not", () => {
-    // Same captured rows with one real host's count raised to the floor.
-    const raised = siteRows(sites).map((r) => (r.host === "example.org" ? { ...r, loads: 10 } : r));
-    const named = summarizeEmbedSites(raised, totalLoads + 9);
-    expect(named.rows).toEqual([{ label: "example.org", value: 10 }]);
-    expect(named.unknown_or_local).toBe(298);
+  test("the admin list, from the same hosts, does name them all, with the local ones flagged", () => {
+    const perKind = dataOf(rows24h).map((r) => ({
+      host: String(r.host),
+      kind: normalizeKind(r.kind),
+      loads: num(r.loads),
+    }));
+    const admin = summarizeSitesForAdmin(perKind);
+    const byHost = new Map(admin.map((a) => [a.host, a]));
+    expect(byHost.get("localhost")).toEqual({
+      host: "localhost",
+      embedded: 260,
+      opened_directly: 0,
+      other: 0,
+      unknown_or_local: true,
+    });
+    expect(byHost.get("example.org")).toMatchObject({
+      embedded: 1,
+      other: 1,
+      unknown_or_local: false,
+    });
+    expect(byHost.get("after-review.invalid")).toMatchObject({
+      embedded: 1,
+      unknown_or_local: false,
+    });
+    expect(byHost.get("")).toMatchObject({
+      opened_directly: 19,
+      embedded: 4,
+      other: 5,
+      unknown_or_local: true,
+    });
+    expect(admin[0].host).toBe("localhost");
   });
 });
 
@@ -169,7 +212,9 @@ describe("embedded datasets from the captured answer", () => {
 
   test("were on007753 public it would be named, and the other two stay folded", () => {
     const out = summarizeEmbedDatasets(rows, new Set(["on007753"]), totalLoads);
-    expect(out.rows).toEqual([{ label: "on007753", value: 277 }]);
+    expect(out.rows).toEqual([
+      { label: "on007753", value: 277, href: "https://nemar.org/dataset/on007753" },
+    ]);
     expect(out.other).toBe(28 + 2);
     expect(JSON.stringify(out)).not.toContain("xx099901");
   });
@@ -187,23 +232,33 @@ describe("a dataset nothing has been written to yet", () => {
   test("an empty answer stores nothing, and the page says none are recorded rather than unavailable", () => {
     const parsed = parseEmbedDayRows(dataOf(unwrittenDays));
     expect(parsed).toEqual([]);
-    expect(buildEmbedDays(parsed, "2026-07-12", "2026-10-05", null)).toEqual([]);
+    expect(buildEmbedDays(parsed, "2026-07-13", "2026-10-05", null)).toEqual([]);
+    // After a sync that succeeded with nothing to write.
     const block = buildLoadsBlock(
       [],
       "2026-09-06",
       "2026-10-05",
       new Date("2026-10-05T15:00:00Z"),
-      true,
+      {
+        configured: true,
+        firstDay: null,
+        sync: {
+          last_ok_at: "2026-10-05T14:47:00.000Z",
+          last_error: null,
+          last_run_at: "2026-10-05T14:47:00.000Z",
+        },
+      },
     );
     expect(block.status).toBe("available");
+    expect(block.empty_reason).toBe("none_yet");
     expect(block.note).toBe("No embed loads are recorded for these dates.");
     const sitesSummary = summarizeEmbedSites(siteRows(unwrittenSites), 0);
     expect(sitesSummary).toEqual({
-      rows: [],
       unknown_or_local: 0,
-      other_sites: 0,
+      sites_loads: 0,
+      distinct_sites: 0,
       total: 0,
-      min_named_loads: 10,
+      capped: false,
     });
   });
 });

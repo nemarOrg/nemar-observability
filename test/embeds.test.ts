@@ -1,32 +1,40 @@
 // The public rules for embed loads of the signal viewer (nemar-observability#97):
-// which hosts and datasets may be named on a page with no auth, how daily totals
-// are planned, zero-filled and protected, and how the edge is asked.
-//
-// These are tests of pure rules over explicit inputs. The edge's own answers are
-// not invented here: tests over a captured answer need the dev dataset read and
-// are listed in test_requirements.md.
+// what the public page may say about embedding sites (counts, never names) and
+// datasets (named only when public), how daily totals are planned, zero-filled
+// and protected, how a card reflects the health of its sync, and how the edge
+// is asked. Tests of pure rules over explicit inputs; the edge's own answers are
+// in embed-captured.test.ts (captured live) and embed-sync.test.ts.
 
 import { describe, expect, test } from "bun:test";
 import {
-  EMBED_LIST_LIMIT,
+  EMBED_DATASET_LIMIT,
   EMBED_RETENTION_DAYS,
-  MIN_NAMED_SITE_LOADS,
+  STALE_SYNC_MS,
   buildEmbedDays,
   buildLoadsBlock,
   detailWindow,
   embedDatasetsSql,
   embedDaysSql,
+  embedSiteKindsSql,
   embedSitesSql,
   embedTotalSql,
   groupEmbedDays,
   isEmbedConfigured,
   isUnknownOrLocalHost,
+  normalizeHost,
   normalizeKind,
+  parseDatasetRows,
   parseEmbedDayRows,
+  parseHostKindRows,
+  parseHostRows,
+  parseTotalRow,
   planEmbedPull,
+  siteKey,
   strictCount,
   summarizeEmbedDatasets,
   summarizeEmbedSites,
+  summarizeSitesForAdmin,
+  websiteBase,
   writableEmbedDays,
 } from "../src/lib/embeds";
 import type { Bindings } from "../src/types";
@@ -56,6 +64,8 @@ describe("isUnknownOrLocalHost", () => {
     "   ",
     "localhost",
     "LOCALHOST",
+    "localhost.",
+    "localhost..",
     "127.0.0.1",
     "10.0.0.7",
     "192.168.1.20",
@@ -70,6 +80,18 @@ describe("isUnknownOrLocalHost", () => {
     "build.internal",
     "nas.lan",
     "router.home.arpa",
+    "wiki.corp",
+    "nas.home",
+    "files.intranet",
+    "vault.private",
+    "app.test",
+    "192-168-1-5.nip.io",
+    "10.0.0.5.nip.io",
+    "anything.sslip.io",
+    "sslip.io",
+    "myapp.localtest.me",
+    "1.2.3",
+    "example.123",
     "has space.example",
     "evil/path.example",
   ])("%j is unknown or local", (host) => {
@@ -84,111 +106,105 @@ describe("isUnknownOrLocalHost", () => {
     "docs.nemar.org",
     "xn--bcher-kva.example",
     "a.b.c.example.co.uk",
-  ])("%j is a site that can be named", (host) => {
+    "www.example.org",
+    "notnip.io.example.org",
+    "example.test.org",
+    "mylocal.example",
+  ])("%j is a site on the public internet", (host) => {
     expect(isUnknownOrLocalHost(host)).toBe(false);
+  });
+
+  test("every trailing dot is dropped, so one host is never several", () => {
+    expect(normalizeHost("Example.ORG...")).toBe("example.org");
+    expect(normalizeHost(" localhost. ")).toBe("localhost");
+  });
+
+  test("www is folded only when counting distinct sites", () => {
+    expect(siteKey("WWW.Example.org.")).toBe("example.org");
+    expect(siteKey("example.org")).toBe("example.org");
+    expect(siteKey("web.example.org")).toBe("web.example.org");
   });
 });
 
 describe("summarizeEmbedSites", () => {
   const rows = (entries: [string, number][]) => entries.map(([host, loads]) => ({ host, loads }));
 
-  test("names a site at the floor and folds one just under it", () => {
-    const out = summarizeEmbedSites(
-      rows([
-        ["at-floor.example", MIN_NAMED_SITE_LOADS],
-        ["under.example", MIN_NAMED_SITE_LOADS - 1],
-      ]),
-      MIN_NAMED_SITE_LOADS * 2 - 1,
-    );
-    expect(out.rows).toEqual([{ label: "at-floor.example", value: MIN_NAMED_SITE_LOADS }]);
-    expect(out.other_sites).toBe(MIN_NAMED_SITE_LOADS - 1);
-    expect(out.unknown_or_local).toBe(0);
-  });
-
-  test("localhost, addresses and empty hosts are never named, however large", () => {
-    const out = summarizeEmbedSites(
-      rows([
-        ["localhost", 500],
-        ["127.0.0.1", 400],
-        ["", 300],
-        ["[::1]", 200],
-        ["partner.example", 50],
-      ]),
-      1450,
-    );
-    expect(out.rows).toEqual([{ label: "partner.example", value: 50 }]);
-    expect(out.unknown_or_local).toBe(1400);
-    expect(out.other_sites).toBe(0);
+  test("the public answer is counts and carries no hostname at all", () => {
+    const input = rows([
+      ["big-partner.example", 400],
+      ["small.example", 3],
+      ["localhost", 500],
+      ["127.0.0.1", 40],
+      ["", 9],
+      ["intranet", 2],
+    ]);
+    const out = summarizeEmbedSites(input, 954);
+    expect(out).toEqual({
+      unknown_or_local: 551,
+      sites_loads: 403,
+      distinct_sites: 2,
+      total: 954,
+      capped: false,
+    });
     const text = JSON.stringify(out);
-    for (const secret of ["localhost", "127.0.0.1", "::1"]) expect(text).not.toContain(secret);
+    for (const host of ["big-partner", "small.example", "localhost", "127.0.0.1", "intranet"]) {
+      expect(text).not.toContain(host);
+    }
+    // Nothing in the shape can carry a name or a floor.
+    expect(Object.keys(out).sort()).toEqual([
+      "capped",
+      "distinct_sites",
+      "sites_loads",
+      "total",
+      "unknown_or_local",
+    ]);
   });
 
-  test("the same site under different spellings is one row", () => {
+  test("a host is counted whatever its count: there is no floor to probe", () => {
+    const one = summarizeEmbedSites(rows([["tiny.example", 1]]), 1);
+    const many = summarizeEmbedSites(rows([["tiny.example", 5000]]), 5000);
+    expect(one.distinct_sites).toBe(1);
+    expect(many.distinct_sites).toBe(1);
+    expect(Object.keys(one)).toEqual(Object.keys(many));
+  });
+
+  test("spellings of one site are one distinct site", () => {
     const out = summarizeEmbedSites(
       rows([
         ["Partner.Example", 6],
         ["partner.example", 5],
         ["partner.example.", 4],
+        ["www.partner.example", 3],
+        ["other.example", 1],
       ]),
-      15,
+      19,
     );
-    expect(out.rows).toEqual([{ label: "partner.example", value: 15 }]);
+    expect(out.distinct_sites).toBe(2);
+    expect(out.sites_loads).toBe(19);
   });
 
-  test("rows add up to the total: named, unknown or local, and other sites", () => {
-    const input = rows([
-      ["a.example", 40],
-      ["b.example", 25],
-      ["c.example", 12],
-      ["d.example", 9],
-      ["e.example", 1],
-      ["localhost", 7],
-      ["", 3],
-    ]);
-    const out = summarizeEmbedSites(input, 97);
-    const named = out.rows.reduce((n, r) => n + r.value, 0);
-    expect(named + out.unknown_or_local + out.other_sites).toBe(out.total);
-    expect(out.total).toBe(97);
-    expect(out.rows.map((r) => r.label)).toEqual(["a.example", "b.example", "c.example"]);
-    expect(out.unknown_or_local).toBe(10);
-    expect(out.other_sites).toBe(10);
+  test("the parts add up to the total", () => {
+    const out = summarizeEmbedSites(
+      rows([
+        ["a.example", 40],
+        ["localhost", 7],
+        ["", 3],
+      ]),
+      50,
+    );
+    expect(out.unknown_or_local + out.sites_loads).toBe(out.total);
   });
 
-  test("a total above the rows (a capped read) lands in other sites, never in a name", () => {
-    const out = summarizeEmbedSites(rows([["big.example", 100]]), 130);
-    expect(out.rows).toEqual([{ label: "big.example", value: 100 }]);
-    expect(out.other_sites).toBe(30);
-    expect(out.total).toBe(130);
+  test("a total above the rows (a capped read) is real-site loads, never a name", () => {
+    const out = summarizeEmbedSites(rows([["big.example", 100]]), 130, true);
+    expect(out.sites_loads).toBe(130);
+    expect(out.capped).toBe(true);
   });
 
   test("a total below the rows is raised to them rather than going negative", () => {
     const out = summarizeEmbedSites(rows([["big.example", 100]]), 80);
     expect(out.total).toBe(100);
-    expect(out.other_sites).toBe(0);
-  });
-
-  test("a ranking is cut at the limit and the rest is folded into other sites", () => {
-    const many = Array.from({ length: EMBED_LIST_LIMIT + 3 }, (_, i) => ({
-      host: `site-${String(i).padStart(2, "0")}.example`,
-      loads: 100 - i,
-    }));
-    const total = many.reduce((n, r) => n + r.loads, 0);
-    const out = summarizeEmbedSites(many, total);
-    expect(out.rows).toHaveLength(EMBED_LIST_LIMIT);
-    expect(out.rows[0]).toEqual({ label: "site-00.example", value: 100 });
-    const tail = many.slice(EMBED_LIST_LIMIT).reduce((n, r) => n + r.loads, 0);
-    expect(out.other_sites).toBe(tail);
-  });
-
-  test("ties are ordered by name so the page does not shuffle", () => {
-    const out = summarizeEmbedSites(
-      rows([
-        ["b.example", 20],
-        ["a.example", 20],
-      ]),
-      40,
-    );
-    expect(out.rows.map((r) => r.label)).toEqual(["a.example", "b.example"]);
+    expect(out.sites_loads).toBe(100);
   });
 
   test("zero, negative and non-finite counts are ignored", () => {
@@ -201,12 +217,36 @@ describe("summarizeEmbedSites", () => {
       0,
     );
     expect(out).toEqual({
-      rows: [],
       unknown_or_local: 0,
-      other_sites: 0,
+      sites_loads: 0,
+      distinct_sites: 0,
       total: 0,
-      min_named_loads: MIN_NAMED_SITE_LOADS,
+      capped: false,
     });
+  });
+});
+
+describe("summarizeSitesForAdmin", () => {
+  test("one row per host with loads by kind, embedded first, local hosts flagged", () => {
+    const out = summarizeSitesForAdmin([
+      { host: "Partner.Example", kind: "iframe", loads: 30 },
+      { host: "partner.example", kind: "document", loads: 2 },
+      { host: "partner.example", kind: "none", loads: 1 },
+      { host: "partner.example", kind: "other", loads: 4 },
+      { host: "localhost", kind: "iframe", loads: 90 },
+      { host: "quiet.example", kind: "document", loads: 7 },
+    ]);
+    expect(out).toEqual([
+      { host: "localhost", embedded: 90, opened_directly: 0, other: 0, unknown_or_local: true },
+      {
+        host: "partner.example",
+        embedded: 30,
+        opened_directly: 2,
+        other: 5,
+        unknown_or_local: false,
+      },
+      { host: "quiet.example", embedded: 0, opened_directly: 7, other: 0, unknown_or_local: false },
+    ]);
   });
 });
 
@@ -226,14 +266,24 @@ describe("summarizeEmbedDatasets", () => {
       65,
     );
     expect(out.rows).toEqual([
-      { label: "on000001", value: 30 },
-      { label: "on000002", value: 10 },
+      { label: "on000001", value: 30, href: "https://nemar.org/dataset/on000001" },
+      { label: "on000002", value: 10, href: "https://nemar.org/dataset/on000002" },
     ]);
     expect(out.other).toBe(25);
     expect(out.total).toBe(65);
     const text = JSON.stringify(out);
     expect(text).not.toContain("nm-private");
     expect(text).not.toContain("not-in-the-catalog");
+  });
+
+  test("links point at the website of this environment", () => {
+    const out = summarizeEmbedDatasets(
+      rows([["on000001", 3]]),
+      new Set(["on000001"]),
+      3,
+      "https://test.nemar.org",
+    );
+    expect(out.rows[0].href).toBe("https://test.nemar.org/dataset/on000001");
   });
 
   test("with no public ids nothing is named, the whole total is unnamed", () => {
@@ -243,15 +293,24 @@ describe("summarizeEmbedDatasets", () => {
   });
 
   test("a public dataset past the limit is folded, not dropped", () => {
-    const many = Array.from({ length: EMBED_LIST_LIMIT + 2 }, (_, i) => ({
+    const many = Array.from({ length: EMBED_DATASET_LIMIT + 2 }, (_, i) => ({
       dataset_id: `on${String(i).padStart(6, "0")}`,
       loads: 50 - i,
     }));
     const total = many.reduce((n, r) => n + r.loads, 0);
     const out = summarizeEmbedDatasets(many, new Set(many.map((r) => r.dataset_id)), total);
-    expect(out.rows).toHaveLength(EMBED_LIST_LIMIT);
+    expect(out.rows).toHaveLength(EMBED_DATASET_LIMIT);
     const named = out.rows.reduce((n, r) => n + r.value, 0);
     expect(named + out.other).toBe(total);
+  });
+});
+
+describe("websiteBase", () => {
+  test("the configured origin, without a trailing slash, else nemar.org", () => {
+    expect(websiteBase({} as Bindings)).toBe("https://nemar.org");
+    expect(websiteBase({ WEBSITE_BASE_URL: "https://test.nemar.org/" } as Bindings)).toBe(
+      "https://test.nemar.org",
+    );
   });
 });
 
@@ -404,6 +463,7 @@ describe("the edge queries", () => {
     embedSitesSql(ds, "2026-10-01", "2026-10-06"),
     embedDatasetsSql(ds, "2026-10-01", "2026-10-06"),
     embedTotalSql(ds, "2026-10-01", "2026-10-06"),
+    embedSiteKindsSql(ds, "2026-10-01", "2026-10-06"),
   ];
 
   test("every query weights by the sample interval and never counts rows", () => {
@@ -426,6 +486,12 @@ describe("the edge queries", () => {
     expect(embedDatasetsSql(ds, "2026-10-01", "2026-10-06")).toContain("blob3 = 'iframe'");
     expect(embedTotalSql(ds, "2026-10-01", "2026-10-06")).toContain("blob3 = 'iframe'");
     expect(embedDaysSql(ds, "2026-10-01", "2026-10-06")).not.toContain("WHERE blob3");
+  });
+
+  test("the admin site list reads every kind per host, not only embeds", () => {
+    const sql = embedSiteKindsSql(ds, "2026-10-01", "2026-10-06");
+    expect(sql).toContain("GROUP BY host, kind");
+    expect(sql).not.toContain("blob3 = 'iframe'");
   });
 
   test("a value that is not a day cannot reach the query", () => {
@@ -520,19 +586,115 @@ describe("buildLoadsBlock", () => {
     kind,
     loads,
   });
+  const fresh = {
+    last_ok_at: "2026-10-05T11:47:00.000Z",
+    last_error: null,
+    last_run_at: "2026-10-05T11:47:00.000Z",
+  };
+  const ctx = (extra: object = {}) => ({ configured: true, firstDay: null, sync: fresh, ...extra });
 
-  test("not configured and nothing stored is not configured, never zero", () => {
-    const out = buildLoadsBlock([], day(30), day(1), NOW, false);
+  test("not configured is not configured, never zero", () => {
+    const out = buildLoadsBlock([], day(30), day(1), NOW, ctx({ configured: false }));
     expect(out.status).toBe("unconfigured");
     expect(out.totals).toBeNull();
   });
 
-  test("configured with nothing stored is a normal empty state, not a fault", () => {
-    const out = buildLoadsBlock([], day(30), day(1), NOW, true);
+  test("configured, synced and nothing recorded is a normal empty state, not a fault", () => {
+    const out = buildLoadsBlock([], day(30), day(1), NOW, ctx());
+    expect(out.status).toBe("available");
+    expect(out.empty_reason).toBe("none_yet");
+    expect(out.totals).toBeNull();
+    expect(out.days_in_range).toBe(30);
+    expect(out.last_synced_at).toBe(fresh.last_ok_at);
+  });
+
+  test("a fresh deploy whose first sync failed is unavailable, never none recorded", () => {
+    const out = buildLoadsBlock([], day(30), day(1), NOW, {
+      configured: true,
+      firstDay: null,
+      sync: {
+        last_ok_at: null,
+        last_error: "read the edge: AE SQL 403",
+        last_run_at: "2026-10-05T11:47:00.000Z",
+      },
+    });
+    expect(out.status).toBe("unavailable");
+    expect(out.empty_reason).toBeNull();
+    expect(out.note).toContain("failed");
+    expect(out.note).not.toContain("No embed loads are recorded");
+    expect(out.last_synced_at).toBeNull();
+  });
+
+  test("before the first sync has run at all it says so, also not none recorded", () => {
+    const out = buildLoadsBlock([], day(30), day(1), NOW, {
+      configured: true,
+      firstDay: null,
+      sync: { last_ok_at: null, last_error: null, last_run_at: null },
+    });
+    expect(out.status).toBe("unavailable");
+    expect(out.note).toContain("not been collected yet");
+  });
+
+  test("a missing status row counts as never synced", () => {
+    expect(buildLoadsBlock([], day(30), day(1), NOW, ctx({ sync: null })).status).toBe(
+      "unavailable",
+    );
+  });
+
+  test("an empty answer from a sync that went stale is unavailable and says when it last updated", () => {
+    const old = new Date(NOW.getTime() - STALE_SYNC_MS - 60_000).toISOString();
+    const out = buildLoadsBlock(
+      [],
+      day(30),
+      day(1),
+      NOW,
+      ctx({ sync: { ...fresh, last_ok_at: old } }),
+    );
+    expect(out.status).toBe("unavailable");
+    expect(out.note).toContain("Last updated");
+  });
+
+  test("recorded days with a stale sync are partial, and say when they last updated", () => {
+    const old = new Date(NOW.getTime() - STALE_SYNC_MS - 60_000).toISOString();
+    const out = buildLoadsBlock(
+      [row(day(2), "iframe", 5), row(day(1), "iframe", 2)],
+      day(2),
+      day(1),
+      NOW,
+      ctx({ sync: { ...fresh, last_ok_at: old } }),
+    );
+    expect(out.status).toBe("partial");
+    expect(out.totals?.embedded).toBe(7);
+    expect(out.note).toContain("Last updated");
+  });
+
+  test("a sync just inside the stale limit is not stale", () => {
+    const ok = new Date(NOW.getTime() - STALE_SYNC_MS + 60_000).toISOString();
+    const out = buildLoadsBlock(
+      [row(day(2), "iframe", 5), row(day(1), "iframe", 2)],
+      day(2),
+      day(1),
+      NOW,
+      ctx({ sync: { ...fresh, last_ok_at: ok } }),
+    );
+    expect(out.status).toBe("available");
+  });
+
+  test("a range before counting began is unknown, not none recorded", () => {
+    const out = buildLoadsBlock([], day(30), day(20), NOW, ctx({ firstDay: day(10) }));
+    expect(out.empty_reason).toBe("before_counting");
     expect(out.status).toBe("available");
     expect(out.totals).toBeNull();
-    expect(out.days_recorded).toBe(0);
-    expect(out.days_in_range).toBe(30);
+    expect(out.note).toContain(`Counting began on ${day(10)}`);
+    expect(out.note).toContain("unknown, not zero");
+    expect(out.counting_began).toBe(day(10));
+  });
+
+  test("a range wholly in the future has its own note, not the empty-state one", () => {
+    const out = buildLoadsBlock([], "2026-12-01", "2026-12-31", NOW, ctx());
+    expect(out.empty_reason).toBe("future");
+    expect(out.note).toContain("in the future");
+    expect(out.note).not.toContain("No embed loads are recorded");
   });
 
   test("a range recorded in full and closed is available, with the three groups summed", () => {
@@ -542,23 +704,51 @@ describe("buildLoadsBlock", () => {
       row(day(1), "document", 4),
       row(day(1), "other", 1),
     ];
-    const out = buildLoadsBlock(rows, day(2), day(1), NOW, true);
+    const out = buildLoadsBlock(rows, day(2), day(1), NOW, ctx());
     expect(out.status).toBe("available");
     expect(out.totals).toEqual({ embedded: 5, direct: 4, other: 3 });
     expect(out.coverage).toEqual({ start: day(2), end: day(1) });
+    expect(out.empty_reason).toBeNull();
     expect(out.note).toBeUndefined();
   });
 
   test("days not recorded make it partial and say unknown, not zero", () => {
-    const out = buildLoadsBlock([row(day(1), "iframe", 5)], day(10), day(1), NOW, true);
+    const out = buildLoadsBlock([row(day(1), "iframe", 5)], day(10), day(1), NOW, ctx());
     expect(out.status).toBe("partial");
     expect(out.note).toContain("1 of 10 days");
     expect(out.note).toContain("not zero");
   });
 
   test("a range that includes today is partial", () => {
-    const out = buildLoadsBlock([row(day(0), "iframe", 5)], day(0), day(0), NOW, true);
+    const out = buildLoadsBlock([row(day(0), "iframe", 5)], day(0), day(0), NOW, ctx());
     expect(out.status).toBe("partial");
     expect(out.note).toContain("in progress");
+  });
+});
+
+describe("strict list rows", () => {
+  test("host, dataset and total rows parse counts, strings included", () => {
+    expect(parseHostRows([{ host: "a.example", loads: "12" }])).toEqual([
+      { host: "a.example", loads: 12 },
+    ]);
+    expect(parseDatasetRows([{ dataset_id: "on1", loads: 3 }])).toEqual([
+      { dataset_id: "on1", loads: 3 },
+    ]);
+    expect(parseHostKindRows([{ host: "", kind: "worker", loads: "2" }])).toEqual([
+      { host: "", kind: "other", loads: 2 },
+    ]);
+    expect(parseTotalRow([{ loads: "307" }])).toBe(307);
+    expect(parseTotalRow([])).toBeNull();
+  });
+
+  test.each([
+    () => parseHostRows([{ host: "a.example", loads: "abc" }]),
+    () => parseHostRows([{ host: null, loads: 3 }]),
+    () => parseDatasetRows([{ dataset_id: "on1", loads: null }]),
+    () => parseDatasetRows([{ loads: 3 }]),
+    () => parseHostKindRows([{ host: "a", kind: "iframe", loads: -1 }]),
+    () => parseTotalRow([{ loads: "x" }]),
+  ])("an odd row fails the read instead of becoming a zero (%#)", (call) => {
+    expect(call).toThrow("could not be parsed");
   });
 });

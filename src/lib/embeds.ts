@@ -28,12 +28,15 @@
 //   - Datasets are named only when they are public now (PUBLIC_MANAGED in
 //     nemar-db), because an embed of an unpublished or private dataset still
 //     records its id. Everything else is folded into an unnamed count.
-//   - Embedding sites are named only at or above MIN_NAMED_SITE_LOADS. A
-//     hostname can identify a person (a personal site is named after its
-//     owner), so a site that has barely embedded the viewer is not named; it is
-//     counted in "other sites". localhost, IP addresses, private-network names
-//     and empty hosts are never named either, whatever their count: they are
-//     grouped as "unknown or local".
+//   - Embedding sites are NEVER named on the public page, whatever their count.
+//     Referer and Sec-Fetch-Dest are set by the client, so a handful of curl
+//     requests can put any hostname, including an offensive or defamatory one,
+//     on a public page; and a floor on the count only invites probing it. A
+//     hostname can also identify a person (a personal site is named after its
+//     owner). The public answer is counts: localhost, addresses, private names
+//     and empty hosts as "unknown or local", the loads from every other host,
+//     and how many distinct such hosts there were. Signed-in admins get the host
+//     list through the admin drill-down (loadEmbedSitesAdmin), never the page.
 
 import type { Bindings } from "../types";
 import { type AeRow, num as aeNum, queryAe } from "./access";
@@ -59,27 +62,30 @@ export const EMBED_GROUP_OF: Record<EmbedKind, EmbedGroup> = {
  *  the oldest planned day is never one the edge has already dropped. */
 export const EMBED_RETENTION_DAYS = 85;
 
+/** Public dataset names in the ranking; the rest is folded into an unnamed count. */
+export const EMBED_DATASET_LIMIT = 10;
+
+/** Cap on the rows read for one Analytics Engine ranking. When it is reached the
+ *  total is queried separately, so the remainder stays right. */
+export const AE_ROW_LIMIT = 5000;
+
+/** A sync that has not succeeded for this long is stale: the card says so. */
+export const STALE_SYNC_MS = 3 * 60 * 60 * 1000;
+
 /**
- * An embedding site is named only when it accounts for at least this many
- * embedded loads in the selected dates. Ten is the same small-cell floor the
- * dashboard already applies to countries (summarizeCountries in audience.ts:
- * values below 10 are withheld), so one rule explains both lists.
- *
- * It is applied to the selected range as a whole, not to each day as the
- * country rule is. A per-day floor of ten would hide every partner whose
- * embeds are spread thin, which is most of them, and leave the list empty.
- * The cost is the usual small-cell caveat: comparing two ranges that differ by
- * one day can show that a site crossed the line. That reveals a count for a
- * site the reader could already see by name, never a name that was withheld.
+ * Analytics Engine queries one uncached list load may cost: sites, datasets, and
+ * the total when a row cap was hit. Used to budget the shared quota (below).
  */
-export const MIN_NAMED_SITE_LOADS = 10;
-
-/** Rows in each public ranking; the rest is folded into an unnamed count. */
-export const EMBED_LIST_LIMIT = 10;
-
-/** Cap on the rows read for one ranking. The total is queried separately, so a
- *  cap cannot make the unnamed remainder too small. */
-const AE_ROW_LIMIT = 5000;
+export const LIST_QUERY_COST = 3;
+/**
+ * Analytics Engine queries the public endpoint may spend per UTC minute, across
+ * every isolate (a counter in this Worker's own D1). Cloudflare publishes no SQL
+ * API limit, but its global API limit is 1,200 requests per five minutes per
+ * user, with a five minute lockout of ALL API calls when exceeded, and the
+ * analytics token shares that with the access section. 30 a minute is at most
+ * 150 of the 1,200 in five minutes (an eighth), and the hourly cron adds a few.
+ */
+export const LIST_QUERIES_PER_MINUTE = 30;
 
 const DAY_MS = 86_400_000;
 const DAY_RE = /^\d{4}-\d{2}-\d{2}$/;
@@ -103,6 +109,7 @@ export function normalizeKind(raw: unknown): EmbedKind {
 
 const IPV4 = /^\d{1,3}(\.\d{1,3}){3}$/;
 const HOSTNAME = /^[a-z0-9.-]+$/;
+/** Names that only resolve on a private network or are reserved for testing. */
 const PRIVATE_SUFFIXES = [
   ".localhost",
   ".local",
@@ -110,19 +117,36 @@ const PRIVATE_SUFFIXES = [
   ".internal",
   ".lan",
   ".home.arpa",
+  ".home",
+  ".corp",
+  ".intranet",
+  ".private",
+  ".test",
+];
+/** Wildcard DNS that turns any IP address, usually a private one, into a name. */
+const IP_WILDCARD_DOMAINS = [
+  "nip.io",
+  "sslip.io",
+  "xip.io",
+  "localtest.me",
+  "lvh.me",
+  "traefik.me",
 ];
 
-/** Lowercase, drop a trailing dot. The edge already lowercases; this is for
- *  anything older or odd, so the same site is never two rows. */
+/** Lowercase and drop every trailing dot. The edge already lowercases; this is for
+ *  anything older or odd, so one site is never two. */
 export function normalizeHost(raw: string): string {
-  return raw.trim().toLowerCase().replace(/\.$/, "");
+  return raw.trim().toLowerCase().replace(/\.+$/, "");
 }
 
 /**
- * True for a host that is never named on the public page: an empty host (no
- * Referer, or one the edge could not parse), localhost, an IPv4 or IPv6
- * literal, a name on a private network (no dot, or .local, .internal, .lan and
- * the like), and anything that is not a plausible hostname at all.
+ * True for a host that is not a site on the public internet as far as the
+ * dashboard can tell: an empty host (no Referer, or one the edge could not
+ * parse), localhost, an IPv4 or IPv6 literal, a name whose last label is all
+ * digits, a private-network or test name (no dot, .local, .internal, .lan,
+ * .corp, .test and the like), wildcard DNS that embeds an IP address (nip.io,
+ * sslip.io), and anything that is not a plausible hostname at all. This only
+ * sorts a claimed host into a bucket; the host itself is never shown publicly.
  */
 export function isUnknownOrLocalHost(raw: string): boolean {
   const host = normalizeHost(raw);
@@ -132,7 +156,15 @@ export function isUnknownOrLocalHost(raw: string): boolean {
   if (IPV4.test(host)) return true;
   if (!HOSTNAME.test(host)) return true;
   if (!host.includes(".")) return true;
-  return PRIVATE_SUFFIXES.some((suffix) => host.endsWith(suffix));
+  if (/\.\d+$/.test(host)) return true;
+  if (PRIVATE_SUFFIXES.some((suffix) => host.endsWith(suffix))) return true;
+  return IP_WILDCARD_DOMAINS.some((domain) => host === domain || host.endsWith(`.${domain}`));
+}
+
+/** The key two spellings of one site share when counting distinct sites. */
+export function siteKey(raw: string): string {
+  const host = normalizeHost(raw);
+  return host.startsWith("www.") ? host.slice(4) : host;
 }
 
 export interface RankedRow {
@@ -140,66 +172,106 @@ export interface RankedRow {
   value: number;
 }
 
-export interface EmbedSiteSummary {
-  /** Named sites at or above the floor, largest first, at most EMBED_LIST_LIMIT. */
-  rows: RankedRow[];
-  /** localhost, IP addresses, private names and empty hosts, never listed singly. */
+/** What the public page may say about embedding sites: counts, never names. */
+export interface EmbedSiteCounts {
+  /** localhost, addresses, private names and empty hosts. */
   unknown_or_local: number;
-  /** Every other embedded load: sites under the floor and sites past the limit. */
-  other_sites: number;
+  /** Embedded loads from every other host. */
+  sites_loads: number;
+  /** How many distinct other hosts those came from (www. folded). A claimed host
+   *  count: the Referer is set by the client. */
+  distinct_sites: number;
   /** All embedded loads in the window. */
   total: number;
-  /** The floor a site needed to be named, so the page states the rule it was held to. */
-  min_named_loads: number;
+  /** True when the row cap was reached, so distinct_sites is a lower bound. */
+  capped: boolean;
 }
 
 const byValueThenLabel = (a: RankedRow, b: RankedRow) =>
   b.value - a.value || a.label.localeCompare(b.label);
 
 /**
- * Apply the public rules for embedding sites to per-host embedded load counts.
- * `total` is the window's embedded loads from a separate query, so the unnamed
- * remainder stays right when `rows` was cut short by a row cap. It is never
- * allowed to be smaller than the rows it must contain.
+ * Reduce per-host embedded load counts to the public counts. `total` is the
+ * window's embedded loads, so the remainder stays right when `rows` was cut
+ * short by a row cap; it is never smaller than the rows it must contain.
  */
 export function summarizeEmbedSites(
   rows: readonly { host: string; loads: number }[],
   total: number,
-): EmbedSiteSummary {
-  const byHost = new Map<string, number>();
+  capped = false,
+): EmbedSiteCounts {
+  const distinct = new Set<string>();
   let unknown = 0;
   let seen = 0;
   for (const row of rows) {
     if (!Number.isFinite(row.loads) || row.loads <= 0) continue;
     seen += row.loads;
-    if (isUnknownOrLocalHost(row.host)) {
-      unknown += row.loads;
-      continue;
-    }
-    const host = normalizeHost(row.host);
-    byHost.set(host, (byHost.get(host) ?? 0) + row.loads);
+    if (isUnknownOrLocalHost(row.host)) unknown += row.loads;
+    else distinct.add(siteKey(row.host));
   }
-  const named = [...byHost.entries()]
-    .filter(([, loads]) => loads >= MIN_NAMED_SITE_LOADS)
-    .map(([label, value]) => ({ label, value }))
-    .sort(byValueThenLabel)
-    .slice(0, EMBED_LIST_LIMIT);
-  const listed = named.reduce((sum, row) => sum + row.value, 0);
   const all = Math.max(total, seen);
   return {
-    rows: named,
     unknown_or_local: unknown,
-    other_sites: all - listed - unknown,
+    sites_loads: all - unknown,
+    distinct_sites: distinct.size,
     total: all,
-    min_named_loads: MIN_NAMED_SITE_LOADS,
+    capped,
   };
+}
+
+/** One embedding host as an admin sees it. */
+export interface EmbedSiteAdminRow {
+  host: string;
+  embedded: number;
+  opened_directly: number;
+  other: number;
+  /** True for the hosts the public page counts as unknown or local. */
+  unknown_or_local: boolean;
+}
+
+/** Group per-(host, kind) loads into one row per host, embedded loads first. */
+export function summarizeSitesForAdmin(
+  rows: readonly { host: string; kind: EmbedKind; loads: number }[],
+): EmbedSiteAdminRow[] {
+  const byHost = new Map<string, EmbedSiteAdminRow>();
+  for (const row of rows) {
+    const host = normalizeHost(row.host);
+    let site = byHost.get(host);
+    if (!site) {
+      site = {
+        host,
+        embedded: 0,
+        opened_directly: 0,
+        other: 0,
+        unknown_or_local: isUnknownOrLocalHost(host),
+      };
+      byHost.set(host, site);
+    }
+    const group = EMBED_GROUP_OF[row.kind];
+    if (group === "embedded") site.embedded += row.loads;
+    else if (group === "direct") site.opened_directly += row.loads;
+    else site.other += row.loads;
+  }
+  return [...byHost.values()].sort(
+    (a, b) =>
+      b.embedded - a.embedded ||
+      b.opened_directly + b.other - (a.opened_directly + a.other) ||
+      a.host.localeCompare(b.host),
+  );
 }
 
 // ---------- embedded datasets ----------
 
+export interface EmbedDatasetRow {
+  label: string;
+  value: number;
+  /** The dataset's page on the website for this environment. */
+  href: string;
+}
+
 export interface EmbedDatasetSummary {
-  /** Public datasets only, largest first, at most EMBED_LIST_LIMIT. */
-  rows: RankedRow[];
+  /** Public datasets only, largest first, at most EMBED_DATASET_LIMIT. */
+  rows: EmbedDatasetRow[];
   /** Every other embedded load: private, unpublished or unknown ids, and public
    *  datasets past the limit. Deliberately one number with no names. */
   other: number;
@@ -209,12 +281,14 @@ export interface EmbedDatasetSummary {
 /**
  * Keep only datasets that are public now and fold the rest into one unnamed
  * count. `publicIds` is the set nemar-db says is public; an id absent from it
- * is never shown, whatever the reason it is absent.
+ * is never shown, whatever the reason it is absent. `siteBase` is the website
+ * origin for this environment, so a dev dashboard links to the dev website.
  */
 export function summarizeEmbedDatasets(
   rows: readonly { dataset_id: string; loads: number }[],
   publicIds: ReadonlySet<string>,
   total: number,
+  siteBase = "https://nemar.org",
 ): EmbedDatasetSummary {
   const byId = new Map<string, number>();
   let seen = 0;
@@ -227,10 +301,16 @@ export function summarizeEmbedDatasets(
   const named = [...byId.entries()]
     .map(([label, value]) => ({ label, value }))
     .sort(byValueThenLabel)
-    .slice(0, EMBED_LIST_LIMIT);
+    .slice(0, EMBED_DATASET_LIMIT)
+    .map((row) => ({ ...row, href: `${siteBase}/dataset/${encodeURIComponent(row.label)}` }));
   const listed = named.reduce((sum, row) => sum + row.value, 0);
   const all = Math.max(total, seen);
   return { rows: named, other: all - listed, total: all };
+}
+
+/** The website origin dataset links point at: WEBSITE_BASE_URL, else nemar.org. */
+export function websiteBase(env: Bindings): string {
+  return (env.WEBSITE_BASE_URL?.trim() || "https://nemar.org").replace(/\/+$/, "");
 }
 
 // ---------- daily totals ----------
@@ -419,6 +499,16 @@ export function embedTotalSql(dataset: string, since: string, until: string): st
          WHERE blob3 = 'iframe' AND ${windowSql(since, until)}`;
 }
 
+/** Loads per embedding host and kind, for the admin site list. */
+export function embedSiteKindsSql(dataset: string, since: string, until: string): string {
+  return `SELECT blob2 AS host, blob3 AS kind, SUM(_sample_interval) AS loads
+         FROM ${dataset}
+         WHERE ${windowSql(since, until)}
+         GROUP BY host, kind
+         ORDER BY loads DESC
+         LIMIT ${AE_ROW_LIMIT}`;
+}
+
 /**
  * A count from an Analytics Engine row: a finite, non-negative number, or null.
  * Unlike access.ts's num(), a value that does not parse is never read as 0, so
@@ -452,6 +542,47 @@ export function parseEmbedDayRows(rows: readonly AeRow[]): EmbedDayRow[] {
   return out;
 }
 
+function badRow(what: string, row: unknown): Error {
+  return new Error(`${what} row could not be parsed: ${JSON.stringify(row).slice(0, 120)}`);
+}
+
+/** Per-host embedded loads. A row that does not parse fails the read. */
+export function parseHostRows(rows: readonly AeRow[]): { host: string; loads: number }[] {
+  return rows.map((row) => {
+    const loads = strictCount(row.loads);
+    if (typeof row.host !== "string" || loads === null) throw badRow("embed host", row);
+    return { host: row.host, loads };
+  });
+}
+
+/** Per-(host, kind) loads for the admin list. */
+export function parseHostKindRows(
+  rows: readonly AeRow[],
+): { host: string; kind: EmbedKind; loads: number }[] {
+  return rows.map((row) => {
+    const loads = strictCount(row.loads);
+    if (typeof row.host !== "string" || loads === null) throw badRow("embed host and kind", row);
+    return { host: row.host, kind: normalizeKind(row.kind), loads };
+  });
+}
+
+/** Per-dataset embedded loads. A row that does not parse fails the read. */
+export function parseDatasetRows(rows: readonly AeRow[]): { dataset_id: string; loads: number }[] {
+  return rows.map((row) => {
+    const loads = strictCount(row.loads);
+    if (typeof row.dataset_id !== "string" || loads === null) throw badRow("embed dataset", row);
+    return { dataset_id: row.dataset_id, loads };
+  });
+}
+
+/** The single SUM row; no row means the sum is not known here (null). */
+export function parseTotalRow(rows: readonly AeRow[]): number | null {
+  if (rows.length === 0) return null;
+  const loads = strictCount(rows[0].loads);
+  if (loads === null) throw badRow("embed total", rows[0]);
+  return loads;
+}
+
 /** Read the per-(day, kind) totals for `since` to `until` (exclusive). */
 export async function fetchEmbedDays(
   env: Bindings,
@@ -465,16 +596,26 @@ export async function fetchEmbedDays(
 
 export type EmbedSourceStatus = "available" | "partial" | "unconfigured" | "unavailable";
 
+/** Why a loads block has no day to show, when it has none. */
+export type EmbedEmptyReason = "future" | "before_counting" | "none_yet";
+
 export interface EmbedLoadsBlock {
   status: EmbedSourceStatus;
   /** First and last stored day inside the range, or null when none is stored. */
   coverage: { start: string; end: string } | null;
   /** The stored days inside the range, oldest first. */
   days: EmbedLoadDay[];
-  /** Sums over `days`; null when no day is stored. */
+  /** Sums over `days`; null when no day is stored, which is unknown, not zero. */
   totals: { embedded: number; direct: number; other: number } | null;
   days_recorded: number;
   days_in_range: number;
+  /** The first day any load was ever recorded, or null. Earlier days are unknown. */
+  counting_began: string | null;
+  /** Why no day is shown: the dates are in the future, before counting began, or
+   *  nothing is recorded yet. */
+  empty_reason: EmbedEmptyReason | null;
+  /** When the sync last succeeded, or null if it never has. */
+  last_synced_at: string | null;
   note?: string;
 }
 
@@ -483,6 +624,8 @@ export interface EmbedListBlock<T> {
   /** The UTC days the detail covers: the selected dates inside what the edge keeps. */
   window: { start: string; end: string } | null;
   summary: T | null;
+  /** Set when there is no summary for a reason that is not a fault. */
+  reason?: "future" | "expired";
   note?: string;
 }
 
@@ -491,7 +634,7 @@ export interface EmbedsResponse {
   end: string;
   observed_at: string;
   loads: EmbedLoadsBlock;
-  sites: EmbedListBlock<EmbedSiteSummary>;
+  sites: EmbedListBlock<EmbedSiteCounts>;
   datasets: EmbedListBlock<EmbedDatasetSummary>;
 }
 
@@ -509,149 +652,124 @@ export function detailWindow(
   return { start: from, end: to, clipped: from !== start || to !== end };
 }
 
-const unconfiguredList = <T>(): EmbedListBlock<T> => ({
-  status: "unconfigured",
-  window: null,
-  summary: null,
-  note: "Embed counting is not configured for this dashboard.",
-});
-
-const unavailableList = <T>(note: string): EmbedListBlock<T> => ({
-  status: "unavailable",
-  window: null,
-  summary: null,
-  note,
-});
-
-/** The sites and datasets for the selected dates, read from the edge's records. */
-export async function loadEmbedLists(
-  env: Bindings,
-  start: string,
-  end: string,
-  now: Date,
-): Promise<{
-  sites: EmbedListBlock<EmbedSiteSummary>;
-  datasets: EmbedListBlock<EmbedDatasetSummary>;
-}> {
-  if (!isEmbedConfigured(env)) return { sites: unconfiguredList(), datasets: unconfiguredList() };
-  const window = detailWindow(start, end, now);
-  if (!window) {
-    const note =
-      "Per-site and per-dataset detail covers about the last three months, and none of the selected dates fall inside it.";
-    return { sites: unavailableList(note), datasets: unavailableList(note) };
-  }
-  const until = shiftDay(window.end, 1);
-  let siteRows: AeRow[];
-  let datasetRows: AeRow[];
-  let totalRows: AeRow[];
-  try {
-    const dataset = datasetName(env);
-    [siteRows, datasetRows, totalRows] = await Promise.all([
-      queryAe(env, embedSitesSql(dataset, window.start, until)),
-      queryAe(env, embedDatasetsSql(dataset, window.start, until)),
-      queryAe(env, embedTotalSql(dataset, window.start, until)),
-    ]);
-  } catch (err) {
-    console.error("[embeds] edge query failed:", err);
-    const note = "Embed detail is currently unavailable.";
-    return { sites: unavailableList(note), datasets: unavailableList(note) };
-  }
-  const total = aeNum(totalRows[0]?.loads as string | number | null | undefined);
-  const today = dayOf(now.getTime());
-  const status: EmbedSourceStatus = window.clipped || window.end >= today ? "partial" : "available";
-  const notes: string[] = [];
-  if (window.clipped) {
-    notes.push(
-      "Detail covers only the part of the selected dates from the last three months that is still kept.",
-    );
-  }
-  if (window.end >= today) notes.push("The current UTC day is still in progress.");
-
-  const sites = summarizeEmbedSites(
-    siteRows.map((row) => ({
-      host: String(row.host ?? ""),
-      loads: aeNum(row.loads as string | number | null),
-    })),
-    total,
-  );
-  const sitesBlock: EmbedListBlock<EmbedSiteSummary> = {
-    status,
-    window: { start: window.start, end: window.end },
-    summary: sites,
-    ...(notes.length ? { note: notes.join(" ") } : {}),
-  };
-
-  // The public check is the privacy boundary: if nemar-db cannot answer, no
-  // dataset is named, rather than every dataset.
-  let datasetsBlock: EmbedListBlock<EmbedDatasetSummary>;
-  try {
-    const ids = datasetRows.map((row) => String(row.dataset_id ?? "")).filter(Boolean);
-    const publicIds = await publicDatasetIds(env.NEMAR_DB, ids);
-    datasetsBlock = {
-      status,
-      window: { start: window.start, end: window.end },
-      summary: summarizeEmbedDatasets(
-        datasetRows.map((row) => ({
-          dataset_id: String(row.dataset_id ?? ""),
-          loads: aeNum(row.loads as string | number | null),
-        })),
-        publicIds,
-        total,
-      ),
-      ...(notes.length ? { note: notes.join(" ") } : {}),
-    };
-  } catch (err) {
-    console.error("[embeds] public dataset check failed:", err);
-    datasetsBlock = unavailableList("Embedded datasets are currently unavailable.");
-  }
-  return { sites: sitesBlock, datasets: datasetsBlock };
+/** "2026-10-05 14:47 UTC" for a stored ISO timestamp. */
+export function formatUtc(iso: string): string {
+  return `${iso.slice(0, 16).replace("T", " ")} UTC`;
 }
 
-/** The accumulated daily totals for the selected dates, from this Worker's own D1. */
+const FUTURE_NOTE = "These dates are in the future, so nothing has been counted yet.";
+
+export interface LoadsContext {
+  configured: boolean;
+  /** The earliest stored day, or null when nothing is stored. */
+  firstDay: string | null;
+  /** The sync status row, or null when it is missing. */
+  sync: { last_ok_at: string | null; last_error: string | null; last_run_at: string | null } | null;
+}
+
+/**
+ * The accumulated daily totals for the selected dates, from this Worker's own
+ * D1, with the health of the sync that fills them. A card never reads better
+ * than its data: a sync that has never succeeded, or has not for a while, is
+ * said so rather than shown as an empty or complete answer.
+ */
 export function buildLoadsBlock(
   rows: readonly EmbedDayRow[],
   start: string,
   end: string,
   now: Date,
-  configured: boolean,
+  ctx: LoadsContext,
 ): EmbedLoadsBlock {
   const days = groupEmbedDays(rows);
   const daysInRange = rangeDays(start, end);
-  if (days.length === 0) {
+  const lastOk = ctx.sync?.last_ok_at ?? null;
+  const base = {
+    coverage: null,
+    days: [] as EmbedLoadDay[],
+    totals: null,
+    days_recorded: 0,
+    days_in_range: daysInRange,
+    counting_began: ctx.firstDay,
+    last_synced_at: lastOk,
+  };
+  if (!ctx.configured) {
     return {
-      status: configured ? "available" : "unconfigured",
-      coverage: null,
-      days: [],
-      totals: null,
-      days_recorded: 0,
-      days_in_range: daysInRange,
-      note: configured
-        ? "No embed loads are recorded for these dates."
-        : "Embed counting is not configured for this dashboard.",
+      ...base,
+      status: "unconfigured",
+      empty_reason: null,
+      note: "Embed counting is not configured for this dashboard.",
     };
   }
+  const today = dayOf(now.getTime());
+  const stale = lastOk !== null && now.getTime() - Date.parse(lastOk) > STALE_SYNC_MS;
+  const updated = lastOk ? ` Last updated ${formatUtc(lastOk)}.` : "";
+
+  if (days.length === 0) {
+    if (start > today) {
+      return { ...base, status: "available", empty_reason: "future", note: FUTURE_NOTE };
+    }
+    if (lastOk === null) {
+      return {
+        ...base,
+        status: "unavailable",
+        empty_reason: null,
+        note: ctx.sync?.last_error
+          ? "The update of embed totals has failed and none has succeeded yet."
+          : "Embed totals have not been collected yet. The first update runs within the hour.",
+      };
+    }
+    if (stale) {
+      return {
+        ...base,
+        status: "unavailable",
+        empty_reason: null,
+        note: `Embed totals have not updated for several hours, so these dates cannot be shown.${updated}`,
+      };
+    }
+    if (ctx.firstDay !== null && end < ctx.firstDay) {
+      return {
+        ...base,
+        status: "available",
+        empty_reason: "before_counting",
+        note: `Counting began on ${ctx.firstDay}. These dates are before it, so the loads are unknown, not zero.`,
+      };
+    }
+    return {
+      ...base,
+      status: "available",
+      empty_reason: "none_yet",
+      note: "No embed loads are recorded for these dates.",
+    };
+  }
+
   const totals = { embedded: 0, direct: 0, other: 0 };
   for (const day of days) {
     totals.embedded += day.embedded;
     totals.direct += day.direct;
     totals.other += day.other;
   }
-  const today = dayOf(now.getTime());
   const notes: string[] = [];
   if (days.length < daysInRange) {
     notes.push(
       `Recorded for ${days.length} of ${daysInRange} days; days before counting began or not yet collected are unknown, not zero.`,
     );
   }
-  if (end >= today)
+  if (end >= today) {
     notes.push("The current UTC day is still in progress, so its totals may be incomplete.");
+  }
+  if (stale) {
+    notes.push(
+      `Embed totals have not updated for several hours, so recent days may be missing.${updated}`,
+    );
+  }
   return {
+    ...base,
     status: notes.length ? "partial" : "available",
     coverage: { start: days[0].date, end: days[days.length - 1].date },
     days,
     totals,
     days_recorded: days.length,
-    days_in_range: daysInRange,
+    empty_reason: null,
     ...(notes.length ? { note: notes.join(" ") } : {}),
   };
 }

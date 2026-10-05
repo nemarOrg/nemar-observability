@@ -26,8 +26,13 @@ import {
 import { resolveAdmin } from "../lib/auth";
 import { fetchZoneCountryRange } from "../lib/cf-analytics";
 import { isKnownDrilldown, runDrilldown } from "../lib/drilldown";
-import { readEmbedLoads } from "../lib/embed-store";
-import { type EmbedsResponse, loadEmbedLists } from "../lib/embeds";
+import {
+  EMBED_SITES_DRILLDOWN,
+  loadEmbedLists,
+  loadEmbedSitesAdmin,
+  readEmbedLoads,
+} from "../lib/embed-lists";
+import type { EmbedsResponse } from "../lib/embeds";
 import { buildSnapshot } from "../lib/metrics";
 import { BUILTIN_SECTION_KEYS, SectionIngestSchema } from "../lib/schema";
 import {
@@ -329,10 +334,15 @@ apiRoutes.get("/audience", async (c) => {
 });
 
 // Selected-range embed loads of the signal viewer on other sites: daily totals
-// by kind from this Worker's own store, and the top embedding sites and top
-// embedded datasets from the edge's records. Sites and datasets are shaped for a
-// public page here (small sites and non-public datasets are folded into unnamed
-// counts), so nothing downstream ever sees a withheld name.
+// by kind from this Worker's own store, and the top embedded datasets and counts
+// of embedding sites from the edge's records. Shaped for a public page here:
+// datasets are named only when public now, and embedding sites are never named,
+// only counted (the hosts are for admins, through the drill-down below).
+//
+// Cached for at most a minute and never stale-while-revalidate: the answer can
+// name a dataset, and "currently public" must not outlive a change by long. An
+// answer with a block that could not be read is not cached at all.
+const EMBEDS_CACHE = "public, max-age=30, s-maxage=60";
 apiRoutes.get("/embeds", async (c) => {
   const start = c.req.query("start");
   const end = c.req.query("end");
@@ -355,7 +365,10 @@ apiRoutes.get("/embeds", async (c) => {
     loads,
     ...lists,
   };
-  return c.json(response, 200, { "Cache-Control": PUBLIC_CACHE });
+  const unreadable = [loads.status, lists.sites.status, lists.datasets.status].includes(
+    "unavailable",
+  );
+  return c.json(response, 200, { "Cache-Control": unreadable ? "no-store" : EMBEDS_CACHE });
 });
 
 // Admin drill-down: the list behind a tile. Bearer admin only (delegated to
@@ -365,6 +378,25 @@ apiRoutes.get("/drilldown/:key", async (c) => {
   const admin = await resolveAdmin(c.env, c.req.header("Authorization") ?? null);
   if (!admin) return c.json({ error: "Admin authentication required" }, 401, noStore);
   const key = c.req.param("key");
+  // The embedding site list is read from the edge, not nemar-db, and takes a
+  // date range (default: the last 30 UTC days including today). It is the one
+  // place embedding hostnames leave this Worker; the public page never has them.
+  if (key === EMBED_SITES_DRILLDOWN) {
+    const now = new Date();
+    const end = c.req.query("end") ?? now.toISOString().slice(0, 10);
+    const start =
+      c.req.query("start") ??
+      new Date(Date.parse(`${end}T00:00:00Z`) - 29 * 86_400_000).toISOString().slice(0, 10);
+    if (!validDate(start) || !validDate(end) || start > end) {
+      return c.json({ error: "Valid start and end dates are required" }, 400, noStore);
+    }
+    try {
+      return c.json(await loadEmbedSitesAdmin(c.env, start, end, now), 200, noStore);
+    } catch (err) {
+      console.error("[api] embed sites drill-down failed:", err);
+      return c.json({ error: "Embed sites are currently unavailable" }, 503, noStore);
+    }
+  }
   if (!isKnownDrilldown(key)) return c.json({ error: "Unknown drill-down key" }, 404, noStore);
   const result = await runDrilldown(c.env.NEMAR_DB, key);
   if (!result) return c.json({ error: "Unknown drill-down key" }, 404, noStore);

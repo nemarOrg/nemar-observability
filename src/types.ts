@@ -17,6 +17,9 @@ export interface Bindings {
    *  and previews). Optional: without it the signal viewer entry reports the
    *  third-party view as not configured. */
   EMBED_AE_DATASET?: string;
+  /** The website origin dataset links on the page point at: https://nemar.org in
+   *  production, https://test.nemar.org for env.dev. Defaults to nemar.org. */
+  WEBSITE_BASE_URL?: string;
 
   /** nemar.org zone id, for the zone GraphQL Analytics API. */
   CF_ZONE_ID: string;

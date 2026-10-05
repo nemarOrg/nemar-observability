@@ -2,15 +2,7 @@
 // 0006). The rules (a settled day is written once, a closed day never goes
 // down) are explained there and in embeds.ts.
 
-import type { Bindings } from "../types";
-import {
-  EMBED_KINDS,
-  type EmbedDayRow,
-  type EmbedLoadsBlock,
-  buildLoadsBlock,
-  isEmbedConfigured,
-  normalizeKind,
-} from "./embeds";
+import { EMBED_KINDS, type EmbedDayRow, normalizeKind } from "./embeds";
 
 /**
  * Upsert whole days. One statement per day writes all four kinds together.
@@ -106,35 +98,28 @@ export async function loadEmbedDayStamps(
 }
 
 /**
- * The stored daily totals for the selected dates, shaped for the API. A store
- * that cannot answer (the migration not applied, a D1 fault) is reported as
- * unavailable, never as zero loads.
+ * Claim `cost` Analytics Engine queries from this UTC minute's shared budget of
+ * `perMinute`. True when the claim fits. The counter is in D1, so it holds across
+ * every isolate; a claim that does not fit still counts, which only makes a flood
+ * refuse sooner. Old minutes are deleted as new ones are claimed.
  */
-export async function readEmbedLoads(
-  env: Bindings,
-  start: string,
-  end: string,
+export async function claimQueryBudget(
+  db: D1Database,
   now: Date,
-): Promise<EmbedLoadsBlock> {
-  let rows: EmbedDayRow[];
-  try {
-    rows = await loadEmbedDays(env.OBS_DB, start, end);
-  } catch (err) {
-    console.error("[embeds] stored daily totals could not be read:", err);
-    return {
-      status: "unavailable",
-      coverage: null,
-      days: [],
-      totals: null,
-      days_recorded: 0,
-      days_in_range:
-        Math.round(
-          (Date.parse(`${end}T00:00:00Z`) - Date.parse(`${start}T00:00:00Z`)) / 86_400_000,
-        ) + 1,
-      note: "Embed totals are currently unavailable.",
-    };
-  }
-  return buildLoadsBlock(rows, start, end, now, isEmbedConfigured(env));
+  cost: number,
+  perMinute: number,
+): Promise<boolean> {
+  const minute = now.toISOString().slice(0, 16);
+  const row = await db
+    .prepare(
+      `INSERT INTO embed_query_budget (minute, used) VALUES (?1, ?2)
+       ON CONFLICT(minute) DO UPDATE SET used = used + ?2 RETURNING used`,
+    )
+    .bind(minute, cost)
+    .first<{ used: number }>();
+  const cutoff = new Date(now.getTime() - 10 * 60_000).toISOString().slice(0, 16);
+  await db.prepare("DELETE FROM embed_query_budget WHERE minute < ?1").bind(cutoff).run();
+  return row !== null && row.used <= perMinute;
 }
 
 export interface EmbedSyncState {

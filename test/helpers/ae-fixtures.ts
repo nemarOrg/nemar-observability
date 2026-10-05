@@ -7,21 +7,45 @@
 import datasets from "../fixtures/embed-ae-datasets-2026-10-05.json";
 import days from "../fixtures/embed-ae-days-2026-10-05.json";
 import daysRetention from "../fixtures/embed-ae-days-retention-window-2026-10-05.json";
+import rows24h from "../fixtures/embed-ae-rows-24h-2026-10-05.json";
 import sites from "../fixtures/embed-ae-sites-2026-10-05.json";
 import total from "../fixtures/embed-ae-total-2026-10-05.json";
 
-export type QueryShape = "days" | "sites" | "datasets" | "total" | "other";
+export type QueryShape = "days" | "sites" | "sitekinds" | "datasets" | "total" | "other";
 
 /** Which embed query this SQL is. */
 export function shapeOf(sql: string): QueryShape {
   if (sql.includes("GROUP BY day, kind")) return "days";
+  if (sql.includes("GROUP BY host, kind")) return "sitekinds";
   if (sql.includes("GROUP BY host")) return "sites";
   if (sql.includes("GROUP BY dataset_id")) return "datasets";
   if (sql.includes("SUM(_sample_interval) AS loads") && !sql.includes("GROUP BY")) return "total";
   return "other";
 }
 
+/**
+ * The admin query's answer (loads per host and kind), summed from the real
+ * per-(dataset, host, kind) rows captured over the same traffic, because that
+ * exact grouping was not captured live.
+ */
+function hostKindFromRows() {
+  const sums = new Map<string, { host: string; kind: string; loads: number }>();
+  for (const r of rows24h.response.data as { host: string; kind: string; loads: string }[]) {
+    const key = `${r.host}|${r.kind}`;
+    const prior = sums.get(key) ?? { host: r.host, kind: r.kind, loads: 0 };
+    prior.loads += Number(r.loads);
+    sums.set(key, prior);
+  }
+  return {
+    meta: [],
+    data: [...sums.values()]
+      .sort((a, b) => b.loads - a.loads)
+      .map((r) => ({ ...r, loads: String(r.loads) })),
+  };
+}
+
 export const CAPTURED = {
+  sitekinds: hostKindFromRows(),
   days: daysRetention.response,
   sites: sites.response,
   datasets: datasets.response,
