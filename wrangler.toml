@@ -46,6 +46,9 @@ NEMAR_API_BASE = "https://api.nemar.org"
 CF_ACCOUNT_ID = "da8d7a2a8680dab01592bbbc6f67f12c"
 CF_ZONE_ID = "e684135de46029c91fd6c93715ace4ce"
 AE_DATASET = "nemar_access_metrics"
+# Embed loads of the signal viewer on other sites: one point per load, written
+# by the website's edge middleware (website ADR 0024). Read with CF_ANALYTICS_TOKEN.
+EMBED_AE_DATASET = "nemar_website_embeds"
 # Range-aware audience source for the self-hosted NEMAR Umami website.
 UMAMI_BASE_URL = "https://analytics.nemar.org"
 UMAMI_WEBSITE_ID = "b4b5f61c-56b2-4b8c-9023-6a29ed3904ac"
@@ -82,6 +85,8 @@ NEMAR_API_BASE = "https://nemar-api-dev.sccn-org.workers.dev"
 CF_ACCOUNT_ID = "da8d7a2a8680dab01592bbbc6f67f12c"
 CF_ZONE_ID = "e684135de46029c91fd6c93715ace4ce"
 AE_DATASET = "nemar_access_metrics_dev"
+# Staging and website previews both write here, so production never sees them.
+EMBED_AE_DATASET = "nemar_website_embeds_dev"
 # Optional dev audience source; keep any API key in a Worker secret:
 # UMAMI_BASE_URL = "https://umami.nemar.org"
 # UMAMI_WEBSITE_ID = "<website-id>"

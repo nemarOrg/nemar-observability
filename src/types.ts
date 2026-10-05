@@ -12,6 +12,11 @@ export interface Bindings {
   CF_ACCOUNT_ID: string;
   /** Analytics Engine dataset name written by nemar-cli's data-plane. */
   AE_DATASET: string;
+  /** Analytics Engine dataset the website writes one point to per embed load
+   *  (nemar_website_embeds in production, nemar_website_embeds_dev for staging
+   *  and previews). Optional: without it the signal viewer entry reports the
+   *  third-party view as not configured. */
+  EMBED_AE_DATASET?: string;
 
   /** nemar.org zone id, for the zone GraphQL Analytics API. */
   CF_ZONE_ID: string;

@@ -33,13 +33,13 @@ import type { Bindings } from "../types";
 import { type Section, type Severity, metric } from "./schema";
 import { PUBLIC_MANAGED } from "./sql";
 
-interface AeRow {
+export interface AeRow {
   [col: string]: string | number | null;
 }
 
 /** Run one SQL statement against the AE SQL API. Throws on a non-ok response so
  *  the caller can distinguish "query failed" from "genuinely zero activity". */
-async function queryAe(env: Bindings, sql: string): Promise<AeRow[]> {
+export async function queryAe(env: Bindings, sql: string): Promise<AeRow[]> {
   const url = `https://api.cloudflare.com/client/v4/accounts/${env.CF_ACCOUNT_ID}/analytics_engine/sql`;
   const res = await fetch(url, {
     method: "POST",
@@ -53,7 +53,7 @@ async function queryAe(env: Bindings, sql: string): Promise<AeRow[]> {
   return json.data ?? [];
 }
 
-function num(v: string | number | null | undefined): number {
+export function num(v: string | number | null | undefined): number {
   const n = typeof v === "string" ? Number(v) : (v ?? 0);
   return Number.isFinite(n) ? (n as number) : 0;
 }
