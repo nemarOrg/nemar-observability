@@ -10,6 +10,7 @@ import {
   EMBED_DATASET_LIMIT,
   EMBED_RETENTION_DAYS,
   STALE_SYNC_MS,
+  assertDatasetName,
   buildEmbedDays,
   buildLoadsBlock,
   detailWindow,
@@ -512,6 +513,27 @@ describe("the edge queries", () => {
     const sql = embedSiteKindsSql(ds, "2026-10-01", "2026-10-06");
     expect(sql).toContain("GROUP BY host, kind");
     expect(sql).not.toContain("blob3 = 'iframe'");
+  });
+
+  test("a dataset name that is not a plain identifier cannot reach any query", () => {
+    for (const bad of ["x; DROP TABLE y", "a b", "", "1abc", "name-with-dash", "d'--"]) {
+      expect(() => embedDaysSql(bad, "2026-10-01", "2026-10-06")).toThrow(
+        "not a valid dataset name",
+      );
+      expect(() => embedSitesSql(bad, "2026-10-01", "2026-10-06")).toThrow(
+        "not a valid dataset name",
+      );
+      expect(() => embedDatasetsSql(bad, "2026-10-01", "2026-10-06")).toThrow(
+        "not a valid dataset name",
+      );
+      expect(() => embedTotalSql(bad, "2026-10-01", "2026-10-06")).toThrow(
+        "not a valid dataset name",
+      );
+      expect(() => embedSiteKindsSql(bad, "2026-10-01", "2026-10-06")).toThrow(
+        "not a valid dataset name",
+      );
+    }
+    expect(() => assertDatasetName("nemar_website_embeds_dev")).not.toThrow();
   });
 
   test("a value that is not a day cannot reach the query", () => {

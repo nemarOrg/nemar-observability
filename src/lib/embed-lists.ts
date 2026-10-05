@@ -29,6 +29,7 @@ import {
   LIST_QUERIES_PER_MINUTE,
   LIST_QUERY_COST,
   buildLoadsBlock,
+  datasetName,
   detailWindow,
   embedDatasetsSql,
   embedSiteKindsSql,
@@ -147,6 +148,13 @@ export async function loadEmbedLists(
   if (!isEmbedConfigured(env)) {
     return bothBlocks("unconfigured", "Embed counting is not configured for this dashboard.");
   }
+  try {
+    datasetName(env);
+  } catch (err) {
+    // A bad name is a deployment fault: say so, spend no budget, ask nothing.
+    console.error("[embeds] lists not loaded:", err);
+    return bothBlocks("unavailable", "Embed detail is currently unavailable.");
+  }
   const today = dayOf(now.getTime());
   if (start > today) return bothBlocks("available", FUTURE_NOTE, "future");
   const window = detailWindow(start, end, now);
@@ -204,7 +212,7 @@ async function computeLists(
   let total: number;
   let capped: boolean;
   try {
-    const dataset = (env.EMBED_AE_DATASET ?? "").trim();
+    const dataset = datasetName(env);
     const [rawSites, rawDatasets] = await Promise.all([
       queryAe(env, embedSitesSql(dataset, window.start, until)),
       queryAe(env, embedDatasetsSql(dataset, window.start, until)),
@@ -305,7 +313,7 @@ export async function loadEmbedSitesAdmin(
       note: start > dayOf(now.getTime()) ? FUTURE_NOTE : EXPIRED_NOTE,
     };
   }
-  const dataset = (env.EMBED_AE_DATASET ?? "").trim();
+  const dataset = datasetName(env);
   const raw = await queryAe(env, embedSiteKindsSql(dataset, window.start, nextDay(window.end)));
   const items = summarizeSitesForAdmin(parseHostKindRows(raw));
   const notes: string[] = [

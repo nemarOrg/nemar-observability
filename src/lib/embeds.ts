@@ -471,11 +471,16 @@ export function isEmbedConfigured(env: Bindings): boolean {
 
 const DATASET_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/;
 
-/** The dataset name from deployment config, checked before it enters SQL. */
-function datasetName(env: Bindings): string {
-  const name = env.EMBED_AE_DATASET?.trim() ?? "";
+/** Refuse anything but a plain identifier before it enters SQL. Every query
+ *  builder calls this, so no caller can skip it. */
+export function assertDatasetName(name: string): string {
   if (!DATASET_NAME.test(name)) throw new Error("EMBED_AE_DATASET is not a valid dataset name");
   return name;
+}
+
+/** The dataset name from deployment config, checked before it enters SQL. */
+export function datasetName(env: Bindings): string {
+  return assertDatasetName(env.EMBED_AE_DATASET?.trim() ?? "");
 }
 
 /** A UTC midnight as an Analytics Engine DateTime literal. `until` is exclusive. */
@@ -490,6 +495,7 @@ function windowSql(since: string, until: string): string {
 
 /** Loads per UTC day and kind, every kind, for `since` (inclusive) to `until` (exclusive). */
 export function embedDaysSql(dataset: string, since: string, until: string): string {
+  assertDatasetName(dataset);
   return `SELECT toDate(timestamp) AS day, blob3 AS kind, SUM(_sample_interval) AS loads
          FROM ${dataset}
          WHERE ${windowSql(since, until)}
@@ -499,6 +505,7 @@ export function embedDaysSql(dataset: string, since: string, until: string): str
 
 /** Embedded loads per embedding host. */
 export function embedSitesSql(dataset: string, since: string, until: string): string {
+  assertDatasetName(dataset);
   return `SELECT blob2 AS host, SUM(_sample_interval) AS loads
          FROM ${dataset}
          WHERE blob3 = 'iframe' AND ${windowSql(since, until)}
@@ -509,6 +516,7 @@ export function embedSitesSql(dataset: string, since: string, until: string): st
 
 /** Embedded loads per dataset id. */
 export function embedDatasetsSql(dataset: string, since: string, until: string): string {
+  assertDatasetName(dataset);
   return `SELECT blob1 AS dataset_id, SUM(_sample_interval) AS loads
          FROM ${dataset}
          WHERE blob3 = 'iframe' AND ${windowSql(since, until)}
@@ -519,6 +527,7 @@ export function embedDatasetsSql(dataset: string, since: string, until: string):
 
 /** All embedded loads in the window. */
 export function embedTotalSql(dataset: string, since: string, until: string): string {
+  assertDatasetName(dataset);
   return `SELECT SUM(_sample_interval) AS loads
          FROM ${dataset}
          WHERE blob3 = 'iframe' AND ${windowSql(since, until)}`;
@@ -526,6 +535,7 @@ export function embedTotalSql(dataset: string, since: string, until: string): st
 
 /** Loads per embedding host and kind, for the admin site list. */
 export function embedSiteKindsSql(dataset: string, since: string, until: string): string {
+  assertDatasetName(dataset);
   return `SELECT blob2 AS host, blob3 AS kind, SUM(_sample_interval) AS loads
          FROM ${dataset}
          WHERE ${windowSql(since, until)}

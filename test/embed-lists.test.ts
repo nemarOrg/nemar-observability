@@ -4,7 +4,7 @@
 
 import { Database } from "bun:sqlite";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { loadEmbedLists, resetEmbedListsMemo } from "../src/lib/embed-lists";
+import { loadEmbedLists, loadEmbedSitesAdmin, resetEmbedListsMemo } from "../src/lib/embed-lists";
 import { claimQueryBudget, pruneQueryBudget } from "../src/lib/embed-store";
 import {
   AE_ROW_LIMIT,
@@ -229,6 +229,23 @@ describe("loadEmbedLists on the captured answers", () => {
     expect(
       ae.asked.some((q) => q.includes("SUM(_sample_interval) AS loads") && !q.includes("GROUP BY")),
     ).toBe(true);
+  });
+
+  test("a dataset name that is not a plain identifier asks nothing and spends no budget", async () => {
+    const restore = quiet();
+    ae = stubAe();
+    const bad = env({ EMBED_AE_DATASET: "x; DROP TABLE y" });
+    const { sites, datasets } = await loadEmbedLists(bad, "2026-10-04", "2026-10-05", NOW);
+    await expect(loadEmbedSitesAdmin(bad, "2026-10-04", "2026-10-05", NOW)).rejects.toThrow(
+      "not a valid dataset name",
+    );
+    restore();
+    expect(sites.status).toBe("unavailable");
+    expect(datasets.status).toBe("unavailable");
+    expect(ae.asked).toHaveLength(0);
+    expect(
+      (obs.query("SELECT COUNT(*) AS n FROM embed_query_budget").get() as { n: number }).n,
+    ).toBe(0);
   });
 
   test("a normal answer needs only two queries: the rows add up to the total", async () => {
