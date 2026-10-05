@@ -51,19 +51,27 @@ otherwise before the browser acceptance is complete.
 ## Signal viewer: embed answers
 
 The Analytics Engine answers in `test/fixtures/embed-ae-*.json` and the `/embeds` answer in
-`test/fixtures/embeds-api-2026-09-06-to-2026-10-05.json` were captured on 2026-10-05 from the dev
-Worker (dataset `nemar_website_embeds_dev`, the website's staging and preview test traffic), read
-through a temporary diagnostic route that was never merged. `test/embed-captured.test.ts` and
-`test/viewer-entry.test.ts` run the rules and the page over them.
+`test/fixtures/embeds-api-*.json` were captured on 2026-10-05 from the dev Worker (dataset
+`nemar_website_embeds_dev`, the website's staging and preview test traffic). The Analytics Engine
+answers were read through a temporary diagnostic route that was never merged; the `/embeds` answer
+is the dev Worker's public endpoint. `test/helpers/ae-fixtures.ts` serves them over HTTP keyed on the
+shape of the SQL, so `loadEmbedLists`, `syncEmbedDays` and the page run end to end over real answers;
+only the transport is stood in for.
 
-Still not covered by a real capture, and why:
+Not covered by a real capture, and why:
 
-- A site at or above the floor, and a public dataset, being named. The test traffic has no site at
-  10 or more embedded loads except `localhost` and `127.0.0.1` (never named), and `nemar-db-dev`
-  holds no public managed dataset (`xx099901` is a public sandbox dataset, `on007753` and
-  `nm000292` are not in it). Both paths are tested on the real captured rows with a changed count
-  or a catalog that lists the dataset, and the public predicate is tested as real SQL. Re-capture
-  once production has real partner traffic and a public dataset is embedded.
-- The success path of `syncEmbedDays` is exercised against the real dataset on the dev Worker
-  (see PR 98) but not in `bun test`, which would need the network and a token. Its planning,
-  zero-fill and storage rules are tested directly.
+- **The admin site list query** (`GROUP BY host, kind`). Its answer in the tests is summed from the
+  captured per-dataset, per-host, per-kind rows over the same traffic, because that exact grouping was
+  not captured. Capture it with an admin key against `/drilldown/embed-sites` on dev and replace the
+  derivation.
+- **A public dataset being named on live data.** `nemar-db-dev` has no public managed dataset
+  (`xx099901` is a public sandbox dataset, `on007753` and `nm000292` are not in it), so the named path
+  runs on the captured rows against a catalog table that lists the dataset, and the public predicate
+  runs as real SQL. Re-capture once a public dataset is embedded.
+- **Measured First-party figures.** The captured audience answers have `event_metrics` unconfigured
+  (`UMAMI_EVENTS_COVERAGE_START` is unset in production, and dev has no Umami vars: nemar-observability#99).
+  The extraction is tested on type-correct numbers and nulls shaped like the API's, not on a capture.
+  Capture a measured `/audience` answer once coverage is set.
+- **The identity check of the admin drill-down.** A local HTTP server answers the one request the Worker
+  makes of nemar-cli (`/users/me`); the refusals (no header, wrong scheme, unknown key, non-admin key)
+  are what is tested, and a real admin key was not used.
