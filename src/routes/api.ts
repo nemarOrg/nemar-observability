@@ -4,6 +4,7 @@
 //   GET    /snapshot/history    public  trend points for one metric key
 //   GET    /timeseries          public  bounded daily series and metadata
 //   GET    /audience            public  selected-range Umami and Cloudflare aggregates
+//   GET    /embeds              public  selected-range embed loads of the signal viewer
 //   GET    /drilldown/:key      admin   list of items behind a tile (READ-ONLY)
 //   POST   /sections/:key       token   push a pipeline section (push mode)
 //
@@ -25,6 +26,8 @@ import {
 import { resolveAdmin } from "../lib/auth";
 import { fetchZoneCountryRange } from "../lib/cf-analytics";
 import { isKnownDrilldown, runDrilldown } from "../lib/drilldown";
+import { readEmbedLoads } from "../lib/embed-store";
+import { type EmbedsResponse, loadEmbedLists } from "../lib/embeds";
 import { buildSnapshot } from "../lib/metrics";
 import { BUILTIN_SECTION_KEYS, SectionIngestSchema } from "../lib/schema";
 import {
@@ -321,6 +324,36 @@ apiRoutes.get("/audience", async (c) => {
       ...(umamiNotes.filter(Boolean).length ? { note: umamiNotes.filter(Boolean).join(" ") } : {}),
     },
     cloudflare,
+  };
+  return c.json(response, 200, { "Cache-Control": PUBLIC_CACHE });
+});
+
+// Selected-range embed loads of the signal viewer on other sites: daily totals
+// by kind from this Worker's own store, and the top embedding sites and top
+// embedded datasets from the edge's records. Sites and datasets are shaped for a
+// public page here (small sites and non-public datasets are folded into unnamed
+// counts), so nothing downstream ever sees a withheld name.
+apiRoutes.get("/embeds", async (c) => {
+  const start = c.req.query("start");
+  const end = c.req.query("end");
+  if (!validDate(start) || !validDate(end) || start > end) {
+    return c.json({ error: "Valid start and end dates are required" }, 400);
+  }
+  const days =
+    (Date.parse(`${end}T00:00:00.000Z`) - Date.parse(`${start}T00:00:00.000Z`)) / 86_400_000 + 1;
+  if (days > 3660) return c.json({ error: "Date range cannot exceed 3660 days" }, 400);
+
+  const now = new Date();
+  const [loads, lists] = await Promise.all([
+    readEmbedLoads(c.env, start, end, now),
+    loadEmbedLists(c.env, start, end, now),
+  ]);
+  const response: EmbedsResponse = {
+    start,
+    end,
+    observed_at: now.toISOString(),
+    loads,
+    ...lists,
   };
   return c.json(response, 200, { "Cache-Control": PUBLIC_CACHE });
 });
