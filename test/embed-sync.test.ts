@@ -63,19 +63,76 @@ describe("syncEmbedDays on the captured answers", () => {
     expect(ae.asked[0]).toContain("toDateTime('2026-10-06 00:00:00')");
   });
 
-  test("a day is asked for again until it is written after it closed plus the grace, then left alone", async () => {
+  const stamp = (date: string) =>
+    (
+      engine
+        .query("SELECT MIN(updated_at) AS at FROM embed_daily_loads WHERE date = ?")
+        .get(date) as { at: string | null }
+    ).at;
+
+  test("a day is rewritten until it is written after it closed plus the grace, then left alone", async () => {
     ae = stubAe();
     await syncEmbedDays(env(), NOW);
-    ae.asked.length = 0;
-    // Next morning, 2026-10-05 was only written while it was open: asked again.
-    await syncEmbedDays(env(), new Date("2026-10-06T08:00:00Z"));
-    expect(ae.asked[0]).toContain("toDateTime('2026-10-05 00:00:00')");
-    // That run wrote it after it closed plus the grace, so it is settled; 2026-10-06
-    // (zero-filled while open) is the oldest day still unsettled.
-    ae.asked.length = 0;
-    await syncEmbedDays(env(), new Date("2026-10-07T08:00:00Z"));
-    expect(ae.asked[0]).toContain("toDateTime('2026-10-06 00:00:00')");
-    expect(ae.asked[0]).not.toContain("toDateTime('2026-10-05 00:00:00')");
+    expect(stamp("2026-10-05")).toBe(NOW.toISOString());
+    // The query always covers the retention window; what is written is the planner's days.
+    expect(ae.asked[0]).toContain("toDateTime('2026-07-13 00:00:00')");
+    // Next morning, 2026-10-05 was only written while it was open: rewritten.
+    const morning = new Date("2026-10-06T08:00:00Z");
+    await syncEmbedDays(env(), morning);
+    expect(stamp("2026-10-05")).toBe(morning.toISOString());
+    // That wrote it after it closed plus the grace, so it is settled and not
+    // rewritten; 2026-10-06 (zero-filled while open) is the oldest unsettled day.
+    const later = new Date("2026-10-07T08:00:00Z");
+    await syncEmbedDays(env(), later);
+    expect(stamp("2026-10-05")).toBe(morning.toISOString());
+    expect(stamp("2026-10-06")).toBe(later.toISOString());
+  });
+
+  test("an entirely empty answer settles no zeros for days it did not cover, history included", async () => {
+    ae = stubAe();
+    await syncEmbedDays(env(), NOW);
+    ae.restore();
+    // The dataset name is wrong from now on: it answers 200 with no rows.
+    ae = stubAe({ days: () => ({ data: [] }) });
+    await syncEmbedDays(env(), new Date("2026-10-08T08:00:00Z"));
+    const days = engine
+      .query("SELECT DISTINCT date FROM embed_daily_loads ORDER BY date")
+      .all() as { date: string }[];
+    expect(days.map((d) => d.date)).toEqual(["2026-10-05"]);
+    // The sync still succeeded: nothing was found, nothing was settled.
+    expect((await loadEmbedSync(db))?.last_ok_at).toBe("2026-10-08T08:00:00.000Z");
+  });
+
+  test("a typo'd dataset never stores a zero; correcting it fills the history it missed", async () => {
+    ae = stubAe({ days: () => ({ data: [] }) });
+    await syncEmbedDays(env(), new Date("2026-10-04T08:00:00Z"));
+    await syncEmbedDays(env(), new Date("2026-10-05T08:00:00Z"));
+    expect(await loadEmbedDays(db, "2026-01-01", "2026-12-31")).toEqual([]);
+    ae.restore();
+    ae = stubAe();
+    await syncEmbedDays(env(), NOW);
+    expect(
+      (await loadEmbedDays(db, "2026-10-05", "2026-10-05")).find((r) => r.kind === "iframe")?.loads,
+    ).toBe(307);
+  });
+
+  test("a quiet stretch is filled with zeros once the answer has rows around it", async () => {
+    ae = stubAe();
+    await syncEmbedDays(env(), NOW);
+    ae.restore();
+    // Four days later, the edge has the first day's rows and a new embed on 10-09.
+    ae = stubAe({
+      days: () => ({
+        data: [
+          { day: "2026-10-05", kind: "iframe", loads: "307" },
+          { day: "2026-10-09", kind: "iframe", loads: "2" },
+        ],
+      }),
+    });
+    await syncEmbedDays(env(), new Date("2026-10-09T09:00:00Z"));
+    const rows = await loadEmbedDays(db, "2026-10-06", "2026-10-08");
+    expect(rows).toHaveLength(12);
+    expect(rows.every((r) => r.loads === 0)).toBe(true);
   });
 
   test("an empty dataset is a normal answer: nothing stored, success recorded", async () => {

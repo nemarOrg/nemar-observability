@@ -402,14 +402,26 @@ describe("buildEmbedDays", () => {
     expect(out.find((r) => r.date === day(0) && r.kind === "document")?.loads).toBe(1);
   });
 
-  test("with a first day stored, a quiet pull is zeros from the pull's start", () => {
-    const out = buildEmbedDays([], day(2), day(0), day(8));
-    expect(out).toHaveLength(3 * 4);
-    expect(out.every((r) => r.loads === 0)).toBe(true);
-    expect(out[0].date).toBe(day(2));
+  test("an entirely empty answer writes nothing, even with a first day stored", () => {
+    // A typo'd or overridden dataset answers like this, so it must not settle zeros.
+    expect(buildEmbedDays([], day(2), day(0), day(8))).toEqual([]);
+    expect(buildEmbedDays([], day(2), day(0), null)).toEqual([]);
   });
 
-  test("rows outside the pulled range are ignored", () => {
+  test("a quiet stretch is zeros when the same answer has rows for another day", () => {
+    const out = buildEmbedDays(
+      [{ date: day(9), kind: "iframe", loads: 4 }],
+      day(3),
+      day(0),
+      day(8),
+    );
+    // Written from `since`, all four kinds, zero where the edge had nothing.
+    expect(out).toHaveLength(4 * 4);
+    expect(out[0].date).toBe(day(3));
+    expect(out.every((r) => r.loads === 0)).toBe(true);
+  });
+
+  test("rows before `since` prove the dataset is live and find the first day, but are not rewritten", () => {
     const out = buildEmbedDays(
       [
         { date: day(30), kind: "iframe", loads: 99 },
@@ -420,7 +432,15 @@ describe("buildEmbedDays", () => {
       null,
     );
     expect(out.find((r) => r.loads === 99)).toBeUndefined();
-    expect(out[0].date).toBe(day(1));
+    expect(out[0].date).toBe(day(5));
+    expect(out.find((r) => r.date === day(1) && r.kind === "iframe")?.loads).toBe(3);
+    expect(out.find((r) => r.date === day(3))?.loads).toBe(0);
+  });
+
+  test("rows after today are ignored", () => {
+    expect(
+      buildEmbedDays([{ date: day(-2), kind: "iframe", loads: 1 }], day(3), day(0), null),
+    ).toEqual([]);
   });
 });
 

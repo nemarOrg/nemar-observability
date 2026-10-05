@@ -380,10 +380,18 @@ export function planEmbedPull(
 /**
  * Turn the edge's per-(day, kind) answer into the rows to store: all four kinds
  * for every day from the first recorded day through today, with zero where the
- * edge returned no row. A day with no rows at all is a measured zero only
- * between the first recorded day and today, because the edge answered and had
- * nothing for it; days before the first embed ever counted stay absent, since
- * the counting may not have existed yet, and absent means unknown, not zero.
+ * edge returned no row, but only days from `since` (the planner's oldest day not
+ * yet settled) on.
+ *
+ * `rows` is the answer for the whole retention window, not just `since` on, and
+ * an answer with no row for ANY day writes nothing. A day between rows is a
+ * measured zero because the edge answered for the window and had rows around it;
+ * an entirely empty answer proves nothing (a typo in the dataset name answers
+ * the same way), so it settles no zero: unknown is the safe direction. Before
+ * the first embed ever, that is exactly right too: nothing is stored, and the
+ * sync status, not stored zeros, says the sync succeeded and found nothing.
+ * Days before the first counted embed stay absent, since the counting may not
+ * have existed yet, and absent means unknown, not zero.
  *
  * `first` is the earliest day already stored, if any.
  */
@@ -396,14 +404,18 @@ export function buildEmbedDays(
   const values = new Map<string, number>();
   let earliest = first;
   for (const row of rows) {
-    if (row.date < since || row.date > today || !(row.loads >= 0)) continue;
+    if (row.date > today || !(row.loads >= 0)) continue;
     const key = `${row.date}|${row.kind}`;
     values.set(key, (values.get(key) ?? 0) + row.loads);
     if (earliest === null || row.date < earliest) earliest = row.date;
   }
-  if (earliest === null) return [];
+  if (values.size === 0) return [];
   const out: EmbedDayRow[] = [];
-  for (let day = earliest > since ? earliest : since; day <= today; day = shiftDay(day, 1)) {
+  for (
+    let day = earliest !== null && earliest > since ? earliest : since;
+    day <= today;
+    day = shiftDay(day, 1)
+  ) {
     for (const kind of EMBED_KINDS)
       out.push({ date: day, kind, loads: values.get(`${day}|${kind}`) ?? 0 });
   }

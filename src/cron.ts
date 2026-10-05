@@ -166,7 +166,10 @@ export async function syncEmbedDays(env: Bindings, now: Date): Promise<void> {
     const stamps = await loadEmbedDayStamps(env.OBS_DB, embedRetentionStart(now));
     ({ since, until } = planEmbedPull(first, stamps, now));
     stage = "read the edge";
-    const rows = await fetchEmbedDays(env, since, until);
+    // The whole retention window, though only days from `since` are written: an
+    // answer with a row for no day at all settles no zeros (buildEmbedDays), and
+    // that needs the wider window to tell a quiet stretch from a dead dataset.
+    const rows = await fetchEmbedDays(env, embedRetentionStart(now), until);
     stage = "build days";
     const fetched = buildEmbedDays(rows, since, today, first);
     stage = "write days";
