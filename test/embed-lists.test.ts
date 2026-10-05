@@ -141,6 +141,29 @@ describe("loadEmbedLists on the captured answers", () => {
     expect(ae.asked[0]).toContain("toDateTime('2026-07-13 00:00:00')");
   });
 
+  test("only the end in the future is not called a retention clip", async () => {
+    ae = stubAe();
+    const { sites } = await loadEmbedLists(env(), "2026-10-01", "2026-12-31", NOW);
+    expect(sites.status).toBe("partial");
+    expect(sites.note).toContain("Dates after today are not counted yet.");
+    expect(sites.note).not.toContain("last three months");
+    expect(sites.window).toEqual({ start: "2026-10-01", end: "2026-10-05" });
+  });
+
+  test("only the start past retention says so, and not that future dates are uncounted", async () => {
+    ae = stubAe();
+    const { sites } = await loadEmbedLists(env(), "2025-01-01", "2026-10-04", NOW);
+    expect(sites.note).toContain("last three months");
+    expect(sites.note).not.toContain("Dates after today");
+  });
+
+  test("both ends outside say both", async () => {
+    ae = stubAe();
+    const { sites } = await loadEmbedLists(env(), "2025-01-01", "2026-12-31", NOW);
+    expect(sites.note).toContain("last three months");
+    expect(sites.note).toContain("Dates after today are not counted yet.");
+  });
+
   test("an unreadable catalog leaves the sites available and the datasets unavailable", async () => {
     const restore = quiet();
     ae = stubAe();

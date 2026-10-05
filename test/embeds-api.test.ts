@@ -193,6 +193,23 @@ describe("GET /embeds", () => {
     expect(ae.asked).toHaveLength(0);
   });
 
+  test("a range wholly before counting began reads the same on every card, and asks the edge nothing", async () => {
+    await saveEmbedDays(db, allKinds(day(10), [4, 0, 0, 0]), new Date().toISOString());
+    await syncedNow();
+    ae = stubAe();
+    const body = (await (
+      await get(`/embeds?start=${day(40)}&end=${day(20)}`, configured)
+    ).json()) as EmbedsResponse;
+    expect(body.loads.empty_reason).toBe("before_counting");
+    expect(body.loads.totals).toBeNull();
+    expect(body.sites.reason).toBe("before_counting");
+    expect(body.datasets.reason).toBe("before_counting");
+    expect(body.sites.summary).toBeNull();
+    expect(body.sites.note).toBe(body.loads.note);
+    expect(body.sites.note).toContain("unknown, not zero");
+    expect(ae.asked).toHaveLength(0);
+  });
+
   test("a range wholly older than the edge keeps has no per-site detail, said as such", async () => {
     await syncedNow();
     ae = stubAe();

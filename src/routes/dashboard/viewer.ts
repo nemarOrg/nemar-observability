@@ -212,7 +212,7 @@ function embedListCard(title, infoFor, block, build) {
   head.appendChild(titles);
   // A card with nothing to show says why, instead of "Measured".
   const empty = block.status === "available" || block.status === "partial"
-    ? (!block.summary ? (block.reason === "future" ? "Future dates" : "No detail") : block.summary.total === 0 ? "None recorded yet" : null)
+    ? (!block.summary ? (block.reason === "future" ? "Future dates" : block.reason === "before_counting" ? "Before counting began" : "No detail") : block.summary.total === 0 ? "None recorded yet" : null)
     : null;
   head.appendChild(empty ? badge("neutral", empty) : audienceBadge(block.status));
   card.appendChild(head);

@@ -28,6 +28,7 @@ import { fetchZoneCountryRange } from "../lib/cf-analytics";
 import { isKnownDrilldown, runDrilldown } from "../lib/drilldown";
 import {
   EMBED_SITES_DRILLDOWN,
+  beforeCountingLists,
   loadEmbedLists,
   loadEmbedSitesAdmin,
   readEmbedLoads,
@@ -354,10 +355,13 @@ apiRoutes.get("/embeds", async (c) => {
   if (days > 3660) return c.json({ error: "Date range cannot exceed 3660 days" }, 400);
 
   const now = new Date();
-  const [loads, lists] = await Promise.all([
-    readEmbedLoads(c.env, start, end, now),
-    loadEmbedLists(c.env, start, end, now),
-  ]);
+  // The loads card knows when counting began. For a range wholly before it the
+  // lists say the same ("before counting began"), and the edge is not asked.
+  const loads = await readEmbedLoads(c.env, start, end, now);
+  const lists =
+    loads.empty_reason === "before_counting"
+      ? beforeCountingLists(loads.note ?? "")
+      : await loadEmbedLists(c.env, start, end, now);
   const response: EmbedsResponse = {
     start,
     end,

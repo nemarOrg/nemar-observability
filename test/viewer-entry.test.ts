@@ -411,6 +411,38 @@ describe("Signal viewer entry", () => {
     expect(errors).toEqual([]);
   });
 
+  test("a range before counting began says so on every card", async () => {
+    ae = stubAe();
+    const { document, errors } = await openPage({ embeds: true, configured: true, synced: true });
+    await until(() => text(document, "viewer-body").includes("Viewer mounts"), "first-party");
+    const startInput = document.getElementById("range-start") as unknown as {
+      value: string;
+      dispatchEvent(e: unknown): void;
+    };
+    const endInput = document.getElementById("range-end") as unknown as {
+      value: string;
+      dispatchEvent(e: unknown): void;
+    };
+    const Event = (document.defaultView as unknown as { Event: new (t: string) => unknown }).Event;
+    startInput.value = day(60);
+    endInput.value = day(40);
+    filter(document, "third").click();
+    endInput.dispatchEvent(new Event("change"));
+    await until(() => text(document, "viewer-body").includes("Before counting began"), "the note");
+    expect(errors).toEqual([]);
+    const badges = Array.from(document.querySelectorAll("#viewer-body .badge")).map(
+      (b) => b.textContent,
+    );
+    expect(badges).toEqual([
+      "Before counting began",
+      "Before counting began",
+      "Before counting began",
+    ]);
+    const body = text(document, "viewer-body");
+    expect(body).toContain("Unknown");
+    expect(body).not.toContain("None recorded yet");
+  });
+
   test("a range wholly in the future says so", async () => {
     ae = stubAe();
     const { document, errors } = await openPage({ embeds: true, configured: true, synced: true });

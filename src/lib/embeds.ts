@@ -691,7 +691,7 @@ export interface EmbedListBlock<T> {
   window: { start: string; end: string } | null;
   summary: T | null;
   /** Set when there is no summary for a reason that is not a fault. */
-  reason?: "future" | "expired";
+  reason?: "future" | "expired" | "before_counting";
   note?: string;
 }
 

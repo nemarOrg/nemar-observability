@@ -101,10 +101,12 @@ export async function readEmbedLoads(
   }
 }
 
+type EmptyReason = "future" | "expired" | "before_counting";
+
 const emptyBlock = <T>(
   status: EmbedSourceStatus,
   note: string,
-  reason?: "future" | "expired",
+  reason?: EmptyReason,
 ): EmbedListBlock<T> => ({
   status,
   window: null,
@@ -112,14 +114,19 @@ const emptyBlock = <T>(
   ...(reason ? { reason } : {}),
   note,
 });
-const bothBlocks = (
-  status: EmbedSourceStatus,
-  note: string,
-  reason?: "future" | "expired",
-): EmbedLists => ({
+const bothBlocks = (status: EmbedSourceStatus, note: string, reason?: EmptyReason): EmbedLists => ({
   sites: emptyBlock(status, note, reason),
   datasets: emptyBlock(status, note, reason),
 });
+
+/**
+ * The lists for a range wholly before counting began: the same answer as the
+ * loads card (unknown, not zero), and no query to the edge, whose dataset holds
+ * nothing for those dates because the counting did not exist.
+ */
+export function beforeCountingLists(note: string): EmbedLists {
+  return bothBlocks("available", note, "before_counting");
+}
 
 const MEMO_TTL_MS = 60_000;
 const MEMO_MAX = 32;
@@ -237,11 +244,12 @@ async function computeLists(
   const today = dayOf(now.getTime());
   const status: EmbedSourceStatus = window.clipped || window.end >= today ? "partial" : "available";
   const notes: string[] = [];
-  if (window.clipped) {
+  if (window.start !== start) {
     notes.push(
       "Detail covers only the part of the selected dates from the last three months that is still kept.",
     );
   }
+  if (window.end !== end) notes.push("Dates after today are not counted yet.");
   if (window.end >= today) notes.push("The current UTC day is still in progress.");
   const shared = {
     status,
