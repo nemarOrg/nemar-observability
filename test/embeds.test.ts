@@ -685,10 +685,11 @@ describe("buildLoadsBlock", () => {
 
   test("an empty answer from a sync that went stale is unavailable and says when it last updated", () => {
     const old = new Date(NOW.getTime() - STALE_SYNC_MS - 60_000).toISOString();
+    // The range reaches today, a day the missed syncs would have added.
     const out = buildLoadsBlock(
       [],
       day(30),
-      day(1),
+      day(0),
       NOW,
       ctx({ sync: { ...fresh, last_ok_at: old } }),
     );
@@ -699,15 +700,36 @@ describe("buildLoadsBlock", () => {
   test("recorded days with a stale sync are partial, and say when they last updated", () => {
     const old = new Date(NOW.getTime() - STALE_SYNC_MS - 60_000).toISOString();
     const out = buildLoadsBlock(
-      [row(day(2), "iframe", 5), row(day(1), "iframe", 2)],
-      day(2),
+      [row(day(1), "iframe", 5), row(day(0), "iframe", 2)],
       day(1),
+      day(0),
       NOW,
       ctx({ sync: { ...fresh, last_ok_at: old } }),
     );
     expect(out.status).toBe("partial");
     expect(out.totals?.embedded).toBe(7);
     expect(out.note).toContain("Last updated");
+  });
+
+  test("a stale sync does not downgrade a range that ended before its last successful day", () => {
+    const old = new Date(NOW.getTime() - STALE_SYNC_MS - 60_000).toISOString();
+    const stale = ctx({ sync: { ...fresh, last_ok_at: old } });
+    const lastDay = old.slice(0, 10);
+    const before = day(10);
+    expect(before < lastDay).toBe(true);
+    // Recorded days, range closed before the last good sync: complete, not partial.
+    const withData = buildLoadsBlock([row(before, "iframe", 5)], before, before, NOW, stale);
+    expect(withData.status).toBe("available");
+    expect(withData.note).toBeUndefined();
+    // Nothing recorded for such a range: the normal empty state, not unavailable.
+    const empty = buildLoadsBlock([], day(20), before, NOW, stale);
+    expect(empty.status).toBe("available");
+    expect(empty.empty_reason).toBe("none_yet");
+    // A range that reaches the last good sync's day is downgraded.
+    expect(buildLoadsBlock([], day(20), lastDay, NOW, stale).status).toBe("unavailable");
+    expect(buildLoadsBlock([row(lastDay, "iframe", 5)], lastDay, lastDay, NOW, stale).status).toBe(
+      "partial",
+    );
   });
 
   test("a sync just inside the stale limit is not stale", () => {

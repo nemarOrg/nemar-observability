@@ -746,7 +746,12 @@ export function buildLoadsBlock(
     };
   }
   const today = dayOf(now.getTime());
-  const stale = lastOk !== null && now.getTime() - Date.parse(lastOk) > STALE_SYNC_MS;
+  // Stale only matters for dates the missed syncs would have added: a range that
+  // ended before the last successful sync's day is as complete as it will be.
+  const stale =
+    lastOk !== null &&
+    now.getTime() - Date.parse(lastOk) > STALE_SYNC_MS &&
+    end >= lastOk.slice(0, 10);
   const updated = lastOk ? ` Last updated ${formatUtc(lastOk)}.` : "";
 
   if (days.length === 0) {
