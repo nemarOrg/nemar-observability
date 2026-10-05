@@ -39,7 +39,7 @@ export interface Bindings {
   /** Server-only Umami API key. Install as a Worker secret; never expose it to
    *  the dashboard page or include it in a public API response. */
   UMAMI_API_KEY?: string;
-  /** First complete UTC day covered by consent-gated event instrumentation.
+  /** First complete UTC day covered by event instrumentation (recorded unless the visitor has opted out).
    *  This is non-secret deployment configuration and must match the website's
    *  verified production instrumentation date. */
   UMAMI_EVENTS_COVERAGE_START?: string;

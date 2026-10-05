@@ -162,7 +162,7 @@ async function fetchEventReport(
   if (!configuredStart) {
     return emptyUmamiEventReport(
       "unconfigured",
-      "Consent-gated event metrics need a verified coverage start date.",
+      "Event metrics need a verified coverage start date.",
     );
   }
   const eventCoverageStartAt = parseEventCoverageStart(configuredStart);

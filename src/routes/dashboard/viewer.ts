@@ -230,7 +230,7 @@ function embedListCard(title, infoFor, block, build) {
 function embedSitesCard(block) {
   return embedListCard(
     "Embedding sites",
-    function () { return "Sites are counted here, not named. The site that framed the viewer is reported by the visitor's browser, which anyone can set to any name, and a site's address can identify a person, so no name is shown on this page. Administrators can see the list. At high volume the counts are estimated from sampled records."; },
+    function () { return "Sites are counted here, not named. The site that framed the viewer is reported by the visitor's browser, which anyone can set to any name, and a site's address can identify a person, so no name is shown on this page. The list of sites is available to administrators through the API. At high volume the counts are estimated from sampled records."; },
     block,
     function (card, summary) {
       if (!summary.total) { card.appendChild(el("p", "fine", "No embedded loads in these dates.")); return; }
@@ -239,8 +239,7 @@ function embedSitesCard(block) {
       list.appendChild(embedRow("", "From " + distinct, summary.sites_loads, summary.total, false, null));
       list.appendChild(embedRow("", "Unknown or local", summary.unknown_or_local, summary.total, false, null));
       card.appendChild(list);
-      card.appendChild(el("p", "fine", "Unknown or local covers loads with no site reported, localhost, and private addresses. The number of sites is as claimed by the visitors' browsers."));
-      card.appendChild(portalLink("Site list in the admin portal (administrators)"));
+      card.appendChild(el("p", "fine", "Unknown or local covers loads with no site reported, localhost, and private addresses. The number of sites is as claimed by the visitors' browsers. The list of sites is available to administrators through the API."));
     }
   );
 }

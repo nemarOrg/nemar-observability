@@ -260,7 +260,10 @@ describe("Signal viewer entry", () => {
     expect(body).toMatch(/Other datasets \(not named\)\s*30/);
     expect(body).not.toContain("xx099901");
     expect(body).not.toContain("nm000292");
-    expect(body).toContain("Site list in the admin portal");
+    expect(body).toContain("available to administrators through the API");
+    // No promise of a portal screen that does not exist yet (website#425).
+    expect(body).not.toContain("admin portal");
+    expect(document.querySelector("#viewer-body .portal-cta")).toBeNull();
   });
 
   // The answer the dev Worker gave for the website's own test traffic: localhost,
