@@ -17,7 +17,6 @@ export const VIEWER_JS = String.raw`
 // ---------- signal viewer ----------
 state.viewerFilter = "first";
 state.embeds = null;
-state.embedsLoading = false;
 state.embedsFailed = null;
 
 const EMBEDS_CACHE_MS = 5 * 60000;
@@ -33,19 +32,16 @@ function viewerMeasure(title, sub) {
   head.appendChild(el("p", null, sub));
   return head;
 }
-function viewerMessage(root, tone, title, body, retry) {
-  stateMessage(root, tone, title, body, retry);
-}
 
 // ---------- first-party ----------
 function renderViewerFirst(root) {
   const range = selectedRange();
   if (!validRange(range.start, range.end)) {
-    viewerMessage(root, "info", "Choose a valid UTC date range.", "The start date must be a real day on or before the end date.");
+    stateMessage(root, "info", "Choose a valid UTC date range.", "The start date must be a real day on or before the end date.");
     return;
   }
   if (state.audienceFailed) {
-    viewerMessage(root, "error", "Could not load viewer activity", "Website figures for these dates are unknown right now, which is not the same as zero.", loadAudience);
+    stateMessage(root, "error", "Could not load viewer activity", "Website figures for these dates are unknown right now, which is not the same as zero.", loadAudience);
     return;
   }
   if (state.audienceLoading || !state.audience || state.audience.start !== range.start || state.audience.end !== range.end) {
@@ -60,7 +56,7 @@ function renderViewerFirst(root) {
   const titles = el("div", "card-titles");
   const titleRow = el("div", "title-row");
   titleRow.appendChild(el("h4", "card-title", "Viewer on nemar.org"));
-  titleRow.appendChild(infoDisclosure("About viewer activity on nemar.org", "An open is one time the signal viewer mounted on a nemar.org page, and an interaction is an action taken inside it. Both are recorded only after a visitor accepts website analytics, so they undercount. Sessions are anonymous browsers, not identified people."));
+  titleRow.appendChild(infoDisclosure("About viewer activity on nemar.org", "An open is one time the signal viewer mounted on a nemar.org page, and an interaction is an action taken inside it. Both are recorded unless the visitor has opted out of website analytics, so they undercount. Sessions are anonymous browsers, not identified people."));
   titles.appendChild(titleRow);
   head.appendChild(titles);
   head.appendChild(audienceBadge(figures.status));
@@ -107,52 +103,57 @@ function embedValuesTable(loads) {
   details.appendChild(scroll);
   return details;
 }
+function emptyBadgeText(reason) {
+  if (reason === "before_counting") return "Before counting began";
+  if (reason === "future") return "Future dates";
+  return "None recorded yet";
+}
 function embedLoadsCard(loads, start, end) {
   const card = el("article", "card viewer-card viewer-loads");
   const head = el("div", "card-head");
   const titles = el("div", "card-titles");
   const titleRow = el("div", "title-row");
   titleRow.appendChild(el("h4", "card-title", "Embed page loads"));
-  titleRow.appendChild(infoDisclosure("About embed page loads", "Each load of the embeddable signal viewer is counted once when NEMAR's servers answer the request. No script runs on the partner's page or on the visitor's device. A load is not a person: a browser may reuse a page for a minute, and some requests come from scripts and crawlers, which are counted separately."));
+  titleRow.appendChild(infoDisclosure("About embed page loads", "Each load of the embeddable signal viewer is counted once when NEMAR's servers answer the request. No script runs on the partner's page or on the visitor's device. A load is not a person: a browser may reuse a page for a minute, and some requests come from scripts and crawlers, which are counted separately. At high volume the counts are estimated from sampled records."));
   titles.appendChild(titleRow);
   head.appendChild(titles);
   // "Measured" would overstate a card with nothing recorded: say so instead.
   const nothingRecorded = loads.status === "available" && !loads.days_recorded;
-  head.appendChild(nothingRecorded ? badge("neutral", "None recorded yet") : audienceBadge(loads.status));
+  head.appendChild(nothingRecorded ? badge("neutral", emptyBadgeText(loads.empty_reason)) : audienceBadge(loads.status));
   card.appendChild(head);
   if (loads.status === "unconfigured" || loads.status === "unavailable") {
     card.appendChild(el("p", "fine", loads.note || "Embed loads are unavailable."));
     return card;
   }
   const headline = embedHeadline(loads);
+  card.appendChild(el("p", "measure-total-label", "Embedded in another site"));
   if (nothingRecorded) {
-    card.appendChild(el("p", "measure-total-label", "Embedded in another site"));
     card.appendChild(figure("p", "measure-total is-muted", headline.text));
     card.appendChild(el("p", "fine", loads.note || "No embed loads are recorded for these dates."));
     return card;
   }
-  card.appendChild(el("p", "measure-total-label", "Embedded in another site"));
-  card.appendChild(figure("p", "measure-total" + (headline.muted ? " is-muted" : ""), headline.text));
+  card.appendChild(figure("p", "measure-total", headline.text));
   const measures = el("div", "measures viewer-split");
   audienceMeasure(measures, "Opened directly", loads.totals ? loads.totals.direct : null);
   audienceMeasure(measures, "Other requests (scripts, crawlers)", loads.totals ? loads.totals.other : null);
   card.appendChild(measures);
   card.appendChild(el("p", "fine", "Embedded is a page load inside another site's frame, and is the headline. Opened directly is someone visiting the embed address itself. Other requests carry no frame information."));
   if (loads.days.length) {
-    const buckets = seriesBuckets(embedSeriesFor(loads), start, end, "day");
+    const grouping = document.getElementById("grouping").value;
+    const buckets = seriesBuckets(embedSeriesFor(loads), start, end, grouping);
     const gap = buckets.some(function (b) { return b.value === null; });
     card.appendChild(lineChart({
       points: buckets,
       unit: "count",
-      ariaLabel: "Embedded loads per day in " + rangeText(start, end) + " (UTC)",
-      description: "Embedded loads of the signal viewer on other sites, one value per UTC day.",
-      tickLabel: function (i) { return bucketTick(buckets[i], "day", start, end); },
+      ariaLabel: "Embedded loads by " + grouping + " in " + rangeText(start, end) + " (UTC)",
+      description: "Embedded loads of the signal viewer on other sites, grouped by " + grouping + " in UTC.",
+      tickLabel: function (i) { return bucketTick(buckets[i], grouping, start, end); },
       tooltip: function (i) {
         const bucket = buckets[i];
         return {
-          title: (bucket.partial ? bucket.label : longDay(bucket.start)) + " (UTC)",
+          title: (grouping === "day" && !bucket.partial ? longDay(bucket.start) : bucket.label) + " (UTC)",
           value: bucket.value === null ? "No data reported" : num(bucket.value),
-          notes: [bucket.value === null ? "Unknown, not zero" : "", bucket.partial && bucket.value !== null ? "Partial day" : ""]
+          notes: [bucket.value === null ? "Unknown, not zero" : "", bucket.partial && bucket.value !== null ? "Partial period" : ""]
         };
       }
     }));
@@ -160,7 +161,7 @@ function embedLoadsCard(loads, start, end) {
     if (buckets.some(function (b) { return b.partial && b.value !== null; })) {
       const item = el("span", "legend-item");
       item.appendChild(el("span", "legend-key key-dashed"));
-      item.appendChild(el("span", null, "Partial day"));
+      item.appendChild(el("span", null, grouping === "day" ? "Partial day" : "Partial period"));
       legend.appendChild(item);
     }
     if (gap) {
@@ -174,6 +175,7 @@ function embedLoadsCard(loads, start, end) {
   }
   const details = disclosure("Coverage and source details");
   details.appendChild(el("p", "fine", "Recorded for " + loads.days_recorded + " of " + loads.days_in_range + " days in these dates" + (loads.coverage ? ", from " + rangeText(loads.coverage.start, loads.coverage.end) + " (UTC)" : "") + ". Daily totals are kept after the detailed records expire."));
+  if (loads.last_synced_at) details.appendChild(el("p", "fine", "Last updated " + formatDateTime(loads.last_synced_at) + "."));
   if (loads.note) details.appendChild(el("p", "fine", loads.note));
   card.appendChild(details);
   return card;
@@ -208,7 +210,11 @@ function embedListCard(title, infoFor, block, build) {
   titleRow.appendChild(infoDisclosure("About " + title.toLowerCase(), infoFor(block)));
   titles.appendChild(titleRow);
   head.appendChild(titles);
-  head.appendChild(audienceBadge(block.status));
+  // A card with nothing to show says why, instead of "Measured".
+  const empty = block.status === "available" || block.status === "partial"
+    ? (!block.summary ? (block.reason === "future" ? "Future dates" : "No detail") : block.summary.total === 0 ? "None recorded yet" : null)
+    : null;
+  head.appendChild(empty ? badge("neutral", empty) : audienceBadge(block.status));
   card.appendChild(head);
   if (!block.summary) {
     card.appendChild(el("p", "fine", block.note || "Unavailable."));
@@ -223,32 +229,30 @@ function embedListCard(title, infoFor, block, build) {
 }
 function embedSitesCard(block) {
   return embedListCard(
-    "Top embedding sites",
-    function (b) {
-      const floor = b.summary ? b.summary.min_named_loads : null;
-      return "The site that framed the viewer, as reported by the visitor's browser. A site is named only when it accounts for at least " + (floor == null ? "a minimum number of" : num(floor)) + " embedded loads in these dates, because a site's address can identify a person. Local and private addresses are grouped, and the remaining sites are counted without names.";
-    },
+    "Embedding sites",
+    function () { return "Sites are counted here, not named. The site that framed the viewer is reported by the visitor's browser, which anyone can set to any name, and a site's address can identify a person, so no name is shown on this page. Administrators can see the list. At high volume the counts are estimated from sampled records."; },
     block,
     function (card, summary) {
       if (!summary.total) { card.appendChild(el("p", "fine", "No embedded loads in these dates.")); return; }
       const list = el("ol", "ranked");
-      summary.rows.forEach(function (r, i) { list.appendChild(embedRow(i + 1, r.label, r.value, summary.total, false, null)); });
-      if (summary.unknown_or_local > 0) list.appendChild(embedRow("", "Unknown or local", summary.unknown_or_local, summary.total, true, null));
-      if (summary.other_sites > 0) list.appendChild(embedRow("", "Other sites", summary.other_sites, summary.total, true, null));
+      const distinct = plural(summary.distinct_sites, "distinct site", "distinct sites") + (summary.capped ? " or more" : "");
+      list.appendChild(embedRow("", "From " + distinct, summary.sites_loads, summary.total, false, null));
+      list.appendChild(embedRow("", "Unknown or local", summary.unknown_or_local, summary.total, false, null));
       card.appendChild(list);
-      card.appendChild(el("p", "fine", "Sites with fewer than " + num(summary.min_named_loads) + " embedded loads are not named. Unknown or local covers loads with no site reported, localhost, and private addresses. Other sites is every site that is not listed."));
+      card.appendChild(el("p", "fine", "Unknown or local covers loads with no site reported, localhost, and private addresses. The number of sites is as claimed by the visitors' browsers."));
+      card.appendChild(portalLink("Site list in the admin portal (administrators)"));
     }
   );
 }
 function embedDatasetsCard(block) {
   return embedListCard(
     "Top embedded datasets",
-    function () { return "Public datasets ranked by embedded loads. A dataset that is private or unpublished is never named; its loads are part of the unnamed count."; },
+    function () { return "Public datasets ranked by embedded loads. A dataset that is private or unpublished is never named; its loads are part of the unnamed count. At high volume the counts are estimated from sampled records."; },
     block,
     function (card, summary) {
       if (!summary.total) { card.appendChild(el("p", "fine", "No embedded loads in these dates.")); return; }
       const list = el("ol", "ranked");
-      summary.rows.forEach(function (r, i) { list.appendChild(embedRow(i + 1, r.label, r.value, summary.total, false, "https://nemar.org/dataset/" + encodeURIComponent(r.label))); });
+      summary.rows.forEach(function (r, i) { list.appendChild(embedRow(i + 1, r.label, r.value, summary.total, false, r.href)); });
       if (summary.other > 0) list.appendChild(embedRow("", "Other datasets (not named)", summary.other, summary.total, true, null));
       card.appendChild(list);
       card.appendChild(el("p", "fine", "Only public datasets are named. Other datasets covers private and unpublished datasets and any public dataset not shown here."));
@@ -258,11 +262,11 @@ function embedDatasetsCard(block) {
 function renderViewerThird(root) {
   const range = selectedRange();
   if (!validRange(range.start, range.end)) {
-    viewerMessage(root, "info", "Choose a valid UTC date range.", "The start date must be a real day on or before the end date, and a range can span up to 3,660 days.");
+    stateMessage(root, "info", "Choose a valid UTC date range.", "The start date must be a real day on or before the end date, and a range can span up to 3,660 days.");
     return;
   }
   if (state.embedsFailed) {
-    viewerMessage(root, "error", "Could not load embed loads", failureDetail(state.embedsFailed, "Embed loads for these dates are unknown right now, which is not the same as zero."), loadEmbeds);
+    stateMessage(root, "error", "Could not load embed loads", failureDetail(state.embedsFailed, "Embed loads for these dates are unknown right now, which is not the same as zero."), loadEmbeds);
     return;
   }
   const entry = state.embeds;
@@ -304,17 +308,14 @@ function loadEmbeds() {
   const range = selectedRange();
   if (!validRange(range.start, range.end)) { renderViewer(); return; }
   const key = range.start + "|" + range.end;
-  state.embedsLoading = true;
   renderViewer();
   embedsCache.get(key).then(function (payload) {
     if (!embedsGuard.isCurrent(token) || !isSelected(range.start, range.end)) return;
     state.embeds = { start: range.start, end: range.end, payload: payload };
-    state.embedsLoading = false;
     renderViewer();
   }, function (err) {
     if (!embedsGuard.isCurrent(token)) return;
     console.error("[ui] embed loads failed:", err);
-    state.embedsLoading = false;
     state.embedsFailed = err || new Error("failed");
     renderViewer();
   });
@@ -330,6 +331,11 @@ function setViewerFilter(filter) {
   });
   if (filter === "third") loadEmbeds(); else renderViewer();
 }
+// The chart follows the page's day, week or month grouping, like the other
+// additive series, so changing it redraws a loaded embed card.
+document.getElementById("grouping").addEventListener("change", function () {
+  if (state.viewerFilter === "third" && state.embeds) renderViewer();
+});
 document.querySelectorAll("[data-viewer-filter]").forEach(function (button) {
   button.addEventListener("click", function () { setViewerFilter(button.getAttribute("data-viewer-filter")); });
 });

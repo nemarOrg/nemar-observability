@@ -300,7 +300,7 @@ export function renderDashboardPage(): string {
             <button type="button" data-viewer-filter="first" aria-pressed="true"><span>First-party</span><span class="viewer-filter-note">On nemar.org</span></button>
             <button type="button" data-viewer-filter="third" aria-pressed="false"><span>Third-party</span><span class="viewer-filter-note">Embedded elsewhere</span></button>
           </div>
-          ${info("What each filter counts", "First-party counts times the signal viewer opened on a nemar.org page and actions taken inside it, from website analytics recorded after a visitor accepts them. Third-party counts page loads of the embeddable viewer on other sites, recorded by NEMAR's servers with no script on the partner's page. A viewer open and an embed page load are different events, so their counts are not comparable and are never summed.")}
+          ${info("What each filter counts", "First-party counts times the signal viewer opened on a nemar.org page and actions taken inside it, from website analytics, recorded unless the visitor has opted out. Third-party counts page loads of the embeddable viewer on other sites, recorded by NEMAR's servers with no script on the partner's page. A viewer open and an embed page load are different events, so their counts are not comparable and are never summed.")}
         </div>
       </div>
       <div id="viewer-body" aria-busy="true">${GRID_SKELETON}</div>

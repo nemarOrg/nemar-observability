@@ -155,8 +155,7 @@ describe("dashboard shell", () => {
     expect(html).not.toContain("@import");
     expect(html).not.toMatch(/url\(\s*["']?https?:/i);
     // In the markup an absolute URL is only ever a link target or the SVG
-    // namespace; in the script only the admin portal link, the namespace, and the
-    // click-through link to a public dataset's page (never a request).
+    // namespace; in the script only the admin portal link and the namespace.
     const script = html.slice(html.indexOf("<script>"), html.indexOf("</script>"));
     const markup = html.replace(script, "");
     const inMarkup = [...markup.matchAll(/(\S{0,7})(https?:\/\/[^"'\s)<]+)/g)];
@@ -169,7 +168,6 @@ describe("dashboard shell", () => {
     expect([...inScript].sort()).toEqual([
       "http://www.w3.org/2000/svg",
       "https://app.nemar.org/admin",
-      "https://nemar.org/dataset/",
     ]);
   });
 

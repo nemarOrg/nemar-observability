@@ -29,6 +29,9 @@ loadHistory();
 const initialRange = rangeFor(30);
 document.getElementById("range-start").value = initialRange.start;
 document.getElementById("range-end").value = initialRange.end;
+// No dates after today (UTC): nothing has been counted there yet.
+document.getElementById("range-start").max = todayUtc();
+document.getElementById("range-end").max = todayUtc();
 document.querySelectorAll("[data-range]").forEach(function (button) { button.addEventListener("click", function () { const r = rangeFor(Number(button.dataset.range)); document.getElementById("range-start").value = r.start; document.getElementById("range-end").value = r.end; const custom = document.getElementById("range-custom"); if (custom) custom.open = false; loadSelectedRange(); }); });
 document.getElementById("range-start").addEventListener("change", loadSelectedRange);
 document.getElementById("range-end").addEventListener("change", loadSelectedRange);

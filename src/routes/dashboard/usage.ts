@@ -50,7 +50,7 @@ function audienceSourceCard(title, source, definitions, metrics, quiet) {
 function audienceEvents(parent, report) {
   const status = report && typeof report.status === "string" ? report.status : "unavailable";
   const section = disclosure("Website interactions: " + audienceStatus(status).toLowerCase(), "audience-events");
-  section.appendChild(el("p", "fine", "Events are recorded only after consent. Event-associated visitors are anonymous distinct sessions, not identified people."));
+  section.appendChild(el("p", "fine", "Events are recorded unless the visitor has opted out. Event-associated visitors are anonymous distinct sessions, not identified people."));
   const coverage = report && report.coverage && report.coverage.start && report.coverage.end
     ? "Verified event coverage: " + rangeText(report.coverage.start, report.coverage.end) + " (UTC)"
     : "Verified event coverage: unavailable";

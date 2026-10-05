@@ -20,7 +20,7 @@ The range-aware audience panel reports Umami visitors as anonymous unique-sessio
 ### The Signal viewer entry
 
 A section of its own with a First-party and a Third-party filter.
-First-party is viewer opens and interactions on nemar.org, from website analytics events recorded after consent.
+First-party is viewer opens and interactions on nemar.org, from website analytics events, recorded unless the visitor has opted out.
 Third-party is page loads of the embeddable viewer on other sites, counted by NEMAR's own servers: loads per day split into embedded, opened directly and other requests, the top embedding sites, and the top embedded datasets.
 The two measure different things, viewer mounts on our pages and embed page loads on partner pages, and are never added together.
 Only public datasets are named, and a site is named only at 10 or more embedded loads in the selected dates; localhost, IP addresses and unknown hosts are grouped, and the rest is counted without names (ADR 0002).

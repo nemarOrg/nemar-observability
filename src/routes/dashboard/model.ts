@@ -91,13 +91,17 @@ function viewerFirstParty(payload) {
     interactions: viewerEventFigure(rows, "viewer_interaction")
   };
 }
-// What the embed card says about its headline: "None recorded" when no day is
-// stored for the dates (which is not a measured zero), otherwise the count of
-// embedded loads, which may truly be 0.
+// What the embed card says about its headline. A count of embedded loads when
+// days are recorded (it may truly be 0); otherwise words, never a zero: dates
+// before counting began are unknown, future dates are not yet counted, and
+// anything else is nothing recorded yet.
 function embedHeadline(loads) {
   const totals = loads && loads.totals;
-  if (!totals || !loads.days_recorded) return { text: "None recorded", muted: true, value: null };
-  return { text: num(totals.embedded), muted: false, value: totals.embedded };
+  if (totals && loads.days_recorded) return { text: num(totals.embedded), value: totals.embedded };
+  const reason = loads ? loads.empty_reason : null;
+  if (reason === "before_counting") return { text: "Unknown", value: null };
+  if (reason === "future") return { text: "Not yet counted", value: null };
+  return { text: "None recorded", value: null };
 }
 // One row of a public ranking with its share of the window's embedded loads.
 function embedShare(value, total) {
