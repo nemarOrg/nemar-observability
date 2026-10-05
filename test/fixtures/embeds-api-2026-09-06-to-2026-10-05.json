@@ -1,9 +1,9 @@
 {
-  "source": "live GET /observability/api/embeds?start=2026-09-06&end=2026-10-05 on nemar-observability-dev (the build of PR 98 after the owner's decision that embedding sites are never named), captured 2026-10-05T16:17Z after the cron sync ran; dev nemar-db has no public managed datasets (xx099901 is a public sandbox dataset, on007753 and nm000292 are not in the dev catalog)",
+  "source": "live GET /observability/api/embeds?start=2026-09-06&end=2026-10-05 on nemar-observability-dev (round 3 build: reserved .invalid and .example names are unknown or local, private cache header), captured 2026-10-05T19:30Z after the cron sync; dev nemar-db has no public managed datasets (xx099901 is a public sandbox dataset, on007753 and nm000292 are not in the dev catalog)",
   "response": {
     "start": "2026-09-06",
     "end": "2026-10-05",
-    "observed_at": "2026-10-05T16:17:29.538Z",
+    "observed_at": "2026-10-05T19:27:36.180Z",
     "loads": {
       "coverage": {
         "start": "2026-10-05",
@@ -12,20 +12,20 @@
       "days": [
         {
           "date": "2026-10-05",
-          "embedded": 315,
-          "direct": 22,
-          "other": 15
+          "embedded": 316,
+          "direct": 23,
+          "other": 25
         }
       ],
       "totals": {
-        "embedded": 315,
-        "direct": 22,
-        "other": 15
+        "embedded": 316,
+        "direct": 23,
+        "other": 25
       },
       "days_recorded": 1,
       "days_in_range": 30,
       "counting_began": "2026-10-05",
-      "last_synced_at": "2026-10-05T16:17:08.640Z",
+      "last_synced_at": "2026-10-05T19:17:08.175Z",
       "status": "partial",
       "empty_reason": null,
       "note": "Recorded for 1 of 30 days; days before counting began or not yet collected are unknown, not zero. The current UTC day is still in progress, so its totals may be incomplete."
@@ -38,10 +38,10 @@
       },
       "note": "The current UTC day is still in progress.",
       "summary": {
-        "unknown_or_local": 304,
-        "sites_loads": 11,
-        "distinct_sites": 7,
-        "total": 315,
+        "unknown_or_local": 315,
+        "sites_loads": 1,
+        "distinct_sites": 1,
+        "total": 316,
         "capped": false
       }
     },
@@ -54,8 +54,8 @@
       "note": "The current UTC day is still in progress.",
       "summary": {
         "rows": [],
-        "other": 315,
-        "total": 315
+        "other": 316,
+        "total": 316
       }
     }
   }
