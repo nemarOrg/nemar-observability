@@ -312,7 +312,7 @@ function syncRangePresets() {
   // Every range-driven block names the dates it shows.
   document.querySelectorAll("[data-range-chip]").forEach(function (chip) { chip.textContent = text || "No valid range"; });
 }
-function loadSelectedRange() { syncRangePresets(); loadSeries(); loadAudience(); }
+function loadSelectedRange() { syncRangePresets(); loadSeries(); loadAudience(); loadEmbeds(); }
 // One polite announcement per range once its figures have drawn, instead of
 // every container reading itself out. The first load is not announced; the
 // page is already being read from the top.

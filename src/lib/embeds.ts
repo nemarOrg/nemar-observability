@@ -149,6 +149,8 @@ export interface EmbedSiteSummary {
   other_sites: number;
   /** All embedded loads in the window. */
   total: number;
+  /** The floor a site needed to be named, so the page states the rule it was held to. */
+  min_named_loads: number;
 }
 
 const byValueThenLabel = (a: RankedRow, b: RankedRow) =>
@@ -189,6 +191,7 @@ export function summarizeEmbedSites(
     unknown_or_local: unknown,
     other_sites: all - listed - unknown,
     total: all,
+    min_named_loads: MIN_NAMED_SITE_LOADS,
   };
 }
 

@@ -33,6 +33,11 @@ function validSnapshot(body) {
     && (body.section_errors === undefined || Array.isArray(body.section_errors));
 }
 function validHistory(body) { return isObject(body) && Array.isArray(body.points); }
+function validEmbedBlock(block) { return isObject(block) && typeof block.status === "string"; }
+function validEmbeds(body) {
+  return isObject(body) && validEmbedBlock(body.loads) && Array.isArray(body.loads.days)
+    && validEmbedBlock(body.sites) && validEmbedBlock(body.datasets);
+}
 
 // ---------- shared requests ----------
 // One request per key, shared while it is fresh: asking again for the same
@@ -63,6 +68,41 @@ function createLatestGuard() {
     begin: function () { latest += 1; return latest; },
     isCurrent: function (token) { return token === latest; }
   };
+}
+
+// ---------- signal viewer ----------
+// The first-party half: viewer opens and interactions on nemar.org, read from the
+// audience answer's website event metrics (the embed sends nothing to website
+// analytics, so these are first-party by construction). A figure the source did
+// not measure is null, never zero.
+function viewerEventFigure(rows, name) {
+  const row = rows.find(function (m) { return m && m.name === name; });
+  function count(value) { return typeof value === "number" && Number.isFinite(value) ? value : null; }
+  return { events: row ? count(row.events) : null, visitors: row ? count(row.visitors) : null };
+}
+function viewerFirstParty(payload) {
+  const report = payload && payload.umami ? payload.umami.event_metrics : null;
+  const rows = report && Array.isArray(report.metrics) ? report.metrics : [];
+  return {
+    status: report && typeof report.status === "string" ? report.status : "unavailable",
+    coverage: report && report.coverage && report.coverage.start && report.coverage.end ? report.coverage : null,
+    note: report && typeof report.note === "string" ? report.note : "",
+    opens: viewerEventFigure(rows, "viewer_open"),
+    interactions: viewerEventFigure(rows, "viewer_interaction")
+  };
+}
+// What the embed card says about its headline: "None recorded" when no day is
+// stored for the dates (which is not a measured zero), otherwise the count of
+// embedded loads, which may truly be 0.
+function embedHeadline(loads) {
+  const totals = loads && loads.totals;
+  if (!totals || !loads.days_recorded) return { text: "None recorded", muted: true, value: null };
+  return { text: num(totals.embedded), muted: false, value: totals.embedded };
+}
+// One row of a public ranking with its share of the window's embedded loads.
+function embedShare(value, total) {
+  const share = pct(value, total);
+  return share == null ? "" : share.toFixed(1) + "%";
 }
 
 // ---------- snapshot lookups ----------

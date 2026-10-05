@@ -199,7 +199,13 @@ describe("summarizeEmbedSites", () => {
       ]),
       0,
     );
-    expect(out).toEqual({ rows: [], unknown_or_local: 0, other_sites: 0, total: 0 });
+    expect(out).toEqual({
+      rows: [],
+      unknown_or_local: 0,
+      other_sites: 0,
+      total: 0,
+      min_named_loads: MIN_NAMED_SITE_LOADS,
+    });
   });
 });
 

@@ -35,6 +35,7 @@ describe("dashboard shell", () => {
     expect(DASHBOARD_SECTIONS.map((s) => s.id)).toEqual([
       "overview",
       "usage",
+      "viewer",
       "reach",
       "datasets",
       "pipelines",
@@ -154,7 +155,8 @@ describe("dashboard shell", () => {
     expect(html).not.toContain("@import");
     expect(html).not.toMatch(/url\(\s*["']?https?:/i);
     // In the markup an absolute URL is only ever a link target or the SVG
-    // namespace; in the script only the admin portal link and the namespace.
+    // namespace; in the script only the admin portal link, the namespace, and the
+    // click-through link to a public dataset's page (never a request).
     const script = html.slice(html.indexOf("<script>"), html.indexOf("</script>"));
     const markup = html.replace(script, "");
     const inMarkup = [...markup.matchAll(/(\S{0,7})(https?:\/\/[^"'\s)<]+)/g)];
@@ -167,6 +169,7 @@ describe("dashboard shell", () => {
     expect([...inScript].sort()).toEqual([
       "http://www.w3.org/2000/svg",
       "https://app.nemar.org/admin",
+      "https://nemar.org/dataset/",
     ]);
   });
 
@@ -279,11 +282,17 @@ describe("dashboard shell", () => {
     expect(CLIENT_JS).not.toMatch(/method\s*:/);
     expect(CLIENT_JS).not.toMatch(/body\s*:/);
     expect(CLIENT_JS).not.toMatch(/credentials\s*:/);
-    // One fetch call site, a bare GET to the public API, and the four reads
+    // One fetch call site, a bare GET to the public API, and the five reads
     // that go through it.
     expect(CLIENT_JS.match(/\bfetch\(/g) ?? []).toEqual(["fetch("]);
     expect(CLIENT_JS).toContain("return fetch(API + path)");
     const reads = [...CLIENT_JS.matchAll(/getJson\("(\/[a-z/]+)/g)].map((m) => m[1]);
-    expect(reads.sort()).toEqual(["/audience", "/snapshot", "/snapshot/history", "/timeseries"]);
+    expect(reads.sort()).toEqual([
+      "/audience",
+      "/embeds",
+      "/snapshot",
+      "/snapshot/history",
+      "/timeseries",
+    ]);
   });
 });

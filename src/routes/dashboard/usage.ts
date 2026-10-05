@@ -137,6 +137,7 @@ function showAudienceFailure(title, detail, geoTitle, geoDetail) {
   state.audience = null; state.audienceLoading = false; state.audienceFailed = true;
   renderKpis();
   renderHeadline();
+  renderViewer();
   stateMessage(document.getElementById("audience"), "error", title, detail, loadAudience);
   stateMessage(document.getElementById("geography"), "error", geoTitle, geoDetail, loadAudience);
   announceFailure();
@@ -153,12 +154,14 @@ function loadAudience() {
     state.audience = null; state.audienceLoading = false; state.audienceFailed = false; state.audienceInvalid = true;
     renderKpis();
     renderHeadline();
+    renderViewer();
     stateMessage(root, "info", "Choose a valid UTC date range.", "The start date must be a real day on or before the end date, and a range can span up to 3,660 days.");
     stateMessage(geography, "info", "Choose a valid UTC date range to view country activity.");
     return;
   }
   state.audienceLoading = true; state.audienceInvalid = false; state.audienceFailed = false;
   renderKpis();
+  renderViewer();
   markRefreshing(root, gridSkeleton);
   markRefreshing(geography, geoSkeleton);
   fetchAudience(start, end).then(function (payload) {
@@ -187,6 +190,7 @@ function loadAudience() {
     loadPriorAudience(start, end, payload, token);
     renderKpis();
     renderHeadline();
+    renderViewer();
     announceRange();
   }, function (err) {
     if (!audienceGuard.isCurrent(token)) return;

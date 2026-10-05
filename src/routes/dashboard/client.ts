@@ -21,6 +21,7 @@ import { SERIES_JS } from "./series";
 import { SNAPSHOT_JS } from "./snapshot";
 import { THEME_JS } from "./theme";
 import { USAGE_JS } from "./usage";
+import { VIEWER_JS } from "./viewer";
 
 const BOOT_JS = String.raw`
 load();
@@ -46,6 +47,7 @@ export const CLIENT_JS = [
   CORE_JS,
   CHARTS_JS,
   USAGE_JS,
+  VIEWER_JS,
   REACH_JS,
   SNAPSHOT_JS,
   OVERVIEW_JS,
