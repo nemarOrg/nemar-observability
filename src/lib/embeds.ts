@@ -469,6 +469,9 @@ export function isEmbedConfigured(env: Bindings): boolean {
   );
 }
 
+/** How long one embed query may take: the cron and the public endpoint both wait on it. */
+export const EMBED_QUERY_TIMEOUT_MS = 10_000;
+
 const DATASET_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/;
 
 /** Refuse anything but a plain identifier before it enters SQL. Every query
@@ -634,7 +637,9 @@ export async function fetchEmbedDays(
   since: string,
   until: string,
 ): Promise<EmbedDayRow[]> {
-  return parseEmbedDayRows(await queryAe(env, embedDaysSql(datasetName(env), since, until)));
+  return parseEmbedDayRows(
+    await queryAe(env, embedDaysSql(datasetName(env), since, until), EMBED_QUERY_TIMEOUT_MS),
+  );
 }
 
 // ---------- the API answer ----------

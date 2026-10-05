@@ -37,21 +37,25 @@ export interface AeRow {
   [col: string]: string | number | null;
 }
 
-/** How long one SQL statement may take. A hung call must not hold the cron or
- *  a public request open until the platform kills it. */
-export const AE_TIMEOUT_MS = 10_000;
-
-/** Run one SQL statement against the AE SQL API. Throws on a non-ok response, on
- *  a timeout, and on a 200 whose body has no `data` array (an `errors` body, an
- *  empty object), so the caller can tell "query failed" from "genuinely zero
- *  activity". A 200 with `data: []` is a real empty answer and is returned. */
-export async function queryAe(env: Bindings, sql: string): Promise<AeRow[]> {
+/**
+ * Run one SQL statement against the AE SQL API. Throws on a non-ok response, on
+ * a timeout when `timeoutMs` is given, and on a 200 whose body has no `data`
+ * array (an `errors` body, an empty object), so the caller can tell "query
+ * failed" from "genuinely zero activity". A 200 with `data: []` is a real empty
+ * answer and is returned.
+ *
+ * No timeout unless asked for: the access section's three 30-day queries have
+ * always run unbounded and a bound there would turn a slow answer into a
+ * missing section. The embed callers, which run on a public request path and in
+ * the cron, pass one.
+ */
+export async function queryAe(env: Bindings, sql: string, timeoutMs?: number): Promise<AeRow[]> {
   const url = `https://api.cloudflare.com/client/v4/accounts/${env.CF_ACCOUNT_ID}/analytics_engine/sql`;
   const res = await fetch(url, {
     method: "POST",
     headers: { Authorization: `Bearer ${env.CF_ANALYTICS_TOKEN}`, "Content-Type": "text/plain" },
     body: sql,
-    signal: AbortSignal.timeout(AE_TIMEOUT_MS),
+    signal: timeoutMs === undefined ? undefined : AbortSignal.timeout(timeoutMs),
   });
   if (!res.ok) {
     throw new Error(`AE SQL ${res.status}: ${(await res.text()).slice(0, 200)}`);

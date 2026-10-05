@@ -4,7 +4,8 @@
 // answers of the shapes the edge sends; the empty one is captured live.
 
 import { afterEach, describe, expect, test } from "bun:test";
-import { AE_TIMEOUT_MS, queryAe } from "../src/lib/access";
+import { queryAe } from "../src/lib/access";
+import { EMBED_QUERY_TIMEOUT_MS } from "../src/lib/embeds";
 import type { Bindings } from "../src/types";
 import unwritten from "./fixtures/embed-ae-unwritten-dataset-days-2026-10-05.json";
 
@@ -41,14 +42,17 @@ describe("queryAe", () => {
     await expect(queryAe(env, "SELECT 1")).rejects.toThrow("AE SQL 403");
   });
 
-  test("every call carries a time limit", async () => {
-    let signal: AbortSignal | null | undefined;
+  test("a call carries a time limit only when one is given", async () => {
+    const signals: (AbortSignal | null | undefined)[] = [];
     globalThis.fetch = (async (_url: string, init: RequestInit) => {
-      signal = init.signal;
+      signals.push(init.signal);
       return new Response(JSON.stringify({ data: [] }));
     }) as unknown as typeof fetch;
     await queryAe(env, "SELECT 1");
-    expect(signal).toBeInstanceOf(AbortSignal);
-    expect(AE_TIMEOUT_MS).toBe(10_000);
+    await queryAe(env, "SELECT 1", EMBED_QUERY_TIMEOUT_MS);
+    // The access section's long queries stay unbounded; the embed callers are bounded.
+    expect(signals[0]).toBeUndefined();
+    expect(signals[1]).toBeInstanceOf(AbortSignal);
+    expect(EMBED_QUERY_TIMEOUT_MS).toBe(10_000);
   });
 });

@@ -20,6 +20,7 @@ import {
 } from "./embed-store";
 import {
   AE_ROW_LIMIT,
+  EMBED_QUERY_TIMEOUT_MS,
   type EmbedDatasetSummary,
   type EmbedListBlock,
   type EmbedLoadsBlock,
@@ -214,8 +215,8 @@ async function computeLists(
   try {
     const dataset = datasetName(env);
     const [rawSites, rawDatasets] = await Promise.all([
-      queryAe(env, embedSitesSql(dataset, window.start, until)),
-      queryAe(env, embedDatasetsSql(dataset, window.start, until)),
+      queryAe(env, embedSitesSql(dataset, window.start, until), EMBED_QUERY_TIMEOUT_MS),
+      queryAe(env, embedDatasetsSql(dataset, window.start, until), EMBED_QUERY_TIMEOUT_MS),
     ]);
     siteRows = parseHostRows(rawSites);
     datasetRows = parseDatasetRows(rawDatasets);
@@ -224,7 +225,7 @@ async function computeLists(
     total = siteRows.reduce((n, r) => n + r.loads, 0);
     if (capped && (await claimExtraQuery(env, now, pool))) {
       const queried = parseTotalRow(
-        await queryAe(env, embedTotalSql(dataset, window.start, until)),
+        await queryAe(env, embedTotalSql(dataset, window.start, until), EMBED_QUERY_TIMEOUT_MS),
       );
       total = Math.max(total, queried ?? 0);
     }
@@ -314,7 +315,11 @@ export async function loadEmbedSitesAdmin(
     };
   }
   const dataset = datasetName(env);
-  const raw = await queryAe(env, embedSiteKindsSql(dataset, window.start, nextDay(window.end)));
+  const raw = await queryAe(
+    env,
+    embedSiteKindsSql(dataset, window.start, nextDay(window.end)),
+    EMBED_QUERY_TIMEOUT_MS,
+  );
   const items = summarizeSitesForAdmin(parseHostKindRows(raw));
   const notes: string[] = [
     "Hosts come from the Referer header, which the client sets, so treat them as claims.",
