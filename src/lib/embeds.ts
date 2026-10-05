@@ -73,19 +73,19 @@ export const AE_ROW_LIMIT = 5000;
 export const STALE_SYNC_MS = 3 * 60 * 60 * 1000;
 
 /**
- * Analytics Engine queries one uncached list load may cost: sites, datasets, and
- * the total when a row cap was hit. Used to budget the shared quota (below).
+ * Analytics Engine queries one uncached list load costs: sites and datasets.
+ * A third (the total) is claimed separately, and only if a row cap is hit.
  */
-export const LIST_QUERY_COST = 3;
+export const LIST_QUERY_COST = 2;
 /**
  * Analytics Engine queries the public endpoint may spend per UTC minute, across
  * every isolate (a counter in this Worker's own D1). Cloudflare publishes no SQL
  * API limit, but its global API limit is 1,200 requests per five minutes per
  * user, with a five minute lockout of ALL API calls when exceeded, and the
- * analytics token shares that with the access section. 30 a minute is at most
- * 150 of the 1,200 in five minutes (an eighth), and the hourly cron adds a few.
+ * analytics token shares that with the access section. 60 a minute is at most
+ * 300 of the 1,200 in five minutes (a quarter), and the hourly cron adds a few.
  */
-export const LIST_QUERIES_PER_MINUTE = 30;
+export const LIST_QUERIES_PER_MINUTE = 60;
 
 const DAY_MS = 86_400_000;
 const DAY_RE = /^\d{4}-\d{2}-\d{2}$/;

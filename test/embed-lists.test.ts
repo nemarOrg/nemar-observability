@@ -237,13 +237,14 @@ describe("the memo and the shared query budget", () => {
     const perMinute = Math.floor(LIST_QUERIES_PER_MINUTE / LIST_QUERY_COST);
     const statuses: string[] = [];
     // Distinct windows defeat the memo, as a flood of random ranges would.
-    for (let i = 0; i < perMinute + 3; i++) {
-      const start = new Date(Date.UTC(2026, 8, 1 + (i % 28))).toISOString().slice(0, 10);
-      const { sites } = await loadEmbedLists(env(), start, `2026-10-0${1 + (i % 4)}`, NOW);
+    for (let i = 0; i < perMinute + 5; i++) {
+      const start = new Date(Date.UTC(2026, 7, 1 + i)).toISOString().slice(0, 10);
+      const { sites } = await loadEmbedLists(env(), start, "2026-10-04", NOW);
       statuses.push(`${sites.status}:${sites.note ?? ""}`);
     }
     const refused = statuses.filter((s) => s.includes("busy"));
-    expect(refused.length).toBeGreaterThanOrEqual(3);
+    expect(refused.length).toBe(5);
+    expect(statuses.slice(0, perMinute).some((x) => x.includes("busy"))).toBe(false);
     // 2 queries per allowed load, none for a refused one.
     expect(ae.asked.length).toBeLessThanOrEqual(LIST_QUERIES_PER_MINUTE);
   });

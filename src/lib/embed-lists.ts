@@ -156,6 +156,15 @@ export async function loadEmbedLists(
   return settled;
 }
 
+/** One more query, only when a row cap was hit; if the budget is spent the rows' own sum stands in. */
+async function claimExtraQuery(env: Bindings, now: Date): Promise<boolean> {
+  try {
+    return await claimQueryBudget(env.OBS_DB, now, 1, LIST_QUERIES_PER_MINUTE);
+  } catch {
+    return false;
+  }
+}
+
 async function computeLists(
   env: Bindings,
   window: { start: string; end: string; clipped: boolean },
@@ -186,7 +195,7 @@ async function computeLists(
     capped = rawSites.length >= AE_ROW_LIMIT || rawDatasets.length >= AE_ROW_LIMIT;
     // The rows add up to the total unless a row cap cut them short.
     total = siteRows.reduce((n, r) => n + r.loads, 0);
-    if (capped) {
+    if (capped && (await claimExtraQuery(env, now))) {
       const queried = parseTotalRow(
         await queryAe(env, embedTotalSql(dataset, window.start, until)),
       );

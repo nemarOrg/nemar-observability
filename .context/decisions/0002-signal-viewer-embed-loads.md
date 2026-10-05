@@ -100,7 +100,7 @@ Bounds:
 
 - the edge cache keeps an answer for at most 60 seconds and never serves stale, and an answer with an unreadable block is `no-store`;
 - the Worker memoizes the same window for a minute and concurrent identical requests share one load;
-- every uncached load first claims its worst case (3 queries) from a shared per-UTC-minute budget of 30 in `embed_query_budget` (D1, so it holds across isolates), and is refused ("busy") without asking the edge when the minute is spent. That caps the public endpoint at 150 queries in five minutes, an eighth of the global limit. A budget that cannot be claimed fails closed.
+- every uncached load first claims its two queries from a shared per-UTC-minute budget of 60 in `embed_query_budget` (D1, so it holds across isolates), and is refused ("busy") without asking the edge when the minute is spent; the rare third query (a capped read) claims one more and is skipped when the minute is spent. That caps the public endpoint at 300 queries in five minutes, a quarter of the global limit, so a flood can never take more than that from the token. A budget that cannot be claimed fails closed.
 
 The remaining exposure is to the budget itself: a flood can use the minute's budget and make the lists read "busy", never the whole token.
 The per-site list for admins is not budgeted, because it needs a bearer.
