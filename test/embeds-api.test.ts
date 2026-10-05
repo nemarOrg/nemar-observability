@@ -67,12 +67,15 @@ describe("GET /embeds", () => {
     expect((await get(`/embeds?start=${startOf(3661)}&end=${end}`, {})).status).toBe(400);
   });
 
-  test("a fresh deploy with nothing configured says so, invents no zero, and caches briefly", async () => {
+  test("a fresh deploy with nothing configured says so, invents no zero, and is private to the browser", async () => {
     const res = await get(`/embeds?start=${day(30)}&end=${day(1)}`, {});
     expect(res.status).toBe(200);
+    // Only the browser may keep it, 30 seconds; no shared cache may hold it.
+    expect(res.headers.get("cache-control")).toBe("private, max-age=30");
     const cache = res.headers.get("cache-control") ?? "";
-    expect(cache).toContain("s-maxage=60");
-    expect(cache).not.toContain("stale-while-revalidate");
+    for (const forbidden of ["public", "s-maxage", "stale-while-revalidate"]) {
+      expect(cache).not.toContain(forbidden);
+    }
     const body = (await res.json()) as EmbedsResponse;
     expect(body.loads.status).toBe("unconfigured");
     expect(body.loads.totals).toBeNull();

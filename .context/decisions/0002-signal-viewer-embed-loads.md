@@ -58,7 +58,7 @@ This only sorts a claimed host into a bucket.
 
 Only datasets that are public now in `nemar-db` (`status='active' AND visibility='public'`, excluding folded and sandbox rows, the `PUBLIC_MANAGED` predicate) are named, and each links to the dataset's page on the website of the same environment (`WEBSITE_BASE_URL`: nemar.org, and test.nemar.org for dev).
 Every other embedded load is folded into one unnamed "Other datasets" count, and if `nemar-db` cannot answer, no dataset is named.
-The check runs on every uncached answer. The Worker reuses an answer for 60 seconds and a browser may keep it for another 30 (`max-age=30`), so a dataset made private can stay named for up to about 90 seconds. There is no edge cache in front of these Worker responses: none of `/embeds`, `/audience`, `/snapshot` and `/timeseries` carries `cf-cache-status` or `age`.
+The check runs on every uncached answer. The Worker reuses an answer for 60 seconds and a browser may keep it for another 30 (`private, max-age=30`; no shared cache may hold it), so a dataset made private can stay named for up to about 90 seconds. There is no edge cache in front of these Worker responses: none of `/embeds`, `/audience`, `/snapshot` and `/timeseries` carries `cf-cache-status` or `age`.
 
 ### The boundary of the distinct count
 
@@ -119,7 +119,7 @@ Caching with `caches.default` was considered and rejected: it is per colo and ke
 
 Bounds:
 
-- the Worker memoizes a window for 60 seconds per isolate, and concurrent identical requests in one isolate share one load; a failure or a refusal is not memoized; browsers may keep an answer 30 seconds (`max-age=30`), and an answer with an unreadable block is `no-store`;
+- the Worker memoizes a window for 60 seconds per isolate, and concurrent identical requests in one isolate share one load; a failure or a refusal is not memoized; `/embeds` answers `Cache-Control: private, max-age=30`, so only the requesting browser may keep one, for 30 seconds, and no shared proxy can hold a stale answer; an answer with an unreadable block is `no-store`;
 - every uncached load first claims its two queries from a shared per-UTC-minute budget in `embed_query_budget` (D1, so it holds across isolates), and is refused ("busy") without asking the edge when its pool is spent; the rare third query (a capped read) claims one more and is skipped when the pool is spent. The budget is 60 queries a minute, 300 in five minutes, a quarter of the global limit, so a flood can never take more than that from the token;
 - the 60 are two pools of 30. The windows the page itself offers (7, 30, 90 and 365 days ending yesterday or today) draw on a "preset" pool; every other window draws on a "custom" pool. There are at most eight distinct preset windows, each memoized, so the preset pool's demand is small and bounded, and a flood of distinct custom windows (about half a request a second is enough to drain 30 queries a minute) exhausts only the custom pool: the presets the page opens with keep loading for everyone. Precomputing the presets in the cron was the alternative; the reserved pool keeps live data and adds no storage;
 - a budget that cannot be claimed fails closed, with its own note ("currently unavailable"), not "busy";

@@ -340,13 +340,15 @@ apiRoutes.get("/audience", async (c) => {
 // datasets are named only when public now, and embedding sites are never named,
 // only counted (the hosts are for admins, through the drill-down below).
 //
-// A browser may keep the answer 30 seconds and a shared cache 60, and nothing is
-// served stale: the answer can name a dataset, and "currently public" must not
-// outlive a change by long. No edge cache sits in front of Worker responses on
-// this route (no cf-cache-status or age header), so the real bounds on the
-// cost of a request are the Worker's memo and the D1 query budget (ADR 0002).
-// An answer with a block that could not be read is not cached at all.
-const EMBEDS_CACHE = "public, max-age=30, s-maxage=60";
+// Only the requesting browser may keep the answer, and for 30 seconds
+// (`private, max-age=30`): no shared proxy or cache may hold it, because the
+// answer can name a dataset and "currently public" must not outlive a change by
+// long (the Worker's own memo adds up to 60 seconds, so about 90 in all). No edge
+// cache sits in front of Worker responses on this route (no cf-cache-status or
+// age header), so the real bounds on the cost of a request are the Worker's memo
+// and the D1 query budget (ADR 0002). An answer with a block that could not be
+// read is `no-store`.
+const EMBEDS_CACHE = "private, max-age=30";
 apiRoutes.get("/embeds", async (c) => {
   const start = c.req.query("start");
   const end = c.req.query("end");
