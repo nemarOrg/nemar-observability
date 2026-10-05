@@ -10,7 +10,7 @@
 import { Database } from "bun:sqlite";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { syncEmbedDays } from "../src/cron";
-import { loadEmbedDays, loadEmbedSync } from "../src/lib/embed-store";
+import { loadEmbedDays, loadEmbedSync, saveEmbedDays } from "../src/lib/embed-store";
 import type { Bindings } from "../src/types";
 import { type AeStub, stubAe } from "./helpers/ae-fixtures";
 import { asD1 } from "./helpers/d1";
@@ -91,19 +91,121 @@ describe("syncEmbedDays on the captured answers", () => {
     expect(stamp("2026-10-06")).toBe(later.toISOString());
   });
 
-  test("an entirely empty answer settles no zeros for days it did not cover, history included", async () => {
-    ae = stubAe();
-    await syncEmbedDays(env(), NOW);
-    ae.restore();
-    // The dataset name is wrong from now on: it answers 200 with no rows.
-    ae = stubAe({ days: () => ({ data: [] }) });
-    await syncEmbedDays(env(), new Date("2026-10-08T08:00:00Z"));
-    const days = engine
-      .query("SELECT DISTINCT date FROM embed_daily_loads ORDER BY date")
-      .all() as { date: string }[];
-    expect(days.map((d) => d.date)).toEqual(["2026-10-05"]);
-    // The sync still succeeded: nothing was found, nothing was settled.
-    expect((await loadEmbedSync(db))?.last_ok_at).toBe("2026-10-08T08:00:00.000Z");
+  // The rule for an answer with no row for any day (ADR 0002, daily store).
+  describe("an empty answer, by what is stored", () => {
+    const logs = () => {
+      const seen: { warn: string[]; info: string[] } = { warn: [], info: [] };
+      const w = console.warn;
+      const i = console.info;
+      console.warn = (m: string) => seen.warn.push(String(m));
+      console.info = (m: string) => seen.info.push(String(m));
+      return {
+        seen,
+        restore() {
+          console.warn = w;
+          console.info = i;
+        },
+      };
+    };
+    const allKinds = (date: string, iframe: number) =>
+      (["iframe", "document", "none", "other"] as const).map((kind) => ({
+        date,
+        kind,
+        loads: kind === "iframe" ? iframe : 0,
+      }));
+
+    test("stored loads inside the window contradict it: a failed sync, last_ok_at not advanced", async () => {
+      ae = stubAe();
+      await syncEmbedDays(env(), NOW);
+      ae.restore();
+      // From now on the dataset answers 200 with no rows, three days later.
+      ae = stubAe({ days: () => ({ data: [] }) });
+      const log = logs();
+      const later = new Date("2026-10-08T08:00:00Z");
+      await syncEmbedDays(env(), later);
+      log.restore();
+      const days = engine
+        .query("SELECT DISTINCT date FROM embed_daily_loads ORDER BY date")
+        .all() as { date: string }[];
+      // Nothing written: no zeros for 10-06 to 10-08, the stored day untouched.
+      expect(days.map((d) => d.date)).toEqual(["2026-10-05"]);
+      const sync = await loadEmbedSync(db);
+      expect(sync?.last_ok_at).toBe(NOW.toISOString());
+      expect(sync?.last_error).toContain("holds stored loads");
+      expect(sync?.last_run_at).toBe(later.toISOString());
+      // The warning names the dataset and the window, and no hostname or id.
+      expect(log.seen.warn).toHaveLength(1);
+      expect(log.seen.warn[0]).toContain("nemar_website_embeds_dev");
+      expect(log.seen.warn[0]).toContain("2026-07-16 to 2026-10-09");
+      expect(log.seen.warn[0]).toContain("treating it as a failed sync");
+    });
+
+    test("the contradiction goes stale on the card instead of reading as a quiet stretch", async () => {
+      ae = stubAe();
+      await syncEmbedDays(env(), NOW);
+      ae.restore();
+      ae = stubAe({ days: () => ({ data: [] }) });
+      const log = logs();
+      for (const hour of ["09", "10", "11", "12"]) {
+        await syncEmbedDays(env(), new Date(`2026-10-06T${hour}:47:00Z`));
+      }
+      log.restore();
+      const sync = await loadEmbedSync(db);
+      expect(sync?.last_ok_at).toBe(NOW.toISOString());
+      const { buildLoadsBlock } = await import("../src/lib/embeds");
+      const block = buildLoadsBlock(
+        await loadEmbedDays(db, "2026-10-05", "2026-10-06"),
+        "2026-10-05",
+        "2026-10-06",
+        new Date("2026-10-06T12:50:00Z"),
+        { configured: true, firstDay: "2026-10-05", sync },
+      );
+      expect(block.status).toBe("partial");
+      expect(block.note).toContain("have not updated for several hours");
+    });
+
+    test("history older than the window is a lull: the planner's days are zeros, one info line", async () => {
+      // The last loads were in January, long before the 85-day window of 2026-10-08.
+      await saveEmbedDays(db, allKinds("2026-01-10", 5), "2026-01-11T09:00:00Z");
+      ae = stubAe({ days: () => ({ data: [] }) });
+      const log = logs();
+      const later = new Date("2026-10-08T08:00:00Z");
+      await syncEmbedDays(env(), later);
+      log.restore();
+      const filled = engine
+        .query(
+          "SELECT COUNT(*) AS n, SUM(loads) AS s FROM embed_daily_loads WHERE date >= '2026-07-16'",
+        )
+        .get() as { n: number; s: number };
+      // 2026-07-16 through 2026-10-08, four kinds a day, all zeros.
+      expect(filled.n).toBe(85 * 4);
+      expect(filled.s).toBe(0);
+      expect((await loadEmbedSync(db))?.last_ok_at).toBe(later.toISOString());
+      expect(log.seen.warn).toHaveLength(0);
+      expect(log.seen.info).toHaveLength(1);
+      expect(log.seen.info[0]).toContain("quiet stretch");
+      expect(log.seen.info[0]).toContain("2026-01-10");
+    });
+
+    test("with no history at all nothing is written and the sync still succeeds", async () => {
+      ae = stubAe({ days: () => ({ data: [] }) });
+      const log = logs();
+      await syncEmbedDays(env(), NOW);
+      log.restore();
+      expect(await loadEmbedDays(db, "2026-01-01", "2026-12-31")).toEqual([]);
+      expect((await loadEmbedSync(db))?.last_ok_at).toBe(NOW.toISOString());
+      expect(log.seen.warn).toHaveLength(0);
+      expect(log.seen.info).toHaveLength(0);
+    });
+
+    test("stored days that are all zero are no history: an empty answer writes nothing", async () => {
+      await saveEmbedDays(db, allKinds("2026-10-01", 0), "2026-10-02T09:00:00Z");
+      ae = stubAe({ days: () => ({ data: [] }) });
+      await syncEmbedDays(env(), NOW);
+      const days = engine.query("SELECT DISTINCT date FROM embed_daily_loads").all();
+      expect(days).toHaveLength(1);
+      expect((await loadEmbedSync(db))?.last_ok_at).toBe(NOW.toISOString());
+    });
   });
 
   test("a typo'd dataset never stores a zero; correcting it fills the history it missed", async () => {

@@ -22,6 +22,7 @@ import {
   groupEmbedDays,
   isEmbedConfigured,
   isUnknownOrLocalHost,
+  judgeEmptyAnswer,
   normalizeHost,
   normalizeKind,
   parseDatasetRows,
@@ -458,6 +459,26 @@ describe("buildEmbedDays", () => {
     expect(
       buildEmbedDays([{ date: day(-2), kind: "iframe", loads: 1 }], day(3), day(0), null),
     ).toEqual([]);
+  });
+});
+
+describe("judgeEmptyAnswer", () => {
+  const windowStart = "2026-07-16";
+  test("a nonzero stored day inside the window contradicts an empty answer", () => {
+    expect(judgeEmptyAnswer("2026-07-16", windowStart)).toBe("contradiction");
+    expect(judgeEmptyAnswer("2026-10-05", windowStart)).toBe("contradiction");
+  });
+  test("a last nonzero day older than the window is a quiet stretch", () => {
+    expect(judgeEmptyAnswer("2026-07-15", windowStart)).toBe("lull");
+    expect(judgeEmptyAnswer("2026-01-10", windowStart)).toBe("lull");
+  });
+  test("no stored loads is no history", () => {
+    expect(judgeEmptyAnswer(null, windowStart)).toBe("no_history");
+  });
+  test("only a lull may zero-fill an empty answer, and only with a first day stored", () => {
+    expect(buildEmbedDays([], day(2), day(0), day(300), true)).toHaveLength(3 * 4);
+    expect(buildEmbedDays([], day(2), day(0), day(300), false)).toEqual([]);
+    expect(buildEmbedDays([], day(2), day(0), null, true)).toEqual([]);
   });
 });
 

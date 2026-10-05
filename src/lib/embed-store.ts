@@ -78,6 +78,14 @@ export async function loadFirstEmbedDay(db: D1Database): Promise<string | null> 
   return row?.first ?? null;
 }
 
+/** The latest stored day with any load, or null when no load was ever recorded. */
+export async function loadLastNonzeroEmbedDay(db: D1Database): Promise<string | null> {
+  const row = await db
+    .prepare("SELECT MAX(date) AS last FROM embed_daily_loads WHERE loads > 0")
+    .first<{ last: string | null }>();
+  return row?.last ?? null;
+}
+
 /**
  * When each stored day was last written, on or after `since`. A day is only as
  * settled as its oldest row, so a day with fewer than all four kinds counts as

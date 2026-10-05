@@ -6,6 +6,7 @@ import {
   loadEmbedDayStamps,
   loadEmbedDays,
   loadFirstEmbedDay,
+  loadLastNonzeroEmbedDay,
   pruneQueryBudget,
   recordEmbedSync,
   saveEmbedDays,
@@ -15,6 +16,7 @@ import {
   embedRetentionStart,
   fetchEmbedDays,
   isEmbedConfigured,
+  judgeEmptyAnswer,
   planEmbedPull,
   writableEmbedDays,
 } from "./lib/embeds";
@@ -171,8 +173,35 @@ export async function syncEmbedDays(env: Bindings, now: Date): Promise<void> {
     // answer with a row for no day at all settles no zeros (buildEmbedDays), and
     // that needs the wider window to tell a quiet stretch from a dead dataset.
     const rows = await fetchEmbedDays(env, embedRetentionStart(now), until);
+    stage = "judge an empty answer";
+    const windowStart = embedRetentionStart(now);
+    let zeroFillEmpty = false;
+    if (!rows.some((r) => r.date <= today)) {
+      const last = await loadLastNonzeroEmbedDay(env.OBS_DB);
+      const verdict = judgeEmptyAnswer(last, windowStart);
+      if (verdict === "contradiction") {
+        // Stored data inside the very window that came back empty: not a quiet
+        // stretch. Do not write, and do not advance last_ok_at.
+        console.warn(
+          `[cron] embed loads sync: the edge answered with no rows for ${windowStart} to ${until} (dataset ${env.EMBED_AE_DATASET}) but day ${last} holds loads; treating it as a failed sync`,
+        );
+        await recordEmbedSync(
+          env.OBS_DB,
+          false,
+          now.toISOString(),
+          "judge an empty answer: no rows for a window that holds stored loads",
+        );
+        return;
+      }
+      if (verdict === "lull") {
+        console.info(
+          `[cron] embed loads sync: no rows for ${windowStart} to ${until} (dataset ${env.EMBED_AE_DATASET}); the last stored loads are on ${last}, before the window, so this is a quiet stretch and the days are zeros`,
+        );
+        zeroFillEmpty = true;
+      }
+    }
     stage = "build days";
-    const fetched = buildEmbedDays(rows, since, today, first);
+    const fetched = buildEmbedDays(rows, since, today, first, zeroFillEmpty);
     stage = "write days";
     if (fetched.length > 0) {
       const stored = await loadEmbedDays(env.OBS_DB, since, today);

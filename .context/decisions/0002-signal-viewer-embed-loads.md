@@ -72,8 +72,20 @@ It follows the repo's existing rules.
 A settled day (written after it closed plus the collectors' six hour grace) is written once and not asked for again.
 A closed day never goes down, in the planner and in the upsert.
 A row that came back lower is not written at all, so a read that was not trusted cannot stamp the day as settled.
-All four kinds are written together for every day from the first day an embed was counted, with 0 where the edge had nothing, so a stored day is a measured day and a missing day is unknown, not zero.
-Days before the first counted embed stay absent, because the counting may not have existed yet.
+All four kinds are written together for every day from the first day an embed was counted.
+A kind with nothing from the edge is a measured 0 only under a condition: the same answer must have a row for some day, because an answer that proves the dataset is live is what makes a quiet day a real zero.
+The sync reads the whole retention window for that reason, though it writes only the days the planner asks for.
+Days before the first counted embed stay absent, because the counting may not have existed yet, and absent means unknown, not zero.
+
+What an answer with no row for any day means depends on what is stored (`judgeEmptyAnswer`, `syncEmbedDays`):
+
+- **Stored loads inside the window the edge was asked about** (D1 holds a nonzero day on or after the start of the 85-day retention window): the answer contradicts stored data. It is a wrong or typo'd dataset or an edge fault, not a quiet stretch. The sync is treated as failed: it warns with the dataset and the window, writes nothing, and does not advance `last_ok_at`, so the card goes stale after three hours and says so (partial or unavailable, "last updated <time>").
+- **History whose last nonzero day is older than the window** (a lull longer than the edge keeps): the empty answer is a real quiet stretch. The planner's days are written as zeros and one info line is logged.
+- **No history at all** (nothing nonzero was ever stored): nothing is written. Production before its first embed, or a typo'd name before any embed, reads "none recorded yet" from the successful sync status, not from stored zeros, and correcting the name fills the history it missed.
+
+Consequences: an empty answer never settles a zero over data that exists, and a lull of more than 85 days is the one case where a zero is written without a row in the answer.
+A quiet stretch shorter than that is filled with zeros only once a later embed gives the answer a row; until then those days are unknown, not zero.
+A dataset that goes silent right after history therefore shows as stale after three hours rather than as zeros, which is the safe direction.
 
 An answer that is not a real answer is never settled as zero.
 `queryAe` throws on a 200 whose body has no `data` array (an `errors` body, an empty object); `data: []` is a real empty answer.

@@ -422,13 +422,15 @@ export function planEmbedPull(
  * Days before the first counted embed stay absent, since the counting may not
  * have existed yet, and absent means unknown, not zero.
  *
- * `first` is the earliest day already stored, if any.
+ * `first` is the earliest day already stored, if any. `zeroFillEmpty` is set only
+ * for an empty answer judged a lull (see judgeEmptyAnswer).
  */
 export function buildEmbedDays(
   rows: readonly EmbedDayRow[],
   since: string,
   today: string,
   first: string | null,
+  zeroFillEmpty = false,
 ): EmbedDayRow[] {
   const values = new Map<string, number>();
   let earliest = first;
@@ -438,7 +440,9 @@ export function buildEmbedDays(
     values.set(key, (values.get(key) ?? 0) + row.loads);
     if (earliest === null || row.date < earliest) earliest = row.date;
   }
-  if (values.size === 0) return [];
+  // An entirely empty answer settles no zeros, unless the caller has judged it a
+  // quiet stretch (judgeEmptyAnswer: stored history that ends before the window).
+  if (values.size === 0 && !(zeroFillEmpty && first !== null)) return [];
   const out: EmbedDayRow[] = [];
   for (
     let day = earliest !== null && earliest > since ? earliest : since;
@@ -449,6 +453,30 @@ export function buildEmbedDays(
       out.push({ date: day, kind, loads: values.get(`${day}|${kind}`) ?? 0 });
   }
   return out;
+}
+
+/** What an answer with no row for any day means, given what is already stored. */
+export type EmptyAnswerVerdict = "contradiction" | "lull" | "no_history";
+
+/**
+ * Judge an answer with no row at all against the stored history.
+ *
+ * - `contradiction`: D1 holds a nonzero day inside the window the edge was asked
+ *   about, so an empty answer cannot be right (a wrong or typo'd dataset, an edge
+ *   fault). It is a failed sync: nothing is written and last_ok_at does not
+ *   advance, so the card goes stale and says so.
+ * - `lull`: D1 holds history, but its last nonzero day is older than the window,
+ *   so the edge has simply had nothing for longer than it keeps. The planner's
+ *   days are measured zeros.
+ * - `no_history`: nothing was ever counted. Nothing is written; "none recorded
+ *   yet" comes from the sync status.
+ */
+export function judgeEmptyAnswer(
+  lastNonzeroDay: string | null,
+  windowStart: string,
+): EmptyAnswerVerdict {
+  if (lastNonzeroDay === null) return "no_history";
+  return lastNonzeroDay >= windowStart ? "contradiction" : "lull";
 }
 
 /**
