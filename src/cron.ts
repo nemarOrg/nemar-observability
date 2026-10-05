@@ -6,6 +6,7 @@ import {
   loadEmbedDayStamps,
   loadEmbedDays,
   loadFirstEmbedDay,
+  recordEmbedSync,
   saveEmbedDays,
 } from "./lib/embed-store";
 import {
@@ -143,23 +144,46 @@ export async function syncRequestSeries(env: Bindings, now: Date): Promise<void>
  * settled; a settled day is not asked for again and a closed day is never
  * overwritten with less. Rows are never deleted.
  *
- * Isolated like the request series: an edge outage must not stop the snapshot,
- * and zero embeds is a normal state, so a failure here is logged and nothing
- * else (no health rule watches it).
+ * Every attempt is recorded (migration 0007), so the public answer can say when
+ * the totals were last updated and downgrade a card whose sync has gone stale.
+ * Zero embeds is a normal state and a failure here changes no health rule: it is
+ * logged with its stage, dataset and range, recorded, and shown on the page.
+ * Isolated like the request series: an edge outage must not stop the snapshot.
  */
 export async function syncEmbedDays(env: Bindings, now: Date): Promise<void> {
-  if (!isEmbedConfigured(env)) return;
+  if (!isEmbedConfigured(env)) {
+    console.warn(
+      "[cron] embed loads sync skipped: CF_ANALYTICS_TOKEN, CF_ACCOUNT_ID or EMBED_AE_DATASET is not configured",
+    );
+    return;
+  }
+  let stage = "plan";
+  let since = "";
+  let until = "";
   try {
     const today = now.toISOString().slice(0, 10);
     const first = await loadFirstEmbedDay(env.OBS_DB);
     const stamps = await loadEmbedDayStamps(env.OBS_DB, embedRetentionStart(now));
-    const { since, until } = planEmbedPull(first, stamps, now);
-    const fetched = buildEmbedDays(await fetchEmbedDays(env, since, until), since, today, first);
-    if (fetched.length === 0) return;
-    const stored = await loadEmbedDays(env.OBS_DB, since, today);
-    await saveEmbedDays(env.OBS_DB, writableEmbedDays(stored, fetched, today), now.toISOString());
+    ({ since, until } = planEmbedPull(first, stamps, now));
+    stage = "read the edge";
+    const rows = await fetchEmbedDays(env, since, until);
+    stage = "build days";
+    const fetched = buildEmbedDays(rows, since, today, first);
+    stage = "write days";
+    if (fetched.length > 0) {
+      const stored = await loadEmbedDays(env.OBS_DB, since, today);
+      await saveEmbedDays(env.OBS_DB, writableEmbedDays(stored, fetched, today), now.toISOString());
+    }
+    stage = "record success";
+    await recordEmbedSync(env.OBS_DB, true, now.toISOString());
   } catch (err) {
-    console.error("[cron] embed loads sync failed:", err);
+    console.error(
+      `[cron] embed loads sync failed at "${stage}" (dataset ${env.EMBED_AE_DATASET}, ${since || "?"} to ${until || "?"}):`,
+      err,
+    );
+    await recordEmbedSync(env.OBS_DB, false, now.toISOString(), `${stage}: ${String(err)}`).catch(
+      (e) => console.error("[cron] could not record the embed sync failure:", e),
+    );
   }
 }
 
@@ -175,7 +199,6 @@ export async function handleScheduled(
     const now = new Date();
     await accumulateHostDays(env, now);
     await syncRequestSeries(env, now);
-    await syncEmbedDays(env, now);
     let retries = 0;
     const snapshot = await buildSnapshot(env, {
       ...retry,
@@ -203,4 +226,8 @@ export async function handleScheduled(
       console.error("[cron] could not record failure status:", e),
     );
   }
+  // After the snapshot and its status are saved, whatever happened to them: the
+  // embed read is the one outbound call a slow edge could hold up, and it must
+  // not delay either (nor be skipped because the snapshot failed).
+  await syncEmbedDays(env, new Date());
 }

@@ -24,6 +24,7 @@ import {
   normalizeKind,
   parseEmbedDayRows,
   planEmbedPull,
+  strictCount,
   summarizeEmbedDatasets,
   summarizeEmbedSites,
   writableEmbedDays,
@@ -365,7 +366,7 @@ describe("buildEmbedDays", () => {
 });
 
 describe("writableEmbedDays", () => {
-  test("a closed day never goes down and is stamped so it settles; the open day is replaced", () => {
+  test("a closed day never goes down and its lower row is not written; the open day is replaced", () => {
     const stored = [
       { date: day(1), kind: "iframe" as const, loads: 500 },
       { date: day(0), kind: "iframe" as const, loads: 50 },
@@ -378,7 +379,9 @@ describe("writableEmbedDays", () => {
       ],
       day(0),
     );
-    expect(out.map((r) => r.loads)).toEqual([500, 20]);
+    // The lower closed-day row is dropped, not written back at the stored value:
+    // writing it would stamp the day as settled on a read that was not trusted.
+    expect(out).toEqual([{ date: day(0), kind: "iframe", loads: 20 }]);
   });
 
   test("a closed day can go up and a day not yet stored is kept", () => {
@@ -434,12 +437,42 @@ describe("the edge queries", () => {
       parseEmbedDayRows([
         { day: "2026-10-05", kind: "iframe", loads: "12" },
         { day: "2026-10-05", kind: "worker", loads: 3 },
-        { day: "not a day", kind: "iframe", loads: 1 },
       ]),
     ).toEqual([
       { date: "2026-10-05", kind: "iframe", loads: 12 },
       { date: "2026-10-05", kind: "other", loads: 3 },
     ]);
+  });
+
+  // A row that does not parse must fail the pull, never become a zero (or a
+  // missing row that a zero-fill would then settle).
+  test.each([
+    [{ day: "not a day", kind: "iframe", loads: 1 }],
+    [{ day: "2026-10-05", kind: "iframe", loads: "abc" }],
+    [{ day: "2026-10-05", kind: "iframe", loads: null }],
+    [{ day: "2026-10-05", kind: "iframe", loads: -3 }],
+    [{ day: "2026-10-05", kind: "iframe" }],
+    [{ day: null, kind: "iframe", loads: 4 }],
+  ])("parseEmbedDayRows refuses the odd row %j", (row) => {
+    expect(() => parseEmbedDayRows([row as never])).toThrow("could not be parsed");
+  });
+
+  test("strictCount accepts finite non-negative numbers and numeric strings only", () => {
+    expect(strictCount(0)).toBe(0);
+    expect(strictCount("307")).toBe(307);
+    for (const bad of [
+      null,
+      undefined,
+      "",
+      " ",
+      "x",
+      Number.NaN,
+      Number.POSITIVE_INFINITY,
+      -1,
+      {},
+    ]) {
+      expect(strictCount(bad)).toBeNull();
+    }
   });
 });
 

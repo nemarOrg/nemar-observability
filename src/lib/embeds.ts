@@ -86,7 +86,7 @@ const DAY_RE = /^\d{4}-\d{2}-\d{2}$/;
 const dayOf = (ms: number) => new Date(ms).toISOString().slice(0, 10);
 const shiftDay = (day: string, offset: number) =>
   dayOf(Date.parse(`${day}T00:00:00Z`) + offset * DAY_MS);
-const rangeDays = (start: string, end: string) =>
+export const rangeDays = (start: string, end: string) =>
   Math.round((Date.parse(`${end}T00:00:00Z`) - Date.parse(`${start}T00:00:00Z`)) / DAY_MS) + 1;
 
 /** The first UTC day the edge still holds as of `now`, planned with a margin. */
@@ -332,9 +332,10 @@ export function buildEmbedDays(
 
 /**
  * The rows worth writing. A closed day only ever goes up: a lower re-read is a
- * partial answer, not a correction, so the stored value is written back (which
- * stamps the day as written, letting it settle instead of being asked for every
- * hour). The open day takes the edge's day-to-date figure.
+ * partial answer, not a correction, so that row is not written at all. Writing
+ * the stored value back would stamp the day as settled on a read that was not
+ * trusted; leaving it alone keeps the day unsettled, so it is asked for again.
+ * The open day takes the edge's day-to-date figure.
  */
 export function writableEmbedDays(
   stored: readonly EmbedDayRow[],
@@ -342,15 +343,15 @@ export function writableEmbedDays(
   today: string,
 ): EmbedDayRow[] {
   const have = new Map(stored.map((row) => [`${row.date}|${row.kind}`, row.loads]));
-  return fetched.map((row) => {
+  return fetched.filter((row) => {
     const prior = have.get(`${row.date}|${row.kind}`);
     if (row.date < today && prior !== undefined && row.loads < prior) {
       console.error(
-        `[cron] embed loads for closed day ${row.date} (${row.kind}) came back lower (${row.loads} < ${prior}); keeping the stored value`,
+        `[cron] embed loads for closed day ${row.date} (${row.kind}) came back lower (${row.loads} < ${prior}); keeping the stored value and not re-stamping the day`,
       );
-      return { ...row, loads: prior };
+      return false;
     }
-    return row;
+    return true;
   });
 }
 
@@ -418,13 +419,34 @@ export function embedTotalSql(dataset: string, since: string, until: string): st
          WHERE blob3 = 'iframe' AND ${windowSql(since, until)}`;
 }
 
-/** Parse the per-(day, kind) answer. A row that is not a real day is dropped. */
+/**
+ * A count from an Analytics Engine row: a finite, non-negative number, or null.
+ * Unlike access.ts's num(), a value that does not parse is never read as 0, so
+ * an odd answer cannot become a settled zero.
+ */
+export function strictCount(value: unknown): number | null {
+  const n =
+    typeof value === "number"
+      ? value
+      : typeof value === "string" && value.trim() !== ""
+        ? Number(value)
+        : Number.NaN;
+  return Number.isFinite(n) && n >= 0 ? n : null;
+}
+
+/**
+ * Parse the per-(day, kind) answer. A row that does not parse is an error, not a
+ * zero and not a skipped row: the caller logs it and stores nothing for this
+ * pull, so the days stay unsettled and are asked for again.
+ */
 export function parseEmbedDayRows(rows: readonly AeRow[]): EmbedDayRow[] {
   const out: EmbedDayRow[] = [];
   for (const row of rows) {
-    const date = String(row.day ?? "").slice(0, 10);
-    const loads = aeNum(row.loads as string | number | null);
-    if (!DAY_RE.test(date) || loads < 0) continue;
+    const date = typeof row.day === "string" ? row.day.slice(0, 10) : "";
+    const loads = strictCount(row.loads);
+    if (!DAY_RE.test(date) || loads === null) {
+      throw new Error(`embed day row could not be parsed: ${JSON.stringify(row).slice(0, 120)}`);
+    }
     out.push({ date, kind: normalizeKind(row.kind), loads });
   }
   return out;

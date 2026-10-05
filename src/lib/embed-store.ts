@@ -17,8 +17,11 @@ import {
  *
  * Value rule for a row that already exists: a closed day (before the UTC date of
  * this write) never goes down, because a lower value is a partial or empty
- * re-read, not a correction. The open day takes the new day-to-date figure.
- * updated_at always advances, which is what lets the day settle.
+ * re-read, not a correction. When a write would lower a closed day, the row is
+ * left exactly as it was, updated_at included, so a read that was not trusted
+ * cannot stamp the day as settled. Otherwise the new figure is taken (the open
+ * day takes its day-to-date figure) and updated_at advances, which is what lets
+ * the day settle.
  */
 export async function saveEmbedDays(
   db: D1Database,
@@ -42,7 +45,9 @@ export async function saveEmbedDays(
            loads = CASE
              WHEN excluded.date < substr(excluded.updated_at, 1, 10) AND excluded.loads < embed_daily_loads.loads
              THEN embed_daily_loads.loads ELSE excluded.loads END,
-           updated_at = excluded.updated_at`,
+           updated_at = CASE
+             WHEN excluded.date < substr(excluded.updated_at, 1, 10) AND excluded.loads < embed_daily_loads.loads
+             THEN embed_daily_loads.updated_at ELSE excluded.updated_at END`,
       )
       .bind(...bindings);
   });
@@ -130,4 +135,42 @@ export async function readEmbedLoads(
     };
   }
   return buildLoadsBlock(rows, start, end, now, isEmbedConfigured(env));
+}
+
+export interface EmbedSyncState {
+  last_ok_at: string | null;
+  last_error: string | null;
+  last_run_at: string | null;
+}
+
+/** Record one sync attempt. Success clears last_error and advances last_ok_at;
+ *  failure keeps the prior last_ok_at. */
+export async function recordEmbedSync(
+  db: D1Database,
+  ok: boolean,
+  at: string,
+  error?: string,
+): Promise<void> {
+  if (ok) {
+    await db
+      .prepare(
+        "UPDATE embed_sync_status SET last_ok_at = ?1, last_error = NULL, last_run_at = ?1 WHERE id = 1",
+      )
+      .bind(at)
+      .run();
+  } else {
+    await db
+      .prepare("UPDATE embed_sync_status SET last_error = ?1, last_run_at = ?2 WHERE id = 1")
+      .bind((error ?? "unknown").slice(0, 500), at)
+      .run();
+  }
+}
+
+/** The single sync status row, or null when the migration has not created it. */
+export async function loadEmbedSync(db: D1Database): Promise<EmbedSyncState | null> {
+  return (
+    (await db
+      .prepare("SELECT last_ok_at, last_error, last_run_at FROM embed_sync_status WHERE id = 1")
+      .first<EmbedSyncState>()) ?? null
+  );
 }

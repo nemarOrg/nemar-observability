@@ -83,12 +83,20 @@ describe("embed_daily_loads", () => {
     expect(await embedded("2026-10-05")).toBe(4);
   });
 
-  test("a lower write still stamps the day as written, so it can settle", async () => {
+  test("a write that only keeps the stored value does not re-stamp the day as settled", async () => {
     await saveEmbedDays(db, allKinds("2026-10-03", [50, 0, 0, 0]), "2026-10-03T22:00:00Z");
     expect((await loadEmbedDayStamps(db, "2026-10-01")).get("2026-10-03")).toBe(
       "2026-10-03T22:00:00Z",
     );
+    // A lower iframe figure for a closed day is not trusted: the row is left as
+    // it was, so the day is still unsettled and will be asked for again.
     await saveEmbedDays(db, allKinds("2026-10-03", [10, 0, 0, 0]), "2026-10-04T07:00:00Z");
+    expect(await embedded("2026-10-03")).toBe(50);
+    expect((await loadEmbedDayStamps(db, "2026-10-01")).get("2026-10-03")).toBe(
+      "2026-10-03T22:00:00Z",
+    );
+    // A trusted read (not lower) does stamp it.
+    await saveEmbedDays(db, allKinds("2026-10-03", [50, 0, 0, 0]), "2026-10-04T07:00:00Z");
     expect((await loadEmbedDayStamps(db, "2026-10-01")).get("2026-10-03")).toBe(
       "2026-10-04T07:00:00Z",
     );
