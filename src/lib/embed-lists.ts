@@ -20,6 +20,8 @@ import {
   loadEmbedSync,
   loadFirstEmbedDay,
   readPresetAnswer,
+  releasePresetClaim,
+  tryClaimPreset,
   writePresetAnswer,
 } from "./embed-store";
 import {
@@ -132,30 +134,75 @@ export function beforeCountingLists(note: string): EmbedLists {
   return bothBlocks("available", note, "before_counting");
 }
 
+/** How long an answer may be reused, counted from when it was COMPUTED. */
 const MEMO_TTL_MS = 60_000;
 const MEMO_MAX = 32;
-const memo = new Map<string, { at: number; lists: Promise<EmbedLists> }>();
+/** How long a claim on computing a preset window holds before another isolate may take over. */
+const CLAIM_TTL_MS = 10_000;
+/** A waiter polls the shared row this often, this many times, before it tries the claim again. */
+const DEFAULT_POLL_MS = 400;
+const DEFAULT_POLLS = 5;
 
-/** Forget every memoized answer (tests). */
-export function resetEmbedListsMemo(): void {
-  memo.clear();
+/**
+ * What is cached and shared is DATA only: the counts and the public dataset
+ * names, which are a function of the clipped window alone. Status and notes
+ * depend on the range the caller asked for (a 90 day preset and an 84 day custom
+ * range share a window but not a clip note), so they are derived per request
+ * from the raw start and end (presentLists), never stored.
+ */
+export interface ListData {
+  sites: EmbedSiteCounts;
+  /** null when the public check could not be made: nothing named, nothing shared. */
+  datasets: EmbedDatasetSummary | null;
 }
 
-function isUnavailable(lists: EmbedLists): boolean {
-  return lists.sites.status === "unavailable" || lists.datasets.status === "unavailable";
+type Loaded =
+  | { kind: "data"; data: ListData; computedAt: number }
+  /** A refusal or a fault: shown to this caller, never kept or shared. */
+  | { kind: "failed"; lists: EmbedLists };
+
+interface MemoEntry {
+  /** When the answer was computed (or, while it is in flight, when it was asked for). */
+  at: number;
+  loaded: Promise<Loaded>;
+}
+
+/** One isolate's memo of answers. Tests make several to stand in for isolates. */
+export interface ListsMemo {
+  entries: Map<string, MemoEntry>;
+}
+export const createListsMemo = (): ListsMemo => ({ entries: new Map() });
+const defaultMemo = createListsMemo();
+
+/** Forget every memoized answer of this isolate (tests). */
+export function resetEmbedListsMemo(): void {
+  defaultMemo.entries.clear();
+}
+
+export interface ListOptions {
+  memo?: ListsMemo;
+  /** How long a waiter sleeps between reads of the shared row, and how many times. */
+  pollMs?: number;
+  polls?: number;
 }
 
 /**
  * The sites and datasets for the selected dates. Sites come back as counts only;
- * datasets are named only when public now. Answers are memoized for a minute
- * per window (a failure or a refusal is not), and an uncached load claims its
- * worst case from the shared query budget before it asks the edge anything.
+ * datasets are named only when public now.
+ *
+ * An answer is reused for 60 seconds counted from when it was computed, by this
+ * isolate's memo and, for the page's preset windows, by a shared D1 row. An
+ * isolate that reads a row aged 40 seconds reuses it for only 20 more, so the two
+ * layers never stack and a name is never held longer than 60 seconds
+ * server-side. A failure or a refusal is not kept. An uncached load claims its
+ * queries from the shared budget before it asks the edge anything.
  */
 export async function loadEmbedLists(
   env: Bindings,
   start: string,
   end: string,
   now: Date,
+  options: ListOptions = {},
 ): Promise<EmbedLists> {
   if (!isEmbedConfigured(env)) {
     return bothBlocks("unconfigured", "Embed counting is not configured for this dashboard.");
@@ -172,28 +219,85 @@ export async function loadEmbedLists(
   const window = detailWindow(start, end, now);
   if (!window) return bothBlocks("unavailable", EXPIRED_NOTE, "expired");
 
-  const key = `${env.EMBED_AE_DATASET}|${window.start}|${window.end}|${today}|${websiteBase(env)}`;
-  const hit = memo.get(key);
-  if (hit && now.getTime() - hit.at < MEMO_TTL_MS) return hit.lists;
-  const preset = isPresetRange(start, end, now);
-  const lists = preset
-    ? loadSharedPreset(env, start, end, window, now)
-    : computeLists(env, start, end, window, now);
-  if (memo.size >= MEMO_MAX) memo.delete(memo.keys().next().value as string);
-  memo.set(key, { at: now.getTime(), lists });
-  const settled = await lists;
-  // Only a good answer is worth keeping.
-  if (isUnavailable(settled) && memo.get(key)?.lists === lists) memo.delete(key);
-  return settled;
+  const memo = options.memo ?? defaultMemo;
+  const key = windowKey(env, window, now);
+  let entry = memo.entries.get(key);
+  if (!entry || now.getTime() - entry.at >= MEMO_TTL_MS) {
+    const loaded = isPresetRange(start, end, now)
+      ? loadSharedPreset(env, start, end, window, now, options)
+      : computeLists(env, start, end, window, now);
+    entry = { at: now.getTime(), loaded };
+    if (memo.entries.size >= MEMO_MAX)
+      memo.entries.delete(memo.entries.keys().next().value as string);
+    memo.entries.set(key, entry);
+  }
+  const mine = entry;
+  const settled = await mine.loaded;
+  if (settled.kind === "data" && settled.data.datasets !== null) {
+    // Count the minute from when it was computed, not from when this isolate read it.
+    mine.at = settled.computedAt;
+  } else if (memo.entries.get(key) === mine) {
+    memo.entries.delete(key);
+  }
+  return settled.kind === "failed"
+    ? settled.lists
+    : presentLists(settled.data, start, end, window, now);
 }
 
+const windowKey = (env: Bindings, window: { start: string; end: string }, now: Date): string =>
+  `${env.EMBED_AE_DATASET}|${window.start}|${window.end}|${dayOf(now.getTime())}|${websiteBase(env)}`;
+
 /**
- * A preset window's answer, shared across isolates through D1 for up to the
- * memo's 60 seconds: a fresh row answers it with no budget and no query, and an
- * isolate that computes one stores it for the others. So the preset pool's demand
- * is the number of distinct preset windows a minute, not that times the isolates.
- * A read or write that fails is logged and skipped: it costs a recomputation, which
- * the budget still bounds.
+ * The status and notes of the lists for THIS range, from cached data. The clip
+ * notes come from how the raw start and end differ from the window the data
+ * covers, so two ranges that share a window never share each other's notes.
+ */
+export function presentLists(
+  data: ListData,
+  start: string,
+  end: string,
+  window: { start: string; end: string },
+  now: Date,
+): EmbedLists {
+  const today = dayOf(now.getTime());
+  const clipped = window.start !== start || window.end !== end;
+  const status: EmbedSourceStatus = clipped || window.end >= today ? "partial" : "available";
+  const notes: string[] = [];
+  if (window.start !== start) {
+    notes.push(
+      "Detail covers only the part of the selected dates from the last three months that is still kept.",
+    );
+  }
+  if (window.end !== end) notes.push("Dates after today are not counted yet.");
+  if (window.end >= today) notes.push("The current UTC day is still in progress.");
+  const shared = {
+    status,
+    window: { start: window.start, end: window.end },
+    ...(notes.length ? { note: notes.join(" ") } : {}),
+  };
+  return {
+    sites: { ...shared, summary: data.sites },
+    datasets: data.datasets
+      ? { ...shared, summary: data.datasets }
+      : emptyBlock("unavailable", "Embedded datasets are currently unavailable."),
+  };
+}
+
+/** True for data that is whole enough to share: the public check was made. */
+const shareable = (loaded: Loaded): loaded is Extract<Loaded, { kind: "data" }> =>
+  loaded.kind === "data" && loaded.data.datasets !== null;
+
+/**
+ * A preset window's data, shared across isolates through D1 for the memo's 60
+ * seconds, with one claimant computing it.
+ *
+ * A fresh row answers it with no budget and no query. On a miss the isolate
+ * inserts a claim for about ten seconds and computes it; an isolate that finds a
+ * live claim polls the row a few times and reads what the claimant stored. So a
+ * herd of cold isolates at expiry computes a window once, and only the claimant
+ * spends budget. A claimant that fails releases the claim. A D1 read, claim or
+ * write that fails is logged and skipped: it costs a recomputation, which the
+ * budget still bounds.
  */
 async function loadSharedPreset(
   env: Bindings,
@@ -201,33 +305,68 @@ async function loadSharedPreset(
   end: string,
   window: { start: string; end: string; clipped: boolean },
   now: Date,
-): Promise<EmbedLists> {
-  const key = presetKey(env, window, now);
-  try {
-    const shared = await readPresetAnswer(env.OBS_DB, key, now, MEMO_TTL_MS);
-    if (shared) {
-      const parsed = JSON.parse(shared) as EmbedLists;
-      if (parsed?.sites && parsed?.datasets) return parsed;
-    }
-  } catch (err) {
-    console.error("[embeds] shared preset answer could not be read:", String(err).slice(0, 120));
-  }
-  const lists = await computeLists(env, start, end, window, now);
-  if (!isUnavailable(lists)) {
+  options: ListOptions,
+): Promise<Loaded> {
+  const key = windowKey(env, window, now);
+  const pollMs = options.pollMs ?? DEFAULT_POLL_MS;
+  const polls = options.polls ?? DEFAULT_POLLS;
+  const readShared = async (at: Date): Promise<Loaded | null> => {
     try {
-      await writePresetAnswer(env.OBS_DB, key, JSON.stringify(lists), now);
+      const shared = await readPresetAnswer(env.OBS_DB, key, at, MEMO_TTL_MS);
+      if (!shared) return null;
+      const data = JSON.parse(shared.answer) as ListData;
+      if (typeof data?.sites?.total !== "number" || !data.datasets) return null;
+      return { kind: "data", data, computedAt: shared.computedAt };
     } catch (err) {
-      console.error(
-        "[embeds] shared preset answer could not be stored:",
-        String(err).slice(0, 120),
+      console.error("[embeds] shared preset answer could not be read:", String(err).slice(0, 120));
+      return null;
+    }
+  };
+  const claim = async (): Promise<boolean> => {
+    try {
+      return await tryClaimPreset(env.OBS_DB, key, now, CLAIM_TTL_MS);
+    } catch (err) {
+      // Cannot claim: compute anyway, as before claims existed. The budget bounds it.
+      console.error("[embeds] preset claim could not be taken:", String(err).slice(0, 120));
+      return true;
+    }
+  };
+  const computeAndShare = async (): Promise<Loaded> => {
+    try {
+      const loaded = await computeLists(env, start, end, window, now);
+      if (shareable(loaded)) {
+        try {
+          await writePresetAnswer(env.OBS_DB, key, JSON.stringify(loaded.data), now);
+        } catch (err) {
+          console.error(
+            "[embeds] shared preset answer could not be stored:",
+            String(err).slice(0, 120),
+          );
+        }
+      }
+      return loaded;
+    } finally {
+      // Whether it worked or not, the claim is given back: a waiter reads the
+      // answer, or takes over, without waiting for the claim to expire.
+      await releasePresetClaim(env.OBS_DB, key).catch((err) =>
+        console.error("[embeds] preset claim could not be released:", String(err).slice(0, 120)),
       );
     }
-  }
-  return lists;
-}
+  };
 
-const presetKey = (env: Bindings, window: { start: string; end: string }, now: Date): string =>
-  `${env.EMBED_AE_DATASET}|${window.start}|${window.end}|${dayOf(now.getTime())}|${websiteBase(env)}`;
+  const fresh = await readShared(now);
+  if (fresh) return fresh;
+  if (await claim()) return computeAndShare();
+  // Another isolate is computing this window: wait for its answer.
+  for (let i = 1; i <= polls; i++) {
+    await new Promise((resolve) => setTimeout(resolve, pollMs));
+    const shared = await readShared(new Date(now.getTime() + i * pollMs));
+    if (shared) return shared;
+  }
+  // It did not arrive: take over if the claim was released or expired, else give up.
+  if (await claim()) return computeAndShare();
+  return { kind: "failed", lists: bothBlocks("unavailable", BUSY_NOTE) };
+}
 
 /** One more query, only when a row cap was hit; if the budget is spent the rows' own sum stands in. */
 async function claimExtraQuery(env: Bindings, now: Date, pool: BudgetPool): Promise<boolean> {
@@ -249,7 +388,11 @@ async function computeLists(
   end: string,
   window: { start: string; end: string; clipped: boolean },
   now: Date,
-): Promise<EmbedLists> {
+): Promise<Loaded> {
+  const failed = (note: string): Loaded => ({
+    kind: "failed",
+    lists: bothBlocks("unavailable", note),
+  });
   const pool = isPresetRange(start, end, now) ? "preset" : "custom";
   let claimed: boolean;
   try {
@@ -264,9 +407,9 @@ async function computeLists(
     // Without the budget the quota cannot be protected, so the edge is not asked.
     // That is a fault, not load: it does not say "busy".
     console.error("[embeds] query budget could not be claimed:", err);
-    return bothBlocks("unavailable", "Embed detail is currently unavailable.");
+    return failed("Embed detail is currently unavailable.");
   }
-  if (!claimed) return bothBlocks("unavailable", BUSY_NOTE);
+  if (!claimed) return failed(BUSY_NOTE);
 
   const until = nextDay(window.end);
   let siteRows: ReturnType<typeof parseHostRows>;
@@ -292,46 +435,26 @@ async function computeLists(
     }
   } catch (err) {
     console.error("[embeds] edge query failed:", err);
-    return bothBlocks("unavailable", "Embed detail is currently unavailable.");
+    return failed("Embed detail is currently unavailable.");
   }
 
-  const today = dayOf(now.getTime());
-  const status: EmbedSourceStatus = window.clipped || window.end >= today ? "partial" : "available";
-  const notes: string[] = [];
-  if (window.start !== start) {
-    notes.push(
-      "Detail covers only the part of the selected dates from the last three months that is still kept.",
-    );
-  }
-  if (window.end !== end) notes.push("Dates after today are not counted yet.");
-  if (window.end >= today) notes.push("The current UTC day is still in progress.");
-  const shared = {
-    status,
-    window: { start: window.start, end: window.end },
-    ...(notes.length ? { note: notes.join(" ") } : {}),
-  };
-
-  const sites: EmbedListBlock<EmbedSiteCounts> = {
-    ...shared,
-    summary: summarizeEmbedSites(siteRows, total, capped),
-  };
   // The public check is the privacy boundary: if nemar-db cannot answer, no
   // dataset is named, rather than every dataset.
-  let datasets: EmbedListBlock<EmbedDatasetSummary>;
+  let datasets: EmbedDatasetSummary | null = null;
   try {
     const publicIds = await publicDatasetIds(
       env.NEMAR_DB,
       datasetRows.map((r) => r.dataset_id).filter(Boolean),
     );
-    datasets = {
-      ...shared,
-      summary: summarizeEmbedDatasets(datasetRows, publicIds, total, websiteBase(env)),
-    };
+    datasets = summarizeEmbedDatasets(datasetRows, publicIds, total, websiteBase(env));
   } catch (err) {
     console.error("[embeds] public dataset check failed:", err);
-    datasets = emptyBlock("unavailable", "Embedded datasets are currently unavailable.");
   }
-  return { sites, datasets };
+  return {
+    kind: "data",
+    data: { sites: summarizeEmbedSites(siteRows, total, capped), datasets },
+    computedAt: now.getTime(),
+  };
 }
 
 export const EMBED_SITES_DRILLDOWN = "embed-sites" as const;

@@ -181,20 +181,31 @@ export async function loadEmbedSync(db: D1Database): Promise<EmbedSyncState | nu
   );
 }
 
-/** A shared preset answer computed at most `ttlMs` ago, or null. */
+/** A shared preset answer and when it was computed, if that was at most `ttlMs` ago. */
+export interface SharedPresetAnswer {
+  answer: string;
+  /** Milliseconds since the epoch, never later than `now`. */
+  computedAt: number;
+}
+
+/** Clock skew between isolates tolerated when judging a row's age. */
+const SKEW_MS = 5_000;
+
 export async function readPresetAnswer(
   db: D1Database,
   key: string,
   now: Date,
   ttlMs: number,
-): Promise<string | null> {
+): Promise<SharedPresetAnswer | null> {
   const row = await db
     .prepare("SELECT answer, computed_at FROM embed_preset_answers WHERE key = ?1")
     .bind(key)
     .first<{ answer: string; computed_at: string }>();
   if (!row) return null;
-  const age = now.getTime() - Date.parse(row.computed_at);
-  return age >= 0 && age < ttlMs ? row.answer : null;
+  const computedAt = Date.parse(row.computed_at);
+  const age = now.getTime() - computedAt;
+  if (!(age > -SKEW_MS && age < ttlMs)) return null;
+  return { answer: row.answer, computedAt: Math.min(computedAt, now.getTime()) };
 }
 
 /** Share a good preset answer with every isolate. */
@@ -213,8 +224,37 @@ export async function writePresetAnswer(
     .run();
 }
 
-/** Delete preset answers that are long past their use. Called by the hourly cron. */
+/** Delete preset answers and claims that are long past their use. Called by the hourly cron. */
 export async function prunePresetAnswers(db: D1Database, now: Date): Promise<void> {
   const cutoff = new Date(now.getTime() - 10 * 60_000).toISOString();
   await db.prepare("DELETE FROM embed_preset_answers WHERE computed_at < ?1").bind(cutoff).run();
+  await db.prepare("DELETE FROM embed_preset_claims WHERE claimed_at < ?1").bind(cutoff).run();
+}
+
+/**
+ * Take the claim on computing a preset window, for `ttlMs`. True when this
+ * caller now holds it: no claim existed, or the one that did had expired. False
+ * when another isolate holds a live claim.
+ */
+export async function tryClaimPreset(
+  db: D1Database,
+  key: string,
+  now: Date,
+  ttlMs: number,
+): Promise<boolean> {
+  const expired = new Date(now.getTime() - ttlMs).toISOString();
+  const row = await db
+    .prepare(
+      `INSERT INTO embed_preset_claims (key, claimed_at) VALUES (?1, ?2)
+       ON CONFLICT(key) DO UPDATE SET claimed_at = ?2 WHERE embed_preset_claims.claimed_at < ?3
+       RETURNING key`,
+    )
+    .bind(key, now.toISOString(), expired)
+    .first<{ key: string }>();
+  return row !== null;
+}
+
+/** Give the claim back, so a waiting isolate need not wait for it to expire. */
+export async function releasePresetClaim(db: D1Database, key: string): Promise<void> {
+  await db.prepare("DELETE FROM embed_preset_claims WHERE key = ?1").bind(key).run();
 }

@@ -6,7 +6,12 @@
 
 import { Database } from "bun:sqlite";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { loadEmbedLists, loadEmbedSitesAdmin, resetEmbedListsMemo } from "../src/lib/embed-lists";
+import {
+  createListsMemo,
+  loadEmbedLists,
+  loadEmbedSitesAdmin,
+  resetEmbedListsMemo,
+} from "../src/lib/embed-lists";
 import { claimQueryBudget, prunePresetAnswers, pruneQueryBudget } from "../src/lib/embed-store";
 import {
   AE_ROW_LIMIT,
@@ -395,6 +400,232 @@ describe("preset answers shared across isolates", () => {
   });
 });
 
+// G1: the memo and the shared row must not stack their reuse times.
+describe("the 60 second bound counts from when an answer was computed", () => {
+  const [start, end] = PRESETS[1];
+  const at = (s: number) => new Date(NOW.getTime() + s * 1000);
+
+  test("an isolate that reads a shared row aged 59 seconds reuses it for one more second, not 60", async () => {
+    catalog.query("INSERT INTO datasets VALUES ('on007753', 1, 0, 'active', 'public')").run();
+    ae = stubAe();
+    const isolateA = createListsMemo();
+    const isolateB = createListsMemo();
+    // A computes just after on007753 was public and stores the shared row.
+    let lists = await loadEmbedLists(env(), start, end, NOW, { memo: isolateA });
+    expect(lists.datasets.summary?.rows.map((r) => r.label)).toEqual(["on007753"]);
+    catalog.query("UPDATE datasets SET visibility = 'private' WHERE dataset_id = 'on007753'").run();
+    // B, cold, reads A's row at 59 s: still named (within 60 s of compute).
+    lists = await loadEmbedLists(env(), start, end, at(59), { memo: isolateB });
+    expect(lists.datasets.summary?.rows.map((r) => r.label)).toEqual(["on007753"]);
+    // B again at 61 s, same memo: 61 s after COMPUTE, so it must not still be named.
+    lists = await loadEmbedLists(env(), start, end, at(61), { memo: isolateB });
+    expect(lists.datasets.summary?.rows).toEqual([]);
+    expect(lists.datasets.summary?.other).toBe(307);
+  });
+
+  test("a name is never held past 60 seconds after compute, at any read time inside it", async () => {
+    catalog.query("INSERT INTO datasets VALUES ('on007753', 1, 0, 'active', 'public')").run();
+    ae = stubAe();
+    const memo = createListsMemo();
+    await loadEmbedLists(env(), start, end, NOW, { memo });
+    catalog.query("UPDATE datasets SET visibility = 'private' WHERE dataset_id = 'on007753'").run();
+    for (const s of [10, 30, 59.9]) {
+      const lists = await loadEmbedLists(env(), start, end, at(s), { memo: createListsMemo() });
+      // A cold isolate may still read the shared row, which is within the bound.
+      expect(lists.datasets.summary?.rows.length).toBe(1);
+    }
+    for (const s of [60, 60.5, 90]) {
+      const lists = await loadEmbedLists(env(), start, end, at(s), { memo: createListsMemo() });
+      expect(lists.datasets.summary?.rows).toEqual([]);
+    }
+  });
+});
+
+// G2: cached data is shared by window; status and notes are per request.
+describe("status and notes follow the range asked, not the window shared", () => {
+  // The 90 day preset ending yesterday clips to the same window as an 84 day custom range.
+  const preset: [string, string] = ["2026-07-07", "2026-10-04"];
+  const custom: [string, string] = ["2026-07-13", "2026-10-04"];
+  const CLIP = "last three months";
+
+  test("preset first, then a custom range with the same window: the custom one is not clipped", async () => {
+    ae = stubAe();
+    const memo = createListsMemo();
+    const a = await loadEmbedLists(env(), preset[0], preset[1], NOW, { memo });
+    const b = await loadEmbedLists(env(), custom[0], custom[1], NOW, { memo });
+    expect(a.sites.status).toBe("partial");
+    expect(a.sites.note).toContain(CLIP);
+    expect(b.sites.status).toBe("available");
+    expect(b.sites.note).toBeUndefined();
+    expect(b.sites.window).toEqual(a.sites.window);
+    expect(b.sites.summary).toEqual(a.sites.summary);
+    expect(ae.asked).toHaveLength(2);
+  });
+
+  test("custom first, then the preset: the preset is clipped", async () => {
+    ae = stubAe();
+    const memo = createListsMemo();
+    const b = await loadEmbedLists(env(), custom[0], custom[1], NOW, { memo });
+    const a = await loadEmbedLists(env(), preset[0], preset[1], NOW, { memo });
+    expect(b.sites.status).toBe("available");
+    expect(b.sites.note).toBeUndefined();
+    expect(a.sites.status).toBe("partial");
+    expect(a.sites.note).toContain(CLIP);
+    expect(ae.asked).toHaveLength(2);
+  });
+
+  test("the shared D1 row carries data only, so another isolate's range gets its own notes", async () => {
+    ae = stubAe();
+    await loadEmbedLists(env(), preset[0], preset[1], NOW, { memo: createListsMemo() });
+    const stored = (
+      obs.query("SELECT answer FROM embed_preset_answers").get() as { answer: string }
+    ).answer;
+    expect(stored).not.toContain("last three months");
+    expect(stored).not.toContain("partial");
+    expect(Object.keys(JSON.parse(stored)).sort()).toEqual(["datasets", "sites"]);
+    // The 365 day preset shares the row (same clipped window) and is clipped too.
+    const year = await loadEmbedLists(env(), "2025-10-05", "2026-10-04", NOW, {
+      memo: createListsMemo(),
+    });
+    expect(year.sites.note).toContain(CLIP);
+    expect(ae.asked).toHaveLength(2);
+  });
+
+  test("ending today versus yesterday never share a window, and the in-progress note follows the end", async () => {
+    ae = stubAe();
+    const memo = createListsMemo();
+    const yesterday = await loadEmbedLists(env(), "2026-09-28", "2026-10-04", NOW, { memo });
+    const today = await loadEmbedLists(env(), "2026-09-29", "2026-10-05", NOW, { memo });
+    expect(yesterday.sites.status).toBe("available");
+    expect(today.sites.note).toContain("still in progress");
+    expect(yesterday.sites.note).toBeUndefined();
+  });
+});
+
+// G3: a cold herd at expiry computes each window once.
+describe("a cold herd at expiry", () => {
+  const fast = { pollMs: 5, polls: 200 };
+  const claims = () =>
+    (obs.query("SELECT COUNT(*) AS n FROM embed_preset_claims").get() as { n: number }).n;
+
+  test("six cold isolates loading the page's presets at once cost one load per window, with no busy", async () => {
+    ae = stubAe();
+    const isolates = Array.from({ length: 6 }, () => createListsMemo());
+    const results = await Promise.all(
+      isolates.flatMap((memo) =>
+        PRESETS.map(([start, end]) => loadEmbedLists(env(), start, end, NOW, { memo, ...fast })),
+      ),
+    );
+    expect(results).toHaveLength(6 * PRESETS.length);
+    for (const lists of results) {
+      expect(lists.sites.note ?? "").not.toContain("busy");
+      expect(["available", "partial"]).toContain(lists.sites.status);
+      expect(["available", "partial"]).toContain(lists.datasets.status);
+    }
+    // The eight presets are six distinct windows (90 and 365 days clip to one):
+    // 6 x 2 queries, spent by the claimants alone.
+    expect(ae.asked).toHaveLength(6 * 2);
+    expect(budgetUsed(obs, "preset")).toBe(6 * 2);
+    expect(budgetUsed(obs, "custom")).toBe(0);
+    expect(claims()).toBe(0);
+  });
+
+  test("the herd returns when the shared answers expire, again one load per window", async () => {
+    ae = stubAe();
+    const round = (at: Date) =>
+      Promise.all(
+        Array.from({ length: 6 }, () => createListsMemo()).flatMap((memo) =>
+          PRESETS.map(([start, end]) => loadEmbedLists(env(), start, end, at, { memo, ...fast })),
+        ),
+      );
+    await round(NOW);
+    await round(new Date(NOW.getTime() + 61_000));
+    expect(ae.asked).toHaveLength(2 * 6 * 2);
+  });
+
+  test("a claimant that fails releases its claim, and the next load computes at once", async () => {
+    const restore = quiet();
+    ae = stubAe({ sites: () => new Response("forbidden", { status: 403 }) });
+    const first = await loadEmbedLists(env(), PRESETS[0][0], PRESETS[0][1], NOW, {
+      memo: createListsMemo(),
+      ...fast,
+    });
+    restore();
+    expect(first.sites.status).toBe("unavailable");
+    expect(claims()).toBe(0);
+    ae.restore();
+    ae = stubAe();
+    const second = await loadEmbedLists(env(), PRESETS[0][0], PRESETS[0][1], NOW, {
+      memo: createListsMemo(),
+      ...fast,
+    });
+    expect(second.sites.status).toBe("available");
+    expect(ae.asked).toHaveLength(2);
+  });
+
+  test("an expired claim is taken over without waiting", async () => {
+    obs
+      .query("INSERT INTO embed_preset_claims (key, claimed_at) VALUES (?, ?)")
+      .run(
+        "nemar_website_embeds_dev|2026-09-28|2026-10-04|2026-10-05|https://nemar.org",
+        new Date(NOW.getTime() - 11_000).toISOString(),
+      );
+    ae = stubAe();
+    const started = Date.now();
+    const lists = await loadEmbedLists(env(), PRESETS[0][0], PRESETS[0][1], NOW, {
+      memo: createListsMemo(),
+      pollMs: 2000,
+      polls: 5,
+    });
+    expect(lists.sites.status).toBe("available");
+    expect(Date.now() - started).toBeLessThan(1500);
+  });
+
+  test("a live claim whose answer never arrives ends in busy, spending no budget and asking nothing", async () => {
+    obs
+      .query("INSERT INTO embed_preset_claims (key, claimed_at) VALUES (?, ?)")
+      .run(
+        "nemar_website_embeds_dev|2026-09-28|2026-10-04|2026-10-05|https://nemar.org",
+        NOW.toISOString(),
+      );
+    ae = stubAe();
+    const lists = await loadEmbedLists(env(), PRESETS[0][0], PRESETS[0][1], NOW, {
+      memo: createListsMemo(),
+      pollMs: 5,
+      polls: 3,
+    });
+    expect(lists.sites.status).toBe("unavailable");
+    expect(lists.sites.note).toContain("busy");
+    expect(ae.asked).toHaveLength(0);
+    expect(budgetUsed(obs, "preset")).toBe(0);
+  });
+
+  test("a waiter spends no budget: only the claimant's two queries are counted", async () => {
+    ae = stubAe();
+    const [a, b] = await Promise.all([
+      loadEmbedLists(env(), PRESETS[0][0], PRESETS[0][1], NOW, {
+        memo: createListsMemo(),
+        ...fast,
+      }),
+      loadEmbedLists(env(), PRESETS[0][0], PRESETS[0][1], NOW, {
+        memo: createListsMemo(),
+        ...fast,
+      }),
+    ]);
+    expect(a.sites.summary).toEqual(b.sites.summary);
+    expect(ae.asked).toHaveLength(2);
+    expect(budgetUsed(obs, "preset")).toBe(2);
+  });
+
+  test("the cron deletes claims older than ten minutes", async () => {
+    obs
+      .query("INSERT INTO embed_preset_claims (key, claimed_at) VALUES ('a', ?), ('b', ?)")
+      .run(NOW.toISOString(), new Date(NOW.getTime() - 11 * 60_000).toISOString());
+    await prunePresetAnswers(asD1(obs), NOW);
+    expect(obs.query("SELECT key FROM embed_preset_claims").all()).toEqual([{ key: "a" }]);
+  });
+});
+
 describe("the extra capped-read claim", () => {
   test("a claim that cannot be made skips the total, falls back to the rows, and logs without values", async () => {
     const many = Array.from({ length: AE_ROW_LIMIT }, (_, i) => ({
@@ -432,7 +663,7 @@ describe("the memo and the shared query budget", () => {
       loadEmbedLists(env(), "2026-10-04", "2026-10-05", NOW),
     ]);
     await loadEmbedLists(env(), "2026-10-04", "2026-10-05", new Date(NOW.getTime() + 30_000));
-    expect(a).toBe(b);
+    expect(a).toEqual(b);
     expect(ae.asked).toHaveLength(2);
   });
 
