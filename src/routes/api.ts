@@ -383,11 +383,18 @@ apiRoutes.get("/embeds", async (c) => {
 });
 
 // Admin drill-down: the list behind a tile. Bearer admin only (delegated to
-// nemar-cli /users/me). Never cached — it can contain private dataset ids.
+// nemar-cli /users/me). Never cached — it can contain private dataset ids. A bad
+// or non-admin token is 401; an identity service that could not answer is 503,
+// so a client or monitor can tell a permissions problem from an outage.
 apiRoutes.get("/drilldown/:key", async (c) => {
   const noStore = { "Cache-Control": "no-store" };
-  const admin = await resolveAdmin(c.env, c.req.header("Authorization") ?? null);
-  if (!admin) return c.json({ error: "Admin authentication required" }, 401, noStore);
+  const check = await resolveAdmin(c.env, c.req.header("Authorization") ?? null);
+  if (check.status === "unavailable") {
+    return c.json({ error: "Admin check is currently unavailable" }, 503, noStore);
+  }
+  if (check.status !== "admin") {
+    return c.json({ error: "Admin authentication required" }, 401, noStore);
+  }
   const key = c.req.param("key");
   // The embedding site list is read from the edge, not nemar-db, and takes a
   // date range (default: the last 30 UTC days including today). It is the one
