@@ -124,7 +124,7 @@ The body must conform to `src/lib/metric-snapshot.schema.json` (`$defs/sectionIn
 |---|---|---|
 | `GET /observability/api/snapshot` | public | latest snapshot with aggregate headlines and bounded public-dataset breakdowns |
 | `GET /observability/api/snapshot/history?metric=KEY` | public | trend points for a metric |
-| `GET /observability/api/drilldown/:key` | **admin** Bearer | the list behind a tile; `embed-sites` (optional `start` and `end`, default the last 30 UTC days) lists every embedding host with loads by kind, hosts as claimed by `Referer`, `no-store` |
+| `GET /observability/api/drilldown/:key` | **admin** Bearer | the list behind a tile; `embed-sites` (optional `start` and `end`, default the last 30 UTC days) lists every embedding host with loads by kind, hosts as claimed by `Referer`, `no-store`; a missing, bad or non-admin token is 401, and 503 means nemar-cli could not answer the admin check (an outage, a timeout or an unknown response shape), so retry |
 | `POST /observability/api/sections/:key` | ingest Bearer | push a pipeline section |
 | `GET /observability/api/timeseries?start=YYYY-MM-DD&end=YYYY-MM-DD` | public | daily points and metadata, inclusive UTC range (maximum 3660 days) |
 | `GET /observability/api/audience?start=YYYY-MM-DD&end=YYYY-MM-DD` | public | selected-range Umami session/page-view summary and Cloudflare request totals; Umami country values for one completed day and Cloudflare country values across completed days |

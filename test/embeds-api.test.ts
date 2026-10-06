@@ -240,6 +240,7 @@ describe("GET /drilldown/embed-sites", () => {
           return Response.json({ user: { username: "ada", role: "admin" } });
         if (auth === "Bearer user-key")
           return Response.json({ user: { username: "bob", role: "user" } });
+        if (auth === "Bearer outage-key") return new Response("down", { status: 503 });
         return new Response("no", { status: 401 });
       },
     });
@@ -262,6 +263,23 @@ describe("GET /drilldown/embed-sites", () => {
     for (const header of ["Basic abc", "Bearer ", "Bearer wrong-key", "Bearer user-key"]) {
       const res = await get(path, env(), { Authorization: header });
       expect(res.status).toBe(401);
+    }
+    expect(ae.asked).toHaveLength(0);
+  });
+
+  test("an identity service that cannot answer is a 503 that is not cached, not a 401", async () => {
+    ae = stubAe();
+    const real = console.error;
+    console.error = () => {};
+    try {
+      for (const route of [path, "/drilldown/archive.missing"]) {
+        const res = await get(route, env(), { Authorization: "Bearer outage-key" });
+        expect(res.status).toBe(503);
+        expect(res.headers.get("cache-control")).toBe("no-store");
+        expect(await res.json()).toEqual({ error: "Admin check is currently unavailable" });
+      }
+    } finally {
+      console.error = real;
     }
     expect(ae.asked).toHaveLength(0);
   });

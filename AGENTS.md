@@ -12,7 +12,7 @@
 - binds nemar-cli's D1 (`nemar-db`) **read-only** for dataset/pipeline aggregates and admin drill-downs;
 - queries the Cloudflare **Analytics Engine** `nemar_access_metrics` dataset (written by nemar-cli's data-plane) via the account-scoped AE SQL API for access metrics;
 - keeps its own small D1 (`nemar-observability-db`) for snapshot history and pushed pipeline sections;
-- delegates the admin check to `api.nemar.org` `GET /auth/me` (never reproduces nemar-cli's token hashing).
+- delegates the admin check to `api.nemar.org` `GET /users/me` (never reproduces nemar-cli's token hashing).
 
 It is mounted via a Worker route `dashboard.nemar.org/observability*` layered over the existing `nemar-dashboard` Cloudflare **Pages** project (Worker routes take precedence per path, so `/citations` is untouched).
 
@@ -22,7 +22,7 @@ src/
 ├── lib/
 │   ├── schema/        # versioned MetricSnapshot schema (JSON Schema + TS types) — the pluggable-pipeline standard
 │   ├── metrics/       # snapshot compute: D1 aggregates + AE SQL queries -> sections
-│   ├── auth.ts        # admin check via api.nemar.org /auth/me delegation
+│   ├── auth.ts        # admin check via api.nemar.org /users/me delegation
 │   └── store.ts       # nemar-observability-db reads/writes (snapshot history, pushed sections)
 ├── routes/
 │   ├── api.ts         # /api/snapshot, /api/snapshot/history, /api/drilldown/:key, /api/sections/:key

@@ -6,7 +6,7 @@ export interface Bindings {
   OBS_DB: D1Database;
 
   ENVIRONMENT: string;
-  /** Base URL of the nemar-cli API (for the /auth/me admin-check delegation). */
+  /** Base URL of the nemar-cli API (for the /users/me admin-check delegation). */
   NEMAR_API_BASE: string;
   /** SCCN account id, for the Analytics Engine SQL API URL. */
   CF_ACCOUNT_ID: string;

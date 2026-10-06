@@ -74,4 +74,7 @@ Not covered by a real capture, and why:
   Capture a measured `/audience` answer once coverage is set.
 - **The identity check of the admin drill-down.** A local HTTP server answers the one request the Worker
   makes of nemar-cli (`/users/me`); the refusals (no header, wrong scheme, unknown key, non-admin key)
-  are what is tested, and a real admin key was not used.
+  and the cases where it cannot answer (503, 429, 404, a body that is not JSON, JSON of another shape,
+  a stalled body, no answer before the timeout, an unreachable server) are what is tested, with the
+  answers hand-written, not captured. A real admin key was not used and real nemar-cli error bodies
+  were not captured.
