@@ -66,6 +66,8 @@ export interface EmbedLists {
 }
 
 export const BUSY_NOTE = "Embed detail is busy. Try again in a minute.";
+/** Another isolate is still computing this window: its answer is seconds away, not a minute. */
+export const REFRESHING_NOTE = "Embed detail is being refreshed. Try again in a few seconds.";
 const FUTURE_NOTE = "These dates are in the future, so nothing has been counted yet.";
 const EXPIRED_NOTE =
   "Per-site and per-dataset detail covers about the last three months, and none of the selected dates fall inside it.";
@@ -232,7 +234,16 @@ export async function loadEmbedLists(
     memo.entries.set(key, entry);
   }
   const mine = entry;
-  const settled = await mine.loaded;
+  let settled: Loaded;
+  try {
+    settled = await mine.loaded;
+  } catch (err) {
+    // Every failure is returned as a block status today. If one is ever thrown, the
+    // rejected promise must not stay in the memo, or this isolate replays it until
+    // the entry expires.
+    if (memo.entries.get(key) === mine) memo.entries.delete(key);
+    throw err;
+  }
   if (settled.kind === "data" && settled.data.datasets !== null) {
     // Count the minute from when it was computed, not from when this isolate read it.
     mine.at = settled.computedAt;
@@ -364,8 +375,11 @@ async function loadSharedPreset(
     if (shared) return shared;
   }
   // It did not arrive: take over if the claim was released or expired, else give up.
+  // The claimant holds the claim for at most CLAIM_TTL_MS, so this is not the
+  // budget's "busy": no budget was spent, and a retry in seconds finds the answer
+  // or takes the claim over.
   if (await claim()) return computeAndShare();
-  return { kind: "failed", lists: bothBlocks("unavailable", BUSY_NOTE) };
+  return { kind: "failed", lists: bothBlocks("unavailable", REFRESHING_NOTE) };
 }
 
 /** One more query, only when a row cap was hit; if the budget is spent the rows' own sum stands in. */

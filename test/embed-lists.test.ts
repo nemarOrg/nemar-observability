@@ -7,6 +7,7 @@
 import { Database } from "bun:sqlite";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import {
+  REFRESHING_NOTE,
   createListsMemo,
   loadEmbedLists,
   loadEmbedSitesAdmin,
@@ -581,7 +582,7 @@ describe("a cold herd at expiry", () => {
     expect(Date.now() - started).toBeLessThan(1500);
   });
 
-  test("a live claim whose answer never arrives ends in busy, spending no budget and asking nothing", async () => {
+  test("a live claim whose answer never arrives says it is being refreshed, not busy, spending no budget and asking nothing", async () => {
     obs
       .query("INSERT INTO embed_preset_claims (key, claimed_at) VALUES (?, ?)")
       .run(
@@ -595,7 +596,10 @@ describe("a cold herd at expiry", () => {
       polls: 3,
     });
     expect(lists.sites.status).toBe("unavailable");
-    expect(lists.sites.note).toContain("busy");
+    // The claimant holds the claim for ten seconds at most, so the wait is seconds.
+    expect(lists.sites.note).toBe(REFRESHING_NOTE);
+    expect(lists.sites.note).not.toContain("minute");
+    expect(lists.datasets.note).toBe(REFRESHING_NOTE);
     expect(ae.asked).toHaveLength(0);
     expect(budgetUsed(obs, "preset")).toBe(0);
   });
@@ -665,6 +669,25 @@ describe("the memo and the shared query budget", () => {
     await loadEmbedLists(env(), "2026-10-04", "2026-10-05", new Date(NOW.getTime() + 30_000));
     expect(a).toEqual(b);
     expect(ae.asked).toHaveLength(2);
+  });
+
+  test("an unexpected rejection is not kept: the next call asks again instead of replaying it", async () => {
+    ae = stubAe();
+    const memo = createListsMemo();
+    const [start, end] = PRESETS[0];
+    // A real options bag whose read throws: a way to make the loading promise reject,
+    // since every failure in the module is otherwise returned as a block status.
+    const hostile = {
+      memo,
+      get pollMs(): number {
+        throw new Error("boom");
+      },
+    };
+    await expect(loadEmbedLists(env(), start, end, NOW, hostile)).rejects.toThrow("boom");
+    expect(memo.entries.size).toBe(0);
+    const again = await loadEmbedLists(env(), start, end, NOW, { memo });
+    expect(["available", "partial"]).toContain(again.sites.status);
+    expect(memo.entries.size).toBe(1);
   });
 
   test("past the minute the window is asked again", async () => {
