@@ -34,9 +34,10 @@ export const IDENTITY_TIMEOUT_MS = 5_000;
 /**
  * Resolve an admin from the request's Authorization header. "denied" is: no or
  * empty Bearer, a token nemar-cli rejects (401, 403), or a user who is not an
- * admin. "unavailable" is: a network error, a timeout, any other non-2xx status
- * (a 5xx, a 429, a 404 from a wrong NEMAR_API_BASE) or a body that is not JSON,
- * each logged without the token.
+ * admin. "unavailable" is: a network error, a timeout (of the request or of its
+ * body), any other non-2xx status (a 5xx, a 429, a 404 from a wrong
+ * NEMAR_API_BASE), a body that is not JSON, or JSON without a user and a string
+ * role, each logged without the token or the body.
  */
 export async function resolveAdmin(
   env: Bindings,
@@ -70,14 +71,33 @@ export async function resolveAdmin(
     return UNAVAILABLE;
   }
 
-  let json: { user?: { username?: string; role?: string } } | null;
+  let json: unknown;
   try {
-    json = (await res.json()) as { user?: { username?: string; role?: string } };
+    // The timeout covers this read too: a body that stalls after the headers ends here.
+    json = await res.json();
   } catch (err) {
-    console.error("[auth] /users/me returned unparseable JSON:", err);
+    // The error's name only: a JSON error message can quote the start of the body.
+    const name = err instanceof Error ? err.name : "unknown";
+    if (name === "TimeoutError" || name === "AbortError") {
+      console.error("[auth] /users/me body did not arrive in time:", name);
+    } else {
+      console.error("[auth] /users/me returned a body that is not JSON:", name);
+    }
     return UNAVAILABLE;
   }
-  const user = json?.user;
-  if (!user?.role || !ADMIN_ROLES.has(user.role)) return DENIED;
-  return { status: "admin", admin: { username: user.username ?? "unknown", role: user.role } };
+  // A shape this check does not know is the identity service changing under
+  // us, not a verdict on the token: say so (without the body) rather than
+  // turn every admin away in silence.
+  const user = (json as { user?: unknown } | null)?.user;
+  const role = (user as { role?: unknown } | null | undefined)?.role;
+  if (typeof user !== "object" || user === null || typeof role !== "string") {
+    console.error("[auth] /users/me answered without a user and a string role; shape changed?");
+    return UNAVAILABLE;
+  }
+  if (!ADMIN_ROLES.has(role)) return DENIED;
+  const username = (user as { username?: unknown }).username;
+  return {
+    status: "admin",
+    admin: { username: typeof username === "string" ? username : "unknown", role },
+  };
 }

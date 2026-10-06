@@ -26,6 +26,22 @@ beforeAll(() => {
           return Response.json({ user: { username: "bob", role: "user" } });
         case "Bearer no-role-key":
           return Response.json({ user: { username: "eve" } });
+        case "Bearer wrapped-key":
+          return Response.json({ data: { user: { username: "ada", role: "admin" } } });
+        case "Bearer numeric-role-key":
+          return Response.json({ user: { username: "ada", role: 1 } });
+        case "Bearer viewer-key":
+          return Response.json({ user: { username: "val", role: "viewer" } });
+        case "Bearer stall-key":
+          // Headers and the start of a body, then nothing: only the caller giving up ends it.
+          return new Response(
+            new ReadableStream({
+              start(controller) {
+                controller.enqueue(new TextEncoder().encode('{"user":'));
+              },
+            }),
+            { headers: { "content-type": "application/json" } },
+          );
         case "Bearer expired-key":
           return new Response("no", { status: 401 });
         case "Bearer revoked-key":
@@ -85,12 +101,12 @@ describe("resolveAdmin: a verdict on the token", () => {
     });
   });
 
-  test("a non-admin, a user with no role, an expired and a revoked token are denied, without a log", async () => {
+  test("a non-admin, an unknown role, an expired and a revoked token are denied, without a log", async () => {
     const log = quiet();
     try {
       for (const header of [
         "Bearer user-key",
-        "Bearer no-role-key",
+        "Bearer viewer-key",
         "Bearer expired-key",
         "Bearer revoked-key",
       ]) {
@@ -129,14 +145,50 @@ describe("resolveAdmin: the identity service could not say", () => {
     for (const line of log.lines) expect(line).not.toContain("-key");
   });
 
-  test("a 200 that is not JSON is unavailable", async () => {
+  test("a 200 that is not JSON is unavailable, and the log carries none of the body", async () => {
     const log = quiet();
     try {
       expect(await resolveAdmin(env(), "Bearer html-key")).toEqual({ status: "unavailable" });
     } finally {
       log.restore();
     }
-    expect(log.lines[0]).toContain("unparseable");
+    expect(log.lines).toHaveLength(1);
+    expect(log.lines[0]).toContain("not JSON");
+    for (const leak of ["html", "maintenance", "-key"]) expect(log.lines[0]).not.toContain(leak);
+  });
+
+  test("a 200 whose body stalls after the headers is unavailable, and says it timed out", async () => {
+    const log = quiet();
+    const started = Date.now();
+    try {
+      expect(await resolveAdmin(env(), "Bearer stall-key", 150)).toEqual({ status: "unavailable" });
+    } finally {
+      log.restore();
+    }
+    expect(Date.now() - started).toBeLessThan(2_000);
+    expect(log.lines).toHaveLength(1);
+    expect(log.lines[0]).toContain("did not arrive in time");
+    expect(log.lines[0]).not.toContain("not JSON");
+  });
+
+  test("JSON without a user and a string role is unavailable and logged, never a silent denial", async () => {
+    const log = quiet();
+    try {
+      for (const header of [
+        "Bearer no-role-key",
+        "Bearer wrapped-key",
+        "Bearer numeric-role-key",
+      ]) {
+        expect(await resolveAdmin(env(), header)).toEqual({ status: "unavailable" });
+      }
+    } finally {
+      log.restore();
+    }
+    expect(log.lines).toHaveLength(3);
+    for (const line of log.lines) {
+      expect(line).toContain("shape changed");
+      expect(line).not.toContain("-key");
+    }
   });
 
   test("a server that never answers is unavailable once the timeout passes", async () => {
