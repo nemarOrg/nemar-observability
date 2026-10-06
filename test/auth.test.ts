@@ -5,7 +5,7 @@
 // (5xx, 429, a wrong base, a body that is not JSON, a hang).
 
 import { afterAll, beforeAll, beforeEach, describe, expect, test } from "bun:test";
-import { resolveAdmin } from "../src/lib/auth";
+import { IDENTITY_TIMEOUT_MS, resolveAdmin } from "../src/lib/auth";
 import type { Bindings } from "../src/types";
 
 let identity: ReturnType<typeof Bun.serve>;
@@ -142,7 +142,12 @@ describe("resolveAdmin: the identity service could not say", () => {
       log.restore();
     }
     expect(log.lines).toHaveLength(3);
-    for (const line of log.lines) expect(line).not.toContain("-key");
+    // Neither the token nor what the service said in its body reaches a log line.
+    for (const line of log.lines) {
+      for (const leak of ["-key", "upstream is down", "slow down", "not here"]) {
+        expect(line).not.toContain(leak);
+      }
+    }
   });
 
   test("a 200 that is not JSON is unavailable, and the log carries none of the body", async () => {
@@ -203,6 +208,11 @@ describe("resolveAdmin: the identity service could not say", () => {
     expect(took).toBeGreaterThanOrEqual(100);
     expect(took).toBeLessThan(2_000);
     expect(log.lines[0]).toContain("unreachable");
+    expect(log.lines.join(" ")).not.toContain("-key");
+  });
+
+  test("the default timeout is five seconds", () => {
+    expect(IDENTITY_TIMEOUT_MS).toBe(5_000);
   });
 
   test("an unreachable server is unavailable", async () => {
@@ -218,5 +228,6 @@ describe("resolveAdmin: the identity service could not say", () => {
       log.restore();
     }
     expect(log.lines[0]).toContain("unreachable");
+    expect(log.lines.join(" ")).not.toContain("-key");
   });
 });

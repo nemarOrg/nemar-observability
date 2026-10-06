@@ -383,7 +383,7 @@ apiRoutes.get("/embeds", async (c) => {
 });
 
 // Admin drill-down: the list behind a tile. Bearer admin only (delegated to
-// nemar-cli /users/me). Never cached — it can contain private dataset ids. A bad
+// nemar-cli /users/me). Never cached; it can contain private dataset ids. A bad
 // or non-admin token is 401; an identity service that could not answer is 503,
 // so a client or monitor can tell a permissions problem from an outage.
 apiRoutes.get("/drilldown/:key", async (c) => {
