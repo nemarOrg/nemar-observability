@@ -532,7 +532,9 @@ describe("Umami liveness over HTTP", () => {
       resetUmamiLivenessCache();
       return worker.fetch(new Request("https://x/observability/health"), bindings, ctx);
     };
-    const freshDay = () => new Date(Date.now() - 86_400_000).toISOString().slice(0, 10);
+    // The newest day the rule requires, so the seed is right at every hour of the UTC day,
+    // including the six hours after midnight when yesterday is not yet required.
+    const freshDay = () => expectedLatestDay(new Date());
     const seedCollectors = () => {
       seedExpectedSeries(freshDay());
       seedSection("egress", new Date().toISOString());
@@ -560,7 +562,13 @@ describe("Umami liveness over HTTP", () => {
       lastEventAt = Date.now() - 7 * 3_600_000;
       const res = await call(production());
       expect(res.status).toBe(503);
-      expect(await res.json()).toMatchObject({ ok: false, umami: "silent" });
+      // Only Umami is at fault: the seeded series and collectors are current at every hour.
+      expect(await res.json()).toMatchObject({
+        ok: false,
+        umami: "silent",
+        series_behind: [],
+        pushed_problems: [],
+      });
     });
 
     test("503 with the reason when Umami rejects the key", async () => {
@@ -573,6 +581,8 @@ describe("Umami liveness over HTTP", () => {
         ok: false,
         umami: "unreachable",
         umami_reason: "http_401",
+        series_behind: [],
+        pushed_problems: [],
       });
     });
 
@@ -587,7 +597,12 @@ describe("Umami liveness over HTTP", () => {
         }),
       );
       expect(res.status).toBe(503);
-      expect(await res.json()).toMatchObject({ ok: false, umami: "misconfigured" });
+      expect(await res.json()).toMatchObject({
+        ok: false,
+        umami: "misconfigured",
+        series_behind: [],
+        pushed_problems: [],
+      });
     });
 
     test("200 outside production with no Umami and no collectors", async () => {
