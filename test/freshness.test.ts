@@ -562,7 +562,13 @@ describe("Umami liveness over HTTP", () => {
       lastEventAt = Date.now() - 7 * 3_600_000;
       const res = await call(production());
       expect(res.status).toBe(503);
-      expect(await res.json()).toMatchObject({ ok: false, umami: "silent" });
+      // Only Umami is at fault: the seeded series and collectors are current at every hour.
+      expect(await res.json()).toMatchObject({
+        ok: false,
+        umami: "silent",
+        series_behind: [],
+        pushed_problems: [],
+      });
     });
 
     test("503 with the reason when Umami rejects the key", async () => {
@@ -575,6 +581,8 @@ describe("Umami liveness over HTTP", () => {
         ok: false,
         umami: "unreachable",
         umami_reason: "http_401",
+        series_behind: [],
+        pushed_problems: [],
       });
     });
 
@@ -589,7 +597,12 @@ describe("Umami liveness over HTTP", () => {
         }),
       );
       expect(res.status).toBe(503);
-      expect(await res.json()).toMatchObject({ ok: false, umami: "misconfigured" });
+      expect(await res.json()).toMatchObject({
+        ok: false,
+        umami: "misconfigured",
+        series_behind: [],
+        pushed_problems: [],
+      });
     });
 
     test("200 outside production with no Umami and no collectors", async () => {
