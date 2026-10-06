@@ -675,7 +675,7 @@ describe("the memo and the shared query budget", () => {
     ae = stubAe();
     const memo = createListsMemo();
     const [start, end] = PRESETS[0];
-    // A real options bag whose read throws: the one way to make the loading promise reject,
+    // A real options bag whose read throws: a way to make the loading promise reject,
     // since every failure in the module is otherwise returned as a block status.
     const hostile = {
       memo,

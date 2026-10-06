@@ -376,7 +376,8 @@ async function loadSharedPreset(
   }
   // It did not arrive: take over if the claim was released or expired, else give up.
   // The claimant holds the claim for at most CLAIM_TTL_MS, so this is not the
-  // budget's "busy": no budget was spent, and a retry in seconds finds the answer.
+  // budget's "busy": no budget was spent, and a retry in seconds finds the answer
+  // or takes the claim over.
   if (await claim()) return computeAndShare();
   return { kind: "failed", lists: bothBlocks("unavailable", REFRESHING_NOTE) };
 }
