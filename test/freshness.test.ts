@@ -532,7 +532,9 @@ describe("Umami liveness over HTTP", () => {
       resetUmamiLivenessCache();
       return worker.fetch(new Request("https://x/observability/health"), bindings, ctx);
     };
-    const freshDay = () => new Date(Date.now() - 86_400_000).toISOString().slice(0, 10);
+    // The newest day the rule requires, so the seed is right at every hour of the UTC day,
+    // including the six hours after midnight when yesterday is not yet required.
+    const freshDay = () => expectedLatestDay(new Date());
     const seedCollectors = () => {
       seedExpectedSeries(freshDay());
       seedSection("egress", new Date().toISOString());
