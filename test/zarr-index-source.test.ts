@@ -125,18 +125,35 @@ describe("reading an index", () => {
     expect(index.requests).toEqual([expect.objectContaining({ status: 200 })]);
   });
 
-  test("a missing index answers 403 on S3 and 404 elsewhere; both mean no index, and drop a stale entry", async () => {
+  test("a missing index answers 403 on S3 and 404 elsewhere; both mean no index when none was ever read", async () => {
+    index.stop();
+    index = startIndexServer(new Map());
+    const options = await opts();
+    for (const status of [403, 404]) {
+      index.state.missingStatus = status;
+      expect(await readDatasetIndex("nm000118", { ...options, indexBase: index.url })).toEqual({
+        kind: "absent",
+      });
+    }
+  });
+
+  test("an index that was readable before and is missing now is a regression, not no index", async () => {
     const options = await opts();
     await readDatasetIndex("nm000118", options);
-    expect(await options.cache.read("nm000118")).not.toBeNull();
+    const known = expectedSummary("nm000118").storeSeconds;
     index.stop();
     index = startIndexServer(new Map());
     for (const status of [403, 404]) {
       index.state.missingStatus = status;
       const result = await readDatasetIndex("nm000118", { ...options, indexBase: index.url });
-      expect(result).toEqual({ kind: "absent" });
+      expect(result).toEqual({
+        kind: "unavailable",
+        reason: "the index was readable on an earlier run and is missing now",
+        lastKnownSeconds: known,
+      });
     }
-    expect(await options.cache.read("nm000118")).toBeNull();
+    // The old summary stays on disk: it is the reference for how much is missing.
+    expect((await options.cache.read("nm000118"))?.summary.storeSeconds).toBe(known);
   });
 
   test("a failed ETag check is never answered from the cache: the dataset is unavailable", async () => {
@@ -145,7 +162,11 @@ describe("reading an index", () => {
     index.state.failures.set("nm000118", [500, 500, 500]);
     index.requests.length = 0;
     const result = await readDatasetIndex("nm000118", options);
-    expect(result).toEqual({ kind: "unavailable", reason: "HTTP 500" });
+    expect(result).toEqual({
+      kind: "unavailable",
+      reason: "HTTP 500",
+      lastKnownSeconds: expectedSummary("nm000118").storeSeconds,
+    });
     expect(index.requests.map((request) => request.status)).toEqual([500, 500, 500]);
     // The cached summary is untouched, ready for the next successful check.
     expect(await options.cache.read("nm000118")).not.toBeNull();
@@ -430,10 +451,12 @@ describe("listing the public catalog", () => {
     try {
       const datasets = await listPublicDatasets(catalog.url, { pageSize: 200, retryDelayMs: 0 });
       expect(datasets).toHaveLength(450);
+      // Paging runs to an empty page rather than stopping at total_count.
       expect(catalog.seen.map((request) => request.url)).toEqual([
         "/datasets?limit=200&offset=0",
         "/datasets?limit=200&offset=200",
         "/datasets?limit=200&offset=400",
+        "/datasets?limit=200&offset=450",
       ]);
       expect(catalog.seen.every((request) => request.authorization === null)).toBe(true);
       expect(catalog.seen.every((request) => request.userAgent === USER_AGENT)).toBe(true);
@@ -451,7 +474,6 @@ describe("listing the public catalog", () => {
       { dataset_id: "nm000005", visibility: "private" },
       { dataset_id: "nm000006", status: "draft" },
       { dataset_id: "nm000007", source_type: "catalog" },
-      { dataset_id: "nm000001" },
       { dataset_id: "not an id" },
     ];
     const catalog = startCatalogServer(rows);
@@ -474,12 +496,9 @@ describe("listing the public catalog", () => {
     const catalog = startCatalogServer(ids(5));
     try {
       catalog.state.failWith = 500;
-      await expect(listPublicDatasets(catalog.url, { retryDelayMs: 0 })).rejects.toThrow(
-        CollectionError,
-      );
-      await expect(listPublicDatasets(catalog.url, { retryDelayMs: 0 })).rejects.toThrow(
-        "HTTP 500",
-      );
+      const options = { retryDelayMs: 0, attempts: 3 };
+      await expect(listPublicDatasets(catalog.url, options)).rejects.toThrow(CollectionError);
+      await expect(listPublicDatasets(catalog.url, options)).rejects.toThrow("HTTP 500");
       expect(catalog.seen).toHaveLength(6); // three tries each
     } finally {
       catalog.stop();
@@ -512,7 +531,7 @@ describe("listing the public catalog", () => {
     try {
       await expect(
         listPublicDatasets(shortServer.url.href, { pageSize: 2, retryDelayMs: 0 }),
-      ).rejects.toThrow("ended after 2 of 5");
+      ).rejects.toThrow("lists 2 datasets but reports a total of 5");
     } finally {
       shortServer.stop(true);
     }
