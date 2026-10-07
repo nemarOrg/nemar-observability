@@ -37,10 +37,12 @@ TimeoutStartSec=45min
 # as STATE_DIRECTORY, which ops/with-collector-secrets.sh passes through.
 StateDirectory=nemar-observability-recordings
 StateDirectoryMode=0700
-# Indexes are streamed, so a run holds about 220 MB at most (measured on
-# macOS); MemoryHigh makes the kernel reclaim and slow the service well before
-# MemoryMax kills it, so a fault here cannot starve the other services on this
-# shared host.
+# Indexes are streamed: a real run peaked at about 190 to 230 MB resident
+# (measured on macOS), and four streams each carrying one worst-case 16 MiB
+# entry of millions of tiny objects (the most a corrupt index can make it hold)
+# peaked at about 680 MB. MemoryHigh sits just above that, so the kernel reclaims
+# and slows the service before MemoryMax kills it, and a fault here cannot
+# starve the other services on this shared host.
 MemoryHigh=768M
 MemoryMax=1G
 ExecStart=/opt/nemar-observability/ops/with-collector-secrets.sh /opt/nemar-observability/scripts/push-zarr-recordings.ts

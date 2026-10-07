@@ -260,6 +260,20 @@ describe("one hostile store entry", () => {
     expect(summary).toMatchObject({ stores: 1, unmeasuredStores: 1 });
   });
 
+  test("an entry at the cap made of millions of tiny objects is read and dropped, four at a time", async () => {
+    // The worst a corrupt index can ask of JSON.parse within the cap: about 5.6 million
+    // empty objects in one array. Four such streams at once (the collector's default).
+    const unit = "{},";
+    const entry = `{"x":[${unit.repeat(Math.floor((MAX_STORE_ENTRY_BYTES - 200) / unit.length) - 1)}{}]}`;
+    expect(entry.length).toBeLessThan(MAX_STORE_ENTRY_BYTES);
+    const text = indexText(entry);
+    const summaries = await Promise.all(
+      [1, 2, 3, 4].map(() => summarizeIndexStream(streamOfText(text), "nm000118")),
+    );
+    for (const summary of summaries)
+      expect(summary).toMatchObject({ stores: 1, unmeasuredStores: 1 });
+  });
+
   test("nesting past 64 levels inside an entry is refused before it is buffered", async () => {
     const nested = (levels: number) => `{"x":${"[".repeat(levels)}${"]".repeat(levels)}}`; // the object is level 1
     const accepted = nested(MAX_STORE_ENTRY_DEPTH - 1);

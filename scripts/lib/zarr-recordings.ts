@@ -36,10 +36,23 @@ export const MAX_DURATION_HOURS = 10_000;
 const MAX_DURATION_S = MAX_DURATION_HOURS * 3600;
 /**
  * Largest single `stores[]` entry the scanner will buffer. The largest real
- * entries are about 2 MB (nm000229, whose events metadata is large); 16 MiB is
- * far above that and keeps concurrent streams of hostile input bounded.
+ * entry is 5.4 MB (in nm000229, whose events metadata is large; its other
+ * entries average about 2 MB), so 16 MiB leaves about three times the room, and
+ * still bounds what one hostile entry can cost.
  */
 export const MAX_STORE_ENTRY_BYTES = 16 * 1024 * 1024;
+/**
+ * An entry this large (the largest real one is just over) is followed by an
+ * explicit garbage collection. Parsing 16 MiB of `{},{},...` makes millions of
+ * objects; measured with four concurrent streams that left over 1 GB resident
+ * before the collector ran, against the service's 1 GiB limit. Collecting after
+ * each such entry keeps one parsed entry live at a time.
+ */
+const COLLECT_AFTER_ENTRY_BYTES = 4 * 1024 * 1024;
+
+function collectGarbage(): void {
+  (globalThis as { Bun?: { gc?: (synchronous: boolean) => void } }).Bun?.gc?.(true);
+}
 /** Nesting allowed inside one `stores[]` entry; real entries nest about 6 deep. */
 export const MAX_STORE_ENTRY_DEPTH = 64;
 
@@ -397,6 +410,8 @@ export async function summarizeIndexStream(
           throw new JsonShapeError("a stores entry is not valid JSON");
         }
         accumulator.add(store);
+        store = undefined;
+        if (raw.length > COLLECT_AFTER_ENTRY_BYTES) collectGarbage();
       },
     },
     onChunk,
