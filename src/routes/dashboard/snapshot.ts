@@ -24,7 +24,7 @@ function tile(metric) {
   const valRow = el("div", "tile-value");
   valRow.appendChild(el("span", "v", fmt(metric)));
   const p = pct(metric.value, metric.total);
-  if (p != null) valRow.appendChild(el("span", "tile-pct", p + "% of " + unitFormatter(metric.unit)(metric.total)));
+  if (p != null) valRow.appendChild(el("span", "tile-pct", partShare(metric.value, metric.total) + " of " + unitFormatter(metric.unit)(metric.total)));
   t.appendChild(valRow);
   if (metric.total != null && metric.unit !== "bytes") {
     const barWrap = el("div", "meter");
@@ -186,7 +186,7 @@ function healthCard(section) {
     label.appendChild(el("span", null, coverage.label));
     if (coverage.hint) label.appendChild(infoDisclosure("About " + coverage.label, coverage.hint));
     text.appendChild(label);
-    text.appendChild(el("p", "coverage-value", num(coverage.value) + " of " + num(coverage.total)));
+    text.appendChild(el("p", "coverage-value", unitFormatter(coverage.unit)(coverage.value) + " of " + unitFormatter(coverage.unit)(coverage.total)));
     block.appendChild(text);
     card.appendChild(block);
   }
@@ -201,7 +201,7 @@ function healthCard(section) {
     row.appendChild(label);
     const value = el("span", "health-value");
     const p = pct(metric.value, metric.total);
-    if (p != null) value.appendChild(el("span", "health-share", p + "% of " + unitFormatter(metric.unit)(metric.total)));
+    if (p != null) value.appendChild(el("span", "health-share", partShare(metric.value, metric.total) + " of " + unitFormatter(metric.unit)(metric.total)));
     value.appendChild(el("strong", null, fmt(metric)));
     row.appendChild(value);
     if (metric.breakdown && metric.breakdown.length) {
@@ -357,7 +357,7 @@ function renderCatalog(sections) {
       item.appendChild(dt);
       const dd = el("dd", null, fmt(metric));
       const p = pct(metric.value, metric.total);
-      if (p != null) dd.appendChild(el("span", "stat-share", p + "% of " + unitFormatter(metric.unit)(metric.total)));
+      if (p != null) dd.appendChild(el("span", "stat-share", partShare(metric.value, metric.total) + " of " + unitFormatter(metric.unit)(metric.total)));
       item.appendChild(dd);
       strip.appendChild(item);
     });

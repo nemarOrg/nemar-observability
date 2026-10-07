@@ -22,17 +22,6 @@ function measureText(measure, value) {
   const figure = measureFigure(measure, value);
   return figure.number + " " + figure.unit;
 }
-// A share that never reads 0% for a small nonzero part or 100% for a part short of the whole.
-function partShare(value, total) {
-  if (!total) return "";
-  // Summed hours carry floating-point noise; a part within a billionth of the
-  // whole is the whole.
-  if (Math.abs(total - value) <= total * 1e-9) return "100%";
-  const p = (value / total) * 100;
-  if (value > 0 && p < 0.1) return "<0.1%";
-  if (value < total && p > 99.9) return ">99.9%";
-  return (Math.round(p * 10) / 10).toLocaleString("en-US") + "%";
-}
 function thresholdText(minChannels) {
   return minChannels <= 1 ? "any number of channels" : num(minChannels) + " or more channels";
 }

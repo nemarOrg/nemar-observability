@@ -47,15 +47,21 @@ function exactHours(n) {
   const text = hoursNumber(n);
   return text + (text === "1" ? " hour" : " hours");
 }
+// Units that read as a plain number: the label beside the figure already says
+// what is counted. fmt() also knows percent and status.
+const PLAIN_UNITS = ["count", "datasets", "errors", "requests", "users", "recordings", "percent", "status"];
 // How an amount in a unit reads in a list, beside a total, or as a tile value:
-// bytes and hours carry their unit, anything else is a plain count.
+// bytes and hours carry their unit, plain counts are a number, and a unit this
+// page does not know keeps its name ("12 minutes") rather than passing as a count.
 function unitFormatter(unit) {
   if (unit === "bytes") return humanBytes;
   if (unit === "hours") return humanHours;
-  return num;
+  if (!unit || PLAIN_UNITS.indexOf(unit) >= 0) return num;
+  return function (v) { return num(v) + " " + readableId(unit).toLowerCase(); };
 }
 function fmt(metric) {
   if (metric.unit === "hours") return humanHours(metric.value);
+  if (metric.unit && metric.unit !== "bytes" && PLAIN_UNITS.indexOf(metric.unit) < 0) return unitFormatter(metric.unit)(metric.value);
   if (metric.unit === "bytes") return humanBytes(metric.value);
   if (metric.unit === "percent") return num(metric.value) + "%";
   return num(metric.value);
@@ -63,6 +69,18 @@ function fmt(metric) {
 function pct(value, total) {
   if (!total) return null;
   return Math.round((value / total) * 1000) / 10;
+}
+// A share in words that never reads 0% for a small nonzero part or 100% for a
+// part short of the whole; empty without a total.
+function partShare(value, total) {
+  if (!total) return "";
+  // Summed hours carry floating-point noise; a part within a billionth of the
+  // whole is the whole.
+  if (Math.abs(total - value) <= total * 1e-9) return "100%";
+  const p = (value / total) * 100;
+  if (value > 0 && p < 0.1) return "<0.1%";
+  if (value < total && p > 99.9) return ">99.9%";
+  return (Math.round(p * 10) / 10).toLocaleString("en-US") + "%";
 }
 function parseDay(day) { return new Date(day + "T00:00:00Z"); }
 function shortDay(day) { const d = parseDay(day); return MONTHS[d.getUTCMonth()] + " " + d.getUTCDate(); }
