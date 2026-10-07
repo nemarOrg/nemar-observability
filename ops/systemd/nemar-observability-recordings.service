@@ -4,7 +4,7 @@ Wants=network-online.target nemar-observability-update.service
 After=network-online.target nemar-observability-update.service
 # Restart=on-failure below retries a failed run; these cap it at three starts in
 # five hours, so a persistently broken run cannot loop. Five hours, not six, so
-# the window has closed again before the next timer slot, six hours later.
+# the window has closed again before the next timer slot, at least six hours later.
 StartLimitIntervalSec=5h
 StartLimitBurst=3
 

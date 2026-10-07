@@ -7,6 +7,7 @@
 
 import { Database } from "bun:sqlite";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { recordingsFailureStatus } from "../scripts/lib/zarr-aggregate";
 import worker from "../src/index";
 import { loadPushedProblems, loadSeriesBehind } from "../src/lib/freshness";
 import type { Section } from "../src/lib/schema";
@@ -98,6 +99,57 @@ describe("last_ok_at through the ingest route", () => {
     await push(success);
     const { received_at, last_ok_at } = row();
     expect(last_ok_at).toBe(received_at);
+  });
+});
+
+// The recordings collector replaces its section with the real failure status the
+// same way; health tolerates that failed run only because last_ok_at survives it.
+describe("last_ok_at for the recordings collector", () => {
+  const RECORDINGS_TOKEN = "recordings-ingest-token";
+  const recordingsRow = () =>
+    engine
+      .query("SELECT received_at, last_ok_at FROM ingested_sections WHERE key = 'recordings'")
+      .get() as { received_at: string; last_ok_at: string | null };
+
+  async function pushRecordings(body: unknown): Promise<void> {
+    const env = {
+      OBS_DB: asD1(engine),
+      OBS_INGEST_TOKENS_JSON: JSON.stringify({ recordings: RECORDINGS_TOKEN }),
+    } as unknown as Bindings;
+    const res = await worker.fetch(
+      new Request("https://x/observability/api/sections/recordings", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${RECORDINGS_TOKEN}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(body),
+      }),
+      env,
+      {} as ExecutionContext,
+    );
+    expect(res.status).toBe(200);
+  }
+
+  const recordingsSuccess = {
+    ...recordingsFailureStatus(),
+    metrics: [{ key: "recordings.collector.errors", label: "Errors", value: 0, unit: "errors" }],
+  };
+
+  test("the real failure status keeps the last success, and a first failure leaves it empty", async () => {
+    await pushRecordings(recordingsFailureStatus());
+    expect(recordingsRow().last_ok_at).toBeNull();
+
+    await pushRecordings(recordingsSuccess);
+    const first = recordingsRow();
+    expect(first.last_ok_at).toBe(first.received_at);
+
+    await Bun.sleep(5);
+    await pushRecordings(recordingsFailureStatus());
+    const after = recordingsRow();
+    expect(after.received_at > first.received_at).toBe(true);
+    expect(after.last_ok_at).toBe(first.last_ok_at);
+    expect(await loadPushedProblems(asD1(engine), new Date(), false)).toEqual([]);
   });
 });
 

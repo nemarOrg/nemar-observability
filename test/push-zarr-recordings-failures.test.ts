@@ -26,6 +26,7 @@ import {
   collectRecordings,
 } from "../scripts/push-zarr-recordings";
 import worker from "../src/index";
+import { loadPushedProblems } from "../src/lib/freshness";
 import { loadPushedSections } from "../src/lib/store";
 import type { Bindings } from "../src/types";
 import { asD1 } from "./helpers/d1";
@@ -368,5 +369,46 @@ describe("a checkout that has stopped updating", () => {
     expect((await stored())?.metrics.map((m) => m.key)).not.toContain(
       "recordings.collector.code_stale",
     );
+  });
+});
+
+// What /health makes of the real collector's real pushes: the section key, the
+// failure status and the code_stale metric are the collector's own, so a drift in
+// any of them against the table in src/lib/freshness.ts shows here.
+describe("what /health judges of the recordings section", () => {
+  const marker = () => join(dir, "update-failed-since");
+  const hoursAgo = (hours: number) => new Date(Date.now() - hours * 3_600_000).toISOString();
+  const problems = async (at: Date = new Date()) =>
+    (await loadPushedProblems(asD1(engine), at, true)).filter((p) => p.section === "recordings");
+
+  test("a good run is no problem", async () => {
+    expect(await run()).toBe(0);
+    expect(await problems()).toEqual([]);
+  });
+
+  test("a good run with a checkout that stopped updating is reported by its metric key", async () => {
+    await writeFile(marker(), `${hoursAgo(30)}\n`);
+    expect(await run({ codeMarker: marker() })).toBe(0);
+    expect(await problems()).toEqual([
+      { section: "recordings", problem: "code_stale", detail: "recordings.collector.code_stale" },
+    ]);
+  });
+
+  test("a failed run after a good one is clean now and stale once the window has passed", async () => {
+    expect(await run()).toBe(0);
+    catalog.state.failWith = 500;
+    expect(await run()).toBe(1);
+    expect((await stored())?.metrics.map((m) => m.severity)).toEqual(["error"]);
+    expect(await problems()).toEqual([]);
+    const later = await problems(new Date(Date.now() + 27 * 3_600_000));
+    expect(later.map((p) => p.problem)).toEqual(["stale"]);
+  });
+
+  test("a first run that fails is stale at once, with no successful run yet", async () => {
+    catalog.state.failWith = 500;
+    expect(await run()).toBe(1);
+    expect(await problems()).toEqual([
+      { section: "recordings", problem: "stale", detail: "no successful run yet" },
+    ]);
   });
 });

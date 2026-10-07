@@ -8,6 +8,7 @@
 
 import { describe, expect, test } from "bun:test";
 import { readFileSync, readdirSync } from "node:fs";
+import { EXPECTED_SECTION_MAX_AGE_MS } from "../src/lib/freshness";
 
 const OPS = new URL("../ops/", import.meta.url);
 const read = (path: string) => readFileSync(new URL(path, OPS), "utf8");
@@ -62,6 +63,17 @@ describe("collector units", () => {
       );
     }
     expect(units).toContain("nemar-observability-update.service");
+  });
+
+  // A collector shipped unjudged once (recordings, until the health table named it).
+  // The unit directory is the list of collectors on this host: each timer is one,
+  // and its section key is its name. The Umami pusher lives in the nemar-umami repo.
+  test("every collector timer is judged by /health, and only the Umami pusher besides", () => {
+    const timers = units
+      .filter((unit) => unit.endsWith(".timer"))
+      .map((unit) => unit.replace(/^nemar-observability-/, "").replace(/\.timer$/, ""));
+    expect([...timers].sort()).toEqual([...collectors].sort());
+    expect(Object.keys(EXPECTED_SECTION_MAX_AGE_MS).sort()).toEqual([...timers, "website"].sort());
   });
 
   test("each timer starts its own service", () => {

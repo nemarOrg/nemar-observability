@@ -2,7 +2,8 @@
 Description=Run the NEMAR recorded-hours collector three times a day
 
 [Timer]
-# Three runs a day, six hours apart, all at :50. The collector reads the public
+# Three runs a day, at 06:50, 12:50 and 18:50 UTC (six hours apart, then twelve
+# overnight), all at :50. The collector reads the public
 # catalog, which reads nemar-db, and nemar-cli's hourly nemar-db export locks
 # that database between about :10 and :40 (AGENTS.md), so every slot is after
 # :40; the collector also waits out a locked catalog for about five minutes. :50
