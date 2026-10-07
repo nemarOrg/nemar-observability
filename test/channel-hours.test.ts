@@ -26,6 +26,7 @@ const {
   channelStops,
   stepStop,
   stepPower,
+  countScale,
   nearestStop,
   parseHoursHash,
   hoursHash,
@@ -48,6 +49,7 @@ const {
   "channelStops",
   "stepStop",
   "stepPower",
+  "countScale",
   "nearestStop",
   "parseHoursHash",
   "hoursHash",
@@ -117,10 +119,52 @@ describe("finding the payload", () => {
   });
 
   test("a payload this page cannot read is reported, not drawn", () => {
-    const broken = structuredClone(sample) as unknown as { modalities: { bins: unknown }[] };
-    broken.modalities[0].bins = "not a list";
-    const snap = { ...base, sections: [{ ...recordings, channel_hours: broken }] };
-    expect(findChannelHours(snap).state).toBe("invalid");
+    type Loose = Record<string, unknown> & { modalities: Record<string, unknown>[] };
+    const broken = (mutate: (v: Loose) => void) => {
+      const v = structuredClone(sample) as unknown as Loose;
+      mutate(v);
+      return findChannelHours({ ...base, sections: [{ ...recordings, channel_hours: v }] }).state;
+    };
+    expect(
+      broken((v) => {
+        v.modalities[0].bins = "not a list";
+      }),
+    ).toBe("invalid");
+    expect(
+      broken((v) => {
+        v.modalities[0].bins = [];
+      }),
+    ).toBe("invalid");
+    expect(
+      broken((v) => {
+        v.modalities = [];
+      }),
+    ).toBe("invalid");
+    expect(
+      broken((v) => {
+        v.modalities[0].hours = -1;
+      }),
+    ).toBe("invalid");
+    expect(
+      broken((v) => {
+        (v.modalities[0].bins as { recordings: number }[])[0].recordings = 1.5;
+      }),
+    ).toBe("invalid");
+    expect(
+      broken((v) => {
+        (v.modalities[0].bins as { channels: number }[])[0].channels = 0;
+      }),
+    ).toBe("invalid");
+    expect(
+      broken((v) => {
+        v.modalities[0].dataset_peaks = undefined;
+      }),
+    ).toBe("invalid");
+    expect(
+      broken((v) => {
+        v.datasets_scanned = "64";
+      }),
+    ).toBe("invalid");
   });
 });
 
@@ -220,7 +264,39 @@ describe("the channel axis and the slider's stops", () => {
     expect(stepStop(stops, 1, -1)).toBe(1);
     expect(stepPower(stops, 16, 1)).toBe(32);
     expect(stepPower(stops, 19, -1)).toBe(16);
-    expect(stepPower(stops, 256, 1)).toBe(256);
+    // Past the last power of two, Page Up still reaches the largest count.
+    expect(stepPower(stops, 256, 1)).toBe(257);
+    expect(stepPower(stops, 257, 1)).toBe(257);
+    expect(stepPower(stops, 257, -1)).toBe(256);
+    const megStops = channelStops(byKey("meg"), 512);
+    expect(stepPower(megStops, 415, 1)).toBe(415);
+    expect(stepPower(megStops, 415, -1)).toBe(256);
+  });
+
+  test("a step never moves against its direction, even from beyond the last stop", () => {
+    // A shared link can ask for 400 or more channels of EEG, past its last count.
+    const stops = channelStops(byKey("eeg"), 512);
+    expect(stepStop(stops, 400, 1)).toBe(400);
+    expect(stepPower(stops, 400, 1)).toBe(400);
+    expect(stepStop(stops, 400, -1)).toBe(257);
+    expect(stepPower(stops, 400, -1)).toBe(256);
+  });
+
+  test("count gridlines are whole numbers", () => {
+    // A tallest bar of 7 would give a 2.5 step whose labels round to 3 and 8.
+    expect(countScale(7)).toEqual({ max: 8, ticks: [0, 2, 4, 6, 8] });
+    expect(countScale(1)).toEqual({ max: 1, ticks: [0, 1] });
+    expect(countScale(3)).toEqual({ max: 3, ticks: [0, 1, 2, 3] });
+    // The EEG dataset peaks and recordings in the sample.
+    const peak = Math.max(...raw("EEG").dataset_peaks.map((p) => p.datasets));
+    const recordings = Math.max(...raw("EEG").bins.map((b) => b.recordings));
+    for (const max of [peak, recordings, 6.5, 7.5, 13, 26, 99, 1234]) {
+      const scale = countScale(max);
+      expect(scale.ticks.every((t: number) => Number.isInteger(t))).toBe(true);
+      expect(scale.max).toBeGreaterThanOrEqual(max);
+      expect(scale.ticks.length).toBeGreaterThanOrEqual(2);
+      expect(scale.ticks.length).toBeLessThanOrEqual(6);
+    }
   });
 
   test("a drag lands on the nearest stop on the log axis", () => {

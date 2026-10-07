@@ -174,19 +174,41 @@ function channelStops(modality, axisMax) {
   modality.peaks.forEach(function (p) { set[p.channels] = true; });
   return Object.keys(set).map(Number).filter(function (c) { return c >= 1 && c < axisMax; }).sort(function (a, b) { return a - b; });
 }
-// The next stop above (direction 1) or below (-1) a value, staying at the ends.
+// The next stop above (direction 1) or below (-1) a value. With nothing further
+// that way it stays put, so a step never moves against its own direction (a
+// minimum from a link can sit beyond the last stop).
 function stepStop(stops, current, direction) {
   if (direction > 0) {
     for (let i = 0; i < stops.length; i++) if (stops[i] > current) return stops[i];
-    return stops[stops.length - 1];
+    return current;
   }
   for (let i = stops.length - 1; i >= 0; i--) if (stops[i] < current) return stops[i];
-  return stops[0];
+  return current;
 }
-// Page Up and Page Down jump between powers of two.
+// Page Up and Page Down jump between powers of two; past the last power they
+// fall back to the next exact count, so 256 then Page Up still reaches 257.
 function stepPower(stops, current, direction) {
   const powers = stops.filter(function (c) { return (c & (c - 1)) === 0; });
-  return stepStop(powers.length ? powers : stops, current, direction);
+  const next = stepStop(powers, current, direction);
+  return next === current ? stepStop(stops, current, direction) : next;
+}
+// Gridlines for a measure that counts things: whole numbers only, never a
+// 2.5 step whose labels would round to the wrong value. Three to five lines.
+function countScale(max) {
+  const top = Math.max(1, Math.ceil(max));
+  const parts = [3, 4, 2, 5];
+  for (let k = 0; k < parts.length; k++) {
+    const raw = top / parts[k];
+    const base = Math.pow(10, Math.floor(Math.log10(raw)));
+    const f = raw / base;
+    const step = Math.max(1, (f <= 1 ? 1 : f <= 2 ? 2 : f <= 2.5 ? 2.5 : f <= 5 ? 5 : 10) * base);
+    if (!Number.isInteger(step)) continue;
+    const ceiling = Math.ceil(top / step) * step;
+    const ticks = [];
+    for (let v = 0; v <= ceiling; v += step) ticks.push(v);
+    return { max: ceiling, ticks: ticks };
+  }
+  return { max: top, ticks: [0, top] };
 }
 // The stop nearest a dragged position, measured on the log axis.
 function nearestStop(stops, channels) {
