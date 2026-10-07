@@ -1,5 +1,6 @@
 import { Database } from "bun:sqlite";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { readFileSync } from "node:fs";
 import worker from "../src/index";
 import { loadDailySeries, loadPushedSections } from "../src/lib/store";
 import { asD1 } from "./helpers/d1";
@@ -109,5 +110,65 @@ describe("section ingest contract and atomic publication", () => {
     expect(sections[0].metrics[0].value).toBe(4);
     const series = await loadDailySeries(db, "2020-09-01", "2020-09-02");
     expect(series[0].points).toEqual([{ date: "2020-09-01", value: 4 }]);
+  });
+});
+
+describe("channel_hours through the push endpoint", () => {
+  const sample = JSON.parse(
+    readFileSync(new URL("./fixtures/channel-hours.sample.json", import.meta.url), "utf8"),
+  );
+  const RECORDINGS_TOKEN = "recordings-ingest-token";
+
+  function recordings(channelHours: unknown) {
+    return {
+      key: "recordings",
+      label: "Recorded data",
+      source: "nemar-zarr-index",
+      metrics: [{ key: "recordings.hours", label: "Recorded hours", value: 5640, unit: "hours" }],
+      channel_hours: channelHours,
+    };
+  }
+
+  async function postRecordings(body: unknown): Promise<Response> {
+    const env = {
+      OBS_DB: db,
+      OBS_INGEST_TOKENS_JSON: `{"recordings":"${RECORDINGS_TOKEN}"}`,
+    } as unknown as import("../src/types").Bindings;
+    return worker.fetch(
+      new Request("https://x/observability/api/sections/recordings", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${RECORDINGS_TOKEN}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(body),
+      }),
+      env,
+      {} as ExecutionContext,
+    );
+  }
+
+  test("a valid payload is stored and read back unchanged", async () => {
+    expect((await postRecordings(recordings(sample))).status).toBe(200);
+    const stored = (await loadPushedSections(db)).find((s) => s.key === "recordings");
+    expect(stored?.channel_hours).toEqual(sample);
+  });
+
+  test("inconsistent totals are rejected with 422 and nothing is stored", async () => {
+    const bad = structuredClone(sample);
+    bad.modalities[0].hours += 1;
+    const response = await postRecordings(recordings(bad));
+    expect(response.status).toBe(422);
+    expect(JSON.stringify(await response.json())).toContain("hours must equal the sum over bins");
+    expect(await loadPushedSections(db)).toEqual([]);
+  });
+
+  test("a payload carrying a dataset identifier is rejected, not stored", async () => {
+    const bad = structuredClone(sample);
+    bad.modalities[0].bins[0].dataset_id = "nm000001";
+    const response = await postRecordings(recordings(bad));
+    expect(response.status).toBe(422);
+    expect(JSON.stringify(await response.json())).toContain("unrecognized_keys");
+    expect(await loadPushedSections(db)).toEqual([]);
   });
 });
