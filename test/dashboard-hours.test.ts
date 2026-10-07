@@ -9,6 +9,7 @@ import { Window } from "happy-dom";
 import worker from "../src/index";
 import type { Section } from "../src/lib/schema";
 import { savePushedSection } from "../src/lib/store";
+import { STYLES } from "../src/routes/dashboard/styles";
 import { renderDashboardPage } from "../src/routes/ui";
 import type { Bindings } from "../src/types";
 import sample from "./fixtures/channel-hours.sample.json";
@@ -177,6 +178,17 @@ describe("recorded hours before the collector reports", () => {
     await until(() => document.getElementById("card-recordings") !== null, "the recordings card");
     expect(text(document, "#card-recordings")).not.toContain("Explore hours by channel count");
     expect(errors).toEqual([]);
+  });
+});
+
+describe("the tab strip on a narrow screen", () => {
+  // happy-dom does no layout, so this pins the rule that keeps the page from
+  // scrolling sideways: each tab total carries screen-reader text that is
+  // absolutely positioned, and only a positioned strip clips it. Checked in
+  // headless Chrome with twelve tabs at 390 px: the page stays 390 px wide.
+  test("the strip is positioned and scrolls on its own", () => {
+    expect(STYLES).toMatch(/\.sr-only \{ position: absolute;/);
+    expect(STYLES).toMatch(/\.hours-tabs \{\s*position: relative;[^}]*overflow-x: auto;/);
   });
 });
 

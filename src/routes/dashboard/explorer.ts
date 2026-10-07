@@ -138,6 +138,7 @@ function buildHoursExplorer() {
     selectHoursModality(view.modalities[next].key);
   });
   top.appendChild(tablist);
+  nodes.tablist = tablist;
   const measures = el("div", "segmented hours-measures");
   measures.setAttribute("role", "group");
   measures.setAttribute("aria-label", "What to count");
@@ -293,6 +294,14 @@ function hoursSourceNotes(found) {
   if (payload.recordings_unmeasured) notes.push(plural(payload.recordings_unmeasured, "recording", "recordings") + " without a known duration or channel count " + (payload.recordings_unmeasured === 1 ? "is" : "are") + " left out.");
   return notes;
 }
+// A tab chosen by a link or the arrow keys can sit past the strip's edge on a
+// phone. The strip scrolls itself to center it; scrollIntoView could scroll the
+// whole page instead. The strip is positioned, so offsetLeft is measured in it.
+function centerHoursTab(tab) {
+  const strip = hoursView.nodes.tablist;
+  if (strip.scrollWidth <= strip.clientWidth) return;
+  strip.scrollLeft = Math.max(0, tab.offsetLeft - (strip.clientWidth - tab.offsetWidth) / 2);
+}
 function selectHoursModality(key) {
   if (hoursView.key === key) return;
   hoursView.key = key;
@@ -321,7 +330,10 @@ function updateHours(fromUser, announce) {
     const on = tab.dataset.modality === view.key;
     tab.setAttribute("aria-selected", String(on));
     tab.tabIndex = on ? 0 : -1;
-    if (on) nodes.panel.setAttribute("aria-labelledby", tab.id);
+    if (on) {
+      nodes.panel.setAttribute("aria-labelledby", tab.id);
+      centerHoursTab(tab);
+    }
   });
   nodes.measures.forEach(function (button) { button.setAttribute("aria-pressed", String(button.dataset.measure === view.measure)); });
 

@@ -42,6 +42,7 @@ const DARK_TOKENS = `
   --region: rgba(250, 178, 25, 0.07);
   --mark-muted: #5c6b81;
   --hours-band: rgba(57, 135, 229, 0.11);
+  --edge-shadow: rgba(0, 0, 0, 0.55);
   --ok: #0ca30c;
   --ok-text: #4ade80;
   --ok-soft: rgba(74, 222, 128, 0.14);
@@ -106,6 +107,7 @@ export const STYLES = String.raw`
   --region: rgba(250, 178, 25, 0.08);
   --mark-muted: #8894a5;
   --hours-band: rgba(42, 120, 214, 0.07);
+  --edge-shadow: rgba(15, 23, 42, 0.16);
   --ok: #0ca30c;
   --ok-text: #166534;
   --ok-soft: rgba(21, 128, 61, 0.1);
@@ -240,7 +242,7 @@ main > section { scroll-margin-top: calc(var(--topbar-h) + 16px); padding-top: v
 .card-title { font-size: var(--fs-base); font-weight: 600; line-height: 1.35; }
 .card-sub { margin-top: 2px; color: var(--text-3); font-size: var(--fs-xs); }
 .title-row { display: flex; align-items: center; gap: 6px; }
-.card-foot { margin-top: var(--space-4); padding-top: var(--space-3); border-top: 1px solid var(--border); }
+.card-foot { display: flex; flex-wrap: wrap; gap: var(--space-2) var(--space-5); margin-top: var(--space-4); padding-top: var(--space-3); border-top: 1px solid var(--border); }
 .portal-cta { display: inline-flex; align-items: center; gap: 4px; color: var(--accent-text); font-size: var(--fs-sm); font-weight: 500; text-decoration: none; }
 .portal-cta:hover { text-decoration: underline; }
 .portal-cta .icon { width: 13px; height: 13px; }
@@ -494,7 +496,6 @@ main > section { scroll-margin-top: calc(var(--topbar-h) + 16px); padding-top: v
 .health-breakdown { grid-column: 2 / -1; }
 .health-card .card-foot { margin-top: auto; }
 .health-card .health-rows { margin-bottom: var(--space-2); }
-.card-foot { display: flex; flex-wrap: wrap; gap: var(--space-2) var(--space-5); }
 .card-link { color: var(--accent-text); font-size: var(--fs-sm); font-weight: 500; text-decoration: none; }
 .card-link:hover { text-decoration: underline; }
 
@@ -507,7 +508,18 @@ main > section { scroll-margin-top: calc(var(--topbar-h) + 16px); padding-top: v
 .hours-block > .subsection-head { margin-top: 0; }
 .hours-card { padding: 0; }
 .hours-top { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: var(--space-2) var(--space-4); padding: 10px 20px 0; border-bottom: 1px solid var(--border); }
-.hours-tabs { display: flex; gap: 2px; min-width: 0; max-width: 100%; overflow-x: auto; scrollbar-width: thin; margin-bottom: -1px; }
+/* Positioned, so the screen-reader text inside each tab total (absolutely
+   positioned) is clipped by the strip's own scrolling instead of widening the
+   page. When the strip scrolls, a soft shadow marks each edge with more tabs
+   beyond it: the local covers move with the tabs and hide it at the ends. */
+.hours-tabs {
+  position: relative; display: flex; gap: 2px; min-width: 0; max-width: 100%; overflow-x: auto; scrollbar-width: thin; margin-bottom: -1px;
+  background:
+    linear-gradient(to right, var(--surface) 40%, transparent) left center / 28px 100% no-repeat local,
+    linear-gradient(to left, var(--surface) 40%, transparent) right center / 28px 100% no-repeat local,
+    radial-gradient(farthest-side at 0 50%, var(--edge-shadow), transparent) left center / 12px 100% no-repeat scroll,
+    radial-gradient(farthest-side at 100% 50%, var(--edge-shadow), transparent) right center / 12px 100% no-repeat scroll;
+}
 .hours-tab { display: inline-flex; flex: none; flex-direction: column; align-items: flex-start; gap: 1px; min-width: 72px; min-height: 52px; padding: 8px 14px 9px; border: 0; border-bottom: 2px solid transparent; border-radius: var(--radius-md) var(--radius-md) 0 0; background: transparent; color: var(--text-2); cursor: pointer; text-align: left; }
 .hours-tab:hover { color: var(--text); background: var(--surface-2); }
 .hours-tab[aria-selected="true"] { color: var(--text); border-bottom-color: var(--accent); }
