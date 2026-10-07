@@ -25,7 +25,7 @@ function tile(metric) {
   const listCount = hasBreakdown && metric.breakdown_unit && metric.breakdown_unit !== metric.unit;
   valRow.appendChild(el("span", listCount ? "tile-caption" : "v", listCount ? "Top " + Math.min(metric.breakdown.length, 10) + (metric.value > 10 ? " of " + num(metric.value) : "") + " listed" : fmt(metric)));
   const p = pct(metric.value, metric.total);
-  if (p != null) valRow.appendChild(el("span", "tile-pct", p + "% of " + (metric.unit === "bytes" ? humanBytes(metric.total) : num(metric.total))));
+  if (p != null) valRow.appendChild(el("span", "tile-pct", partShare(metric.value, metric.total) + " of " + unitFormatter(metric.unit)(metric.total)));
   t.appendChild(valRow);
   if (metric.total != null && metric.unit !== "bytes") {
     const barWrap = el("div", "meter");
@@ -99,6 +99,7 @@ function renderSnapshot(snap) {
   renderCatalog(catalog);
   renderUsageSnapshot(usage);
   renderHealth(health);
+  renderHoursSafely(snap);
   renderAllTime();
   renderHeadline();
   const generated = new Date(snap.generated_at);
@@ -112,15 +113,25 @@ function renderSnapshot(snap) {
   meta.textContent = "Latest snapshot generated " + formatDateTime(snap.generated_at) + " (" + relativeTime(snap.generated_at) + "). It refreshes every hour."
     + (missing.length ? " Not in this snapshot: " + missing.join(", ") + "." : "");
 }
+// A failure drawing the explorer stays in its own block, so every other figure
+// still shows.
+function renderHoursSafely(snap) {
+  try {
+    renderRecordedHours(snap);
+  } catch (err) {
+    failHoursExplorer(err);
+  }
+}
 // A snapshot that failed to load and one that loaded but could not be drawn
 // get different words; both offer Try again, which also asks for the history
 // again, so nothing is left on a skeleton.
 function renderSnapshotError(kind, err) {
   const retry = function () {
-    ["catalog", "usage-snapshot", "sections"].forEach(function (id) {
+    ["catalog", "usage-snapshot", "sections", "channel-hours"].forEach(function (id) {
       const root = document.getElementById(id);
+      if (!root) return;
       root.dataset.ready = "false";
-      markRefreshing(root, gridSkeleton);
+      markRefreshing(root, id === "channel-hours" ? chartSkeleton : gridSkeleton);
     });
     document.getElementById("health-meta").textContent = "Loading the latest snapshot.";
     state.snapshot = null;
@@ -136,6 +147,9 @@ function renderSnapshotError(kind, err) {
   stateMessage(document.getElementById("sections"), "error", title, (reason + "The current state of the pipelines is unknown until it " + (display ? "can be shown." : "loads.")).trim(), retry);
   stateMessage(document.getElementById("catalog"), "error", display ? "Could not display catalog figures" : "Could not load catalog figures", (reason + "Catalog figures are unknown right now.").trim(), retry);
   stateMessage(document.getElementById("usage-snapshot"), "error", display ? "Could not display the rolling 30-day measures" : "Could not load the rolling 30-day measures", (reason + "These measures are unknown right now.").trim(), retry);
+  hoursView.nodes = null;
+  const hours = document.getElementById("channel-hours");
+  if (hours) stateMessage(hours, "error", display ? "Could not display recorded hours" : "Could not load recorded hours", (reason + "Recorded hours are unknown right now.").trim(), retry);
   renderAllTime();
   renderHeadline();
 }
@@ -183,7 +197,7 @@ function healthCard(section) {
     label.appendChild(el("span", null, coverage.label));
     if (coverage.hint) label.appendChild(infoDisclosure("About " + coverage.label, coverage.hint));
     text.appendChild(label);
-    text.appendChild(el("p", "coverage-value", num(coverage.value) + " of " + num(coverage.total)));
+    text.appendChild(el("p", "coverage-value", unitFormatter(coverage.unit)(coverage.value) + " of " + unitFormatter(coverage.unit)(coverage.total)));
     block.appendChild(text);
     card.appendChild(block);
   }
@@ -198,7 +212,7 @@ function healthCard(section) {
     row.appendChild(label);
     const value = el("span", "health-value");
     const p = pct(metric.value, metric.total);
-    if (p != null) value.appendChild(el("span", "health-share", p + "% of " + num(metric.total)));
+    if (p != null) value.appendChild(el("span", "health-share", partShare(metric.value, metric.total) + " of " + unitFormatter(metric.unit)(metric.total)));
     value.appendChild(el("strong", null, fmt(metric)));
     row.appendChild(value);
     if (metric.breakdown && metric.breakdown.length) {
@@ -209,9 +223,18 @@ function healthCard(section) {
     list.appendChild(row);
   });
   card.appendChild(list);
-  if (metrics.some(function (m) { return m.drilldown; })) {
+  // Only the section the explorer is drawing, and only when it can draw it.
+  const drawn = findChannelHours(state.snapshot);
+  const hasHours = drawn.state === "ok" && drawn.section === section;
+  if (metrics.some(function (m) { return m.drilldown; }) || hasHours) {
     const foot = el("div", "card-foot");
-    foot.appendChild(portalLink("Review in admin portal (administrators)"));
+    // The section behind the recorded-hours explorer points to it.
+    if (hasHours) {
+      const explore = el("a", "card-link", "Explore hours by channel count");
+      explore.href = "#recorded-hours";
+      foot.appendChild(explore);
+    }
+    if (metrics.some(function (m) { return m.drilldown; })) foot.appendChild(portalLink("Review in admin portal (administrators)"));
     card.appendChild(foot);
   }
   return card;
@@ -368,7 +391,7 @@ function renderCatalog(sections) {
       item.appendChild(dt);
       const dd = el("dd", null, fmt(metric));
       const p = pct(metric.value, metric.total);
-      if (p != null) dd.appendChild(el("span", "stat-share", p + "% of " + num(metric.total)));
+      if (p != null) dd.appendChild(el("span", "stat-share", partShare(metric.value, metric.total) + " of " + unitFormatter(metric.unit)(metric.total)));
       item.appendChild(dd);
       strip.appendChild(item);
     });

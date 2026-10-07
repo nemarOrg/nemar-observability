@@ -120,6 +120,7 @@ function attachCursor(frame, count, api) {
   frame.wrap.addEventListener("focus", function () { show(active >= 0 ? active : api.initial(), true); });
   frame.wrap.addEventListener("blur", hide);
   frame.wrap.addEventListener("keydown", function (event) {
+    if (event.altKey || event.ctrlKey || event.metaKey) return;
     let next = active < 0 ? api.initial() : active;
     if (event.key === "ArrowRight") next = Math.min(count - 1, next + 1);
     else if (event.key === "ArrowLeft") next = Math.max(0, next - 1);
@@ -386,7 +387,7 @@ function breakdownLabel(metric, label) {
 // carries that; absent, the bars share the tile's unit.
 function hbars(metric, items, options) {
   const unit = metric.breakdown_unit || metric.unit;
-  const fmtVal = unit === "bytes" ? humanBytes : num;
+  const fmtVal = unitFormatter(unit);
   const max = items.reduce(function (m, it) { return Math.max(m, it.value); }, 0) || 1;
   const share = options && options.shareOf ? options.shareOf : 0;
   const visible = options && options.visible ? options.visible : BREAKDOWN_VISIBLE;
@@ -429,7 +430,7 @@ function hbars(metric, items, options) {
 const RANKED_VISIBLE = 10;
 function rankedList(metric, items) {
   const unit = metric.breakdown_unit || metric.unit;
-  const fmtVal = unit === "bytes" ? humanBytes : num;
+  const fmtVal = unitFormatter(unit);
   const wrap = el("div", "ranked-wrap");
   const rows = function (list, from, to) {
     items.slice(from, to).forEach(function (it, offset) {

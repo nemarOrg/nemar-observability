@@ -27,7 +27,7 @@ src/
 ├── routes/
 │   ├── api.ts         # /api/snapshot, /api/snapshot/history, /api/drilldown/:key, /api/sections/:key
 │   ├── ui.ts          # GET /observability -> renderDashboardPage() assembles the HTML page
-│   └── dashboard/     # page modules: styles (tokens, chrome) + client script parts (usage, reach, overview, snapshot)
+│   └── dashboard/     # page modules: styles (tokens, chrome) + client script parts (usage, reach, overview, snapshot); the recorded-hours explorer is `channels` (pure arithmetic and checks, shared with the client script) and `explorer` (markup and drawing)
 └── cron.ts            # scheduled() handler: recompute snapshot hourly
 ```
 

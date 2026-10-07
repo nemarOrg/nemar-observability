@@ -118,10 +118,28 @@ The body must conform to `src/lib/metric-snapshot.schema.json` (`$defs/sectionIn
 | `key` | stable namespaced id, e.g. `archive.missing` |
 | `value` | the headline number |
 | `total` | optional denominator → the UI shows `value/total` as a percent |
-| `unit` | `datasets` \| `bytes` \| `percent` \| `count` \| ... |
+| `unit` | `datasets` \| `bytes` \| `hours` \| `percent` \| `count` \| ... |
 | `severity` | `ok` \| `warn` \| `error` \| `info` → tile color |
 | `drilldown` | optional key the admin drill-down endpoint resolves to a list |
 | `breakdown` | optional `[{label, value}]` (e.g. by-license, by-modality, top-accessed) |
+
+### Recorded hours by channel count
+
+A section may also carry a `channel_hours` payload (`$defs/channelHours`): per modality, the exact hours and recordings at each channel count, and each dataset's largest channel count.
+The dashboard draws it under the pipeline cards as an explorer, only from the section with key `recordings` (the Zarr indexer's push); the explorer names that source, so a payload on any other section is not shown.
+The page checks the payload by the same rules as `ChannelHoursSchema` before drawing it.
+
+What the numbers cover, as the page also says:
+- Only public datasets converted for in-browser viewing (Zarr) so far, not the whole archive; the page states how many.
+- A recording of two types at once (EEG and EMG, say) is counted under each type, so totals across tabs overlap and must not be added.
+- Datasets are counted once, at the channel count of their largest recording; hours and recordings are counted at each recording's own channel count.
+
+How it reads:
+- A tab per modality, ordered by hours, and a minimum-channels slider on the chart's channel axis. End goes to the largest count the modality has; arrow keys step through the powers of two and every count that occurs.
+- A readout states the selected measure (hours, recordings, or datasets) at that minimum or more and its share of that measure for the modality, with the other two measures and channel-hours below.
+- The chart shows the selected measure at each exact channel count, colored at and above the minimum. The axis doubles at each step and counts stay exact because montages cluster just around powers of two (60, 63, 64, 65 and 127, 128, 129 channels), which bins such as 32-63 would split, and one scale has to hold 2-channel sleep EEG and 415-channel MEG.
+- The view is kept in the address as `#hours=eeg:16` (optionally `:recordings` or `:datasets`, any case) so it can be shared; a link the snapshot cannot show says so and the address is set to the view shown (a minimum above the largest count of that type shows the largest count). Nothing is stored in the browser.
+- Data more than three days old, or from a run that could not read some datasets, carries a notice above the readout. Without a payload the explorer says no recorded-hours data is available right now.
 
 ## API
 

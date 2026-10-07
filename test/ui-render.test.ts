@@ -111,6 +111,18 @@ describe("dashboard shell", () => {
     expect(CLIENT_JS).toContain('removeAttribute("data-theme")');
   });
 
+  test("recorded hours by channel count sit under the pipeline cards and start busy", () => {
+    const pipelines = html.slice(html.indexOf('<section id="pipelines"'), html.indexOf("</main>"));
+    expect(pipelines.indexOf('id="sections"')).toBeLessThan(
+      pipelines.indexOf('id="recorded-hours"'),
+    );
+    expect(pipelines).toContain("<h3>Recorded hours by channel count</h3>");
+    expect(pipelines).toContain('<div id="channel-hours" aria-busy="true">');
+    // The view is shared through the address only; nothing is stored.
+    expect(CLIENT_JS).toContain("history.replaceState");
+    expect(CLIENT_JS).not.toContain("sessionStorage");
+  });
+
   test("the public page renders no global health verdict", () => {
     // Pipeline cards show current state; status belongs to the admin portal.
     for (const text of [

@@ -9,8 +9,10 @@
 // country names cannot inject markup. Every request is a GET to the public read
 // API; it holds no credential and never writes (#8).
 
+import { CHANNELS_JS } from "./channels";
 import { CHARTS_JS } from "./charts";
 import { CORE_JS } from "./core";
+import { EXPLORER_JS } from "./explorer";
 import { FORMAT_JS } from "./format";
 import { MODEL_JS } from "./model";
 import { OVERVIEW_JS } from "./overview";
@@ -46,12 +48,14 @@ export const CLIENT_JS = [
   THEME_JS,
   SERIES_JS,
   MODEL_JS,
+  CHANNELS_JS,
   SCALE_JS,
   CORE_JS,
   CHARTS_JS,
   USAGE_JS,
   VIEWER_JS,
   REACH_JS,
+  EXPLORER_JS,
   SNAPSHOT_JS,
   OVERVIEW_JS,
   BOOT_JS,
