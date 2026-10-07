@@ -388,8 +388,10 @@ export function assertChannelHours(value: unknown): asserts value is ChannelHour
         );
       }
     }
-    const topBin = bins[bins.length - 1].channels;
-    const topPeak = peaks[peaks.length - 1].channels;
+    // The largest of each, as the schema takes it (not "the last", which is only the
+    // largest once the order has been checked).
+    const topBin = Math.max(...bins.map((bin: { channels: number }) => bin.channels));
+    const topPeak = Math.max(...peaks.map((peak: { channels: number }) => peak.channels));
     if (topPeak !== topBin) {
       fail(
         `channel_hours modality ${name}: the largest peak (${topPeak} channels) must match the largest bin (${topBin})`,

@@ -581,6 +581,71 @@ const cases: Case[] = [
       fix(m);
     },
   },
+  // The "out of order" and "repeated" rows near these also trip other rules (a peak with no
+  // bin, a largest peak that no longer matches), so on their own they cannot show that the
+  // ordering checks exist. These four break only the ordering rule: the largest stays last, every
+  // peak keeps its bin, and the totals still add up. Checked by mutation: removing the
+  // `<= previous` test for bins, or for peaks, fails them (and weakening it to `<` fails the
+  // two "repeated" rows).
+  {
+    name: "bins swapped with the largest still last",
+    accepted: false,
+    change: (v) => {
+      const m = v.modalities[0];
+      [m.bins[0], m.bins[1]] = [m.bins[1], m.bins[0]];
+    },
+  },
+  {
+    name: "a repeated bin channel count that has no peak on it",
+    accepted: false,
+    change: (v) => {
+      const m = v.modalities[0];
+      m.bins.unshift({ ...m.bins[0] }); // bins 1, 1, 6, 16; the peaks are at 6 and 16
+      fix(m);
+    },
+  },
+  {
+    name: "peaks swapped with the largest still last",
+    accepted: false,
+    change: (v) => {
+      const m = v.modalities[0];
+      // Three peaks, each backed by a bin (1, 6 and 16 channels), then the first two swapped.
+      m.dataset_peaks = [
+        { channels: 1, datasets: 1 },
+        { channels: 6, datasets: 1 },
+        { channels: 16, datasets: 1 },
+      ];
+      [m.dataset_peaks[0], m.dataset_peaks[1]] = [m.dataset_peaks[1], m.dataset_peaks[0]];
+      fix(m);
+    },
+  },
+  {
+    name: "a repeated peak channel count that has a bin",
+    accepted: false,
+    change: (v) => {
+      const m = v.modalities[0];
+      m.dataset_peaks = [
+        { channels: 1, datasets: 1 },
+        { channels: 6, datasets: 1 },
+        { channels: 6, datasets: 1 },
+        { channels: 16, datasets: 1 },
+      ];
+      fix(m);
+    },
+  },
+  {
+    name: "three ascending peaks, each backed by a bin",
+    accepted: true,
+    change: (v) => {
+      const m = v.modalities[0];
+      m.dataset_peaks = [
+        { channels: 1, datasets: 1 },
+        { channels: 6, datasets: 1 },
+        { channels: 16, datasets: 1 },
+      ];
+      fix(m);
+    },
+  },
 
   // Dataset peaks
   {
