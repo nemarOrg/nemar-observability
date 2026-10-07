@@ -5,6 +5,7 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { CHANNELS_JS } from "../src/routes/dashboard/channels";
 import { EXPLORER_JS } from "../src/routes/dashboard/explorer";
+import { MODALITY_JS } from "../src/routes/dashboard/modality";
 import { STYLES } from "../src/routes/dashboard/styles";
 import sample from "./fixtures/channel-hours.sample.json";
 import {
@@ -88,8 +89,8 @@ describe("the tab strip on a narrow screen", () => {
     expect(STYLES).toMatch(/\.hours-tabs \{\s*position: relative;[^}]*overflow-x: auto;/);
     // Edge shadows only on a strip the script has found to scroll.
     expect(STYLES).toMatch(/\.hours-tabs\.is-scrollable \{\s*background:/);
-    expect(EXPLORER_JS).toContain(
-      'strip.classList.toggle("is-scrollable", stripScrolls(strip.clientWidth, strip.scrollWidth))',
+    expect(MODALITY_JS).toContain(
+      'tablist.classList.toggle("is-scrollable", stripScrolls(tablist.clientWidth, tablist.scrollWidth))',
     );
   });
 });
@@ -98,7 +99,7 @@ describe("recorded hours explorer", () => {
   test("tabs, panel, and slider carry their roles and labels", async () => {
     const { document, errors } = await openPage(recordingsSection());
     const tablist = q(document, "#channel-hours [role=tablist]");
-    expect(tablist.getAttribute("aria-label")).toBe("Recording type");
+    expect(tablist.getAttribute("aria-label")).toBe("Recording type, recorded hours");
     const tabs = all(document, "[role=tab]");
     // Ordered by hours: EEG 4,646, EMG 627, iEEG 294, MEG 74.
     expect(tabs.map((t) => text(document, `#${t.id} .hours-tab-name`))).toEqual([

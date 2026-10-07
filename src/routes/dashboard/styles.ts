@@ -9,6 +9,13 @@
 // ramp runs from a light tint to a deep blue (the reverse on dark), and its
 // light end still stands apart from the gray of countries with no data.
 //
+// The --modality-* tokens are the website's recording-type colors, copied from
+// the same file (website/src/styles/tokens.css, "Modality - recording technique.
+// Doubles as chart fills"), light and dark, so EEG is the same blue here as on
+// nemar.org. Marks only (tab underline, bars, meter, slider), never text: the
+// website's values are chosen for fills, and body text stays on the neutral
+// text roles.
+//
 // Light tokens live on bare :root, so the page is complete with no attribute
 // at all. Dark tokens are declared twice on purpose: the media query follows
 // the OS setting unless the root says data-theme="light", and the
@@ -42,6 +49,13 @@ const DARK_TOKENS = `
   --region: rgba(250, 178, 25, 0.07);
   --mark-muted: #5c6b81;
   --hours-band: rgba(57, 135, 229, 0.11);
+  --modality-eeg: #60a5fa;
+  --modality-meg: #a78bfa;
+  --modality-ieeg: #f472b6;
+  --modality-emg: #fb923c;
+  --modality-nirs: #22d3ee;
+  --modality-motion: #34d399;
+  --modality-other: #94a3b8;
   --edge-shadow: rgba(0, 0, 0, 0.55);
   --ok: #0ca30c;
   --ok-text: #4ade80;
@@ -107,6 +121,13 @@ export const STYLES = String.raw`
   --region: rgba(250, 178, 25, 0.08);
   --mark-muted: #8894a5;
   --hours-band: rgba(42, 120, 214, 0.07);
+  --modality-eeg: #2563eb;
+  --modality-meg: #7c3aed;
+  --modality-ieeg: #db2777;
+  --modality-emg: #ea580c;
+  --modality-nirs: #0891b2;
+  --modality-motion: #16a34a;
+  --modality-other: #64748b;
   --edge-shadow: rgba(15, 23, 42, 0.16);
   --ok: #0ca30c;
   --ok-text: #166534;
@@ -524,8 +545,17 @@ main > section { scroll-margin-top: calc(var(--topbar-h) + 16px); padding-top: v
    pair on both surfaces (3:1 against the card, normal-vision and color-vision
    separation above the floors). Position against the rule, the shaded band,
    and the table's divider row carry the same split without color. */
-.hours-block { margin-top: var(--space-6); }
+.hours-block { margin-top: var(--space-5); }
 .hours-block > .subsection-head { margin-top: 0; }
+.catalog-size { margin-top: var(--space-5); }
+.catalog-size:empty { margin-top: 0; }
+/* The placeholder reserves about the height of the finished card (head, tabs,
+   a 220px chart, and the table link), so the content below does not move when
+   the card replaces it. */
+.catalog-size > .skeleton-card { min-height: 400px; }
+.size-top { margin: 0 -20px var(--space-4); padding: 0 20px; border-bottom: 1px solid var(--border); }
+.size-note { margin: 0 0 var(--space-3); color: var(--text-2); font-size: var(--fs-sm); }
+.size-note[hidden], .size-block[hidden] { display: none; }
 .hours-block .hours-scope { flex-basis: 100%; max-width: 75ch; color: var(--text-2); }
 .hours-card { padding: 0; }
 .hours-top { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: var(--space-2) var(--space-4); padding: 10px 20px 0; border-bottom: 1px solid var(--border); }
@@ -545,9 +575,27 @@ main > section { scroll-margin-top: calc(var(--topbar-h) + 16px); padding-top: v
 }
 .hours-tab { display: inline-flex; flex: none; flex-direction: column; align-items: flex-start; gap: 1px; min-width: 72px; min-height: 52px; padding: 8px 14px 9px; border: 0; border-bottom: 2px solid transparent; border-radius: var(--radius-md) var(--radius-md) 0 0; background: transparent; color: var(--text-2); cursor: pointer; text-align: left; }
 .hours-tab:hover { color: var(--text); background: var(--surface-2); }
-.hours-tab[aria-selected="true"] { color: var(--text); border-bottom-color: var(--accent); }
+.hours-tab[aria-selected="true"] { color: var(--text); border-bottom-color: var(--tone, var(--accent)); }
 .hours-tab:focus-visible { outline-offset: -2px; }
 .hours-tab-name { font-family: var(--font-display); font-size: var(--fs-md); font-weight: 600; line-height: 1.25; }
+/* A recording type's tab carries a dot in its color, so each is recognizable
+   before it is chosen; the name is still what says which type it is. */
+.hours-tab[data-tone] .hours-tab-name::before { content: ""; display: inline-block; width: 8px; height: 8px; margin-right: 6px; border-radius: 50%; background: var(--tone); vertical-align: 1px; }
+/* A tone is a recording type's color. A card with a tone draws its accent (tab
+   underline, meter, bars, slider thumb and track) in it; the shaded band and
+   the meter track are tints of it, with the blue tint as the fallback for a
+   browser without color-mix. */
+[data-tone="eeg"] { --tone: var(--modality-eeg); }
+[data-tone="meg"] { --tone: var(--modality-meg); }
+[data-tone="ieeg"] { --tone: var(--modality-ieeg); }
+[data-tone="emg"] { --tone: var(--modality-emg); }
+[data-tone="nirs"] { --tone: var(--modality-nirs); }
+[data-tone="motion"] { --tone: var(--modality-motion); }
+[data-tone="other"] { --tone: var(--modality-other); }
+.hours-card[data-tone], .size-card[data-tone] { --accent: var(--tone); }
+.hours-card[data-tone] .hours-band { fill: var(--hours-band); fill: color-mix(in srgb, var(--tone) 10%, transparent); }
+.hours-card[data-tone] .hours-meter { background: var(--accent-track); background: color-mix(in srgb, var(--tone) 18%, transparent); }
+.hours-card[data-tone] .hours-table .hours-cut td { background: var(--hours-band); background: color-mix(in srgb, var(--tone) 10%, transparent); }
 .hours-tab-total { color: var(--text-3); font-size: var(--fs-xs); font-variant-numeric: tabular-nums; white-space: nowrap; }
 .hours-tab[aria-selected="true"] .hours-tab-total { color: var(--text-2); }
 .hours-measures { margin-bottom: 10px; }
@@ -674,6 +722,8 @@ main > section { scroll-margin-top: calc(var(--topbar-h) + 16px); padding-top: v
   .geo-side .hbar { grid-template-columns: minmax(0, 1fr) auto; }
   .map-scale { flex-basis: 100%; max-width: none; }
   .hours-top { flex-direction: column; align-items: stretch; padding: 6px 12px 0; border-bottom: 0; }
+  .size-top { margin: 0 -16px var(--space-3); padding: 6px 12px 0; border-bottom: 0; }
+  .size-tabs .hours-tab { min-width: 0; padding-left: 8px; padding-right: 8px; }
   .hours-tabs { margin-bottom: 0; box-shadow: inset 0 -1px 0 var(--border); }
   .hours-measures { align-self: flex-start; margin: var(--space-3) 4px 0; }
   .hours-tab { min-width: 64px; padding: 8px 10px 9px; }

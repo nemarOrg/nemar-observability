@@ -7,6 +7,7 @@ import {
   NEMAR_LINKS,
   renderDashboardPage,
 } from "../src/routes/ui";
+import { JARGON } from "./helpers/public-copy";
 
 describe("public dashboard page", () => {
   test("renders question-led sections and UTC range controls", () => {
@@ -111,16 +112,50 @@ describe("dashboard shell", () => {
     expect(CLIENT_JS).toContain('removeAttribute("data-theme")');
   });
 
-  test("recorded hours by channel count sit under the pipeline cards and start busy", () => {
-    const pipelines = html.slice(html.indexOf('<section id="pipelines"'), html.indexOf("</main>"));
-    expect(pipelines.indexOf('id="sections"')).toBeLessThan(
-      pipelines.indexOf('id="recorded-hours"'),
+  test("recorded hours by channel count sit in the catalog, between its cards and the size card, and start busy", () => {
+    const datasets = html.slice(
+      html.indexOf('<section id="datasets"'),
+      html.indexOf('<section id="pipelines"'),
     );
-    expect(pipelines).toContain("<h3>Recorded hours by channel count</h3>");
-    expect(pipelines).toContain('<div id="channel-hours" aria-busy="true">');
+    const at = (id: string) => datasets.indexOf(`id="${id}"`);
+    expect(at("catalog")).toBeGreaterThan(-1);
+    expect(at("catalog")).toBeLessThan(at("recorded-hours"));
+    expect(at("recorded-hours")).toBeLessThan(at("catalog-size"));
+    expect(datasets).toContain("<h3>Recorded hours by channel count</h3>");
+    expect(datasets).toContain('<div id="channel-hours" aria-busy="true">');
+    // Gone from the pipeline section, whose intro no longer promises it.
+    const pipelines = html.slice(html.indexOf('<section id="pipelines"'), html.indexOf("</main>"));
+    expect(pipelines).not.toContain('id="recorded-hours"');
+    expect(pipelines).not.toContain('id="channel-hours"');
+    expect(pipelines).not.toContain("recorded hours");
     // The view is shared through the address only; nothing is stored.
     expect(CLIENT_JS).toContain("history.replaceState");
     expect(CLIENT_JS).not.toContain("sessionStorage");
+  });
+
+  // The catalog is the hourly snapshot; the recorded hours are the collector's
+  // own run, a few times a day. The intro says each in plain words.
+  test("the catalog intro names both sources of its figures", () => {
+    const lede = /<h2 id="datasets-title">[^<]*<\/h2>\s*<p class="section-lede">([^<]*)<\/p>/.exec(
+      html,
+    )?.[1];
+    expect(lede).toBe(
+      "The public catalog by recording type, license, and size is from the latest hourly snapshot. The hours of recorded data by channel count are from the latest count, which runs a few times a day.",
+    );
+    expect(lede).not.toMatch(JARGON);
+    // The hours are not called hourly.
+    expect(lede?.split(". ")[1]).not.toMatch(/hourly/);
+  });
+
+  test("the size card's place holds a skeleton from the start, so the page does not jump", () => {
+    const at = html.indexOf('<div id="catalog-size"');
+    const place = html.slice(at, html.indexOf("</section>", at));
+    expect(place).toContain('class="catalog-size" aria-busy="true"');
+    expect(place).toContain("skeleton-chart");
+    const css = html.slice(html.indexOf("<style>"), html.indexOf("</style>"));
+    expect(css).toMatch(/\.catalog-size > \.skeleton-card \{ min-height: \d+px; \}/);
+    // Nothing is reserved once the place is emptied.
+    expect(css).toContain(".catalog-size:empty { margin-top: 0; }");
   });
 
   test("the public page renders no global health verdict", () => {

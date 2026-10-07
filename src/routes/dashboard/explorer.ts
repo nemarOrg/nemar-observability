@@ -1,11 +1,15 @@
-// The recorded-hours explorer under the pipeline cards: one tab per modality,
-// a minimum-channels slider that sits on the chart's own channel axis, a
+// The recorded-hours explorer in the catalog ("What does NEMAR hold?"), between
+// the catalog cards and the Dataset size card: one tab per modality, a
+// minimum-channels slider that sits on the chart's own channel axis, a
 // readout that answers "how much at N or more channels" in words, and the
 // distribution of hours, recordings, or datasets over exact channel counts.
 //
 // Every number comes from channels.ts (tested without a DOM); this module only
 // draws. The view (modality, minimum, measure) is kept in the address as
-// #hours=eeg:16 so it can be shared; nothing is stored in the browser.
+// #hours=eeg:16 so it can be shared; nothing is stored in the browser. The
+// modality is also what the Dataset size card follows (see syncSizeCard in
+// snapshot.ts), and the card carries the modality's tone, which styles.ts turns
+// into the accent of its tabs, meter, chart, and slider.
 //
 // Part of the inlined client script (see client.ts): a String.raw template, so
 // no backticks and no dollar-brace sequences.
@@ -22,7 +26,7 @@ const HOURS_THUMB_RADIUS = 12;
 // The view. The minimum is kept when the tab changes, on purpose (16 or more
 // EEG, then 16 or more EMG), so it can fall between the new tab's stops; the
 // stepping in channels.ts copes with a value that is not a stop.
-const hoursView = { modalities: [], axisMax: 512, key: null, min: DEFAULT_MIN_CHANNELS, measure: "hours", found: null, nodes: null, hashTimer: null, scrolled: false, linkNote: "" };
+const hoursView = { modalities: [], axisMax: 512, key: null, min: DEFAULT_MIN_CHANNELS, measure: "hours", found: null, nodes: null, hashTimer: null, scrolled: false, linkNote: "", linkedView: false };
 
 function hoursModality() {
   return hoursView.modalities.find(function (m) { return m.key === hoursView.key; }) || hoursView.modalities[0];
@@ -35,10 +39,14 @@ function hoursPosition(channels) { return Math.round(1000 * Math.log2(Math.max(1
 // recording of that type has; the view shown instead is stated, and the
 // address is set to it.
 function applyHoursHash(hash) {
+  // linkedView: the address named a type this snapshot has, so the Dataset size
+  // card opens on that type; any other address leaves it on All.
+  hoursView.linkedView = false;
   const parsed = parseHoursHash(hash);
   if (!parsed) return "none";
   if (!parsed.valid || !hoursView.modalities.some(function (m) { return m.key === parsed.modality; })) return "unavailable";
   hoursView.key = parsed.modality;
+  hoursView.linkedView = true;
   hoursView.measure = parsed.measure;
   // More channels than any recording of this type has: show the largest count
   // that occurs instead of an empty view, and say so.
@@ -163,42 +171,23 @@ function buildHoursExplorer() {
   const view = hoursView;
   const nodes = {};
   const card = el("div", "card hours-card");
+  nodes.card = card;
 
-  // Modality tabs (automatic activation) and the measure toggle.
+  // Modality tabs (automatic activation, shared with the Dataset size card) and
+  // the measure toggle.
   const top = el("div", "hours-top");
-  const tablist = el("div", "hours-tabs");
-  tablist.setAttribute("role", "tablist");
-  tablist.setAttribute("aria-label", "Recording type");
-  nodes.tabs = view.modalities.map(function (m, index) {
-    const tab = el("button", "hours-tab");
-    tab.type = "button";
-    tab.id = "hours-tab-" + index;
-    tab.dataset.modality = m.key;
-    tab.setAttribute("role", "tab");
-    tab.setAttribute("aria-controls", "hours-panel");
-    tab.appendChild(el("span", "hours-tab-name", m.name));
-    tab.appendChild(figure("span", "hours-tab-total", humanHours(m.hours), spelledOutHours(m.hours)));
-    tab.addEventListener("click", function () { selectHoursModality(m.key); });
-    tablist.appendChild(tab);
-    return tab;
+  const strip = buildModalityTabs({
+    label: "Recording type, recorded hours",
+    idPrefix: "hours-tab-",
+    panelId: "hours-panel",
+    items: view.modalities.map(function (m) {
+      return { key: m.key, name: m.name, tone: modalityTone(m.key), total: humanHours(m.hours), spoken: spelledOutHours(m.hours) };
+    }),
+    onSelect: selectHoursModality
   });
-  tablist.addEventListener("keydown", function (event) {
-    if (event.altKey || event.ctrlKey || event.metaKey) return;
-    const index = nodes.tabs.indexOf(document.activeElement);
-    if (index < 0) return;
-    const count = nodes.tabs.length;
-    let next = index;
-    if (event.key === "ArrowRight") next = (index + 1) % count;
-    else if (event.key === "ArrowLeft") next = (index - 1 + count) % count;
-    else if (event.key === "Home") next = 0;
-    else if (event.key === "End") next = count - 1;
-    else return;
-    event.preventDefault();
-    nodes.tabs[next].focus();
-    selectHoursModality(view.modalities[next].key);
-  });
-  top.appendChild(tablist);
-  nodes.tablist = tablist;
+  nodes.tabs = strip.tabs;
+  nodes.tablist = strip.tablist;
+  top.appendChild(strip.tablist);
   const measures = el("div", "segmented hours-measures");
   measures.setAttribute("role", "group");
   measures.setAttribute("aria-label", "What to count");
@@ -361,21 +350,8 @@ function hoursSourceNotes(found) {
   if (payload.recordings_unmeasured) notes.push(plural(payload.recordings_unmeasured, "recording", "recordings") + " without a known duration or channel count " + (payload.recordings_unmeasured === 1 ? "is" : "are") + " left out.");
   return notes;
 }
-// A tab chosen by a link or the arrow keys can sit past the strip's edge on a
-// phone. The strip scrolls itself to center it; scrollIntoView could scroll the
-// whole page instead. The strip is positioned, so offsetLeft is measured in it.
-function centerHoursTab(tab) {
-  const strip = hoursView.nodes.tablist;
-  syncHoursStrip();
-  const left = centeredScroll(tab.offsetLeft, tab.offsetWidth, strip.clientWidth, strip.scrollWidth);
-  if (left !== null) strip.scrollLeft = left;
-}
-// Marks a strip that scrolls, for its edge shadows.
-function syncHoursStrip() {
-  const strip = hoursView.nodes && hoursView.nodes.tablist;
-  if (!strip) return;
-  strip.classList.toggle("is-scrollable", stripScrolls(strip.clientWidth, strip.scrollWidth));
-}
+function centerHoursTab(tab) { centerStripTab(hoursView.nodes.tablist, tab); }
+function syncHoursStrip() { syncTabStrip(hoursView.nodes && hoursView.nodes.tablist); }
 function selectHoursModality(key) {
   if (hoursView.key === key) return;
   hoursView.key = key;
@@ -415,15 +391,11 @@ function drawHoursView(announce) {
   const nodes = view.nodes;
   const modality = hoursModality();
   view.key = modality.key;
-  nodes.tabs.forEach(function (tab) {
-    const on = tab.dataset.modality === view.key;
-    tab.setAttribute("aria-selected", String(on));
-    tab.tabIndex = on ? 0 : -1;
-    if (on) {
-      nodes.panel.setAttribute("aria-labelledby", tab.id);
-      centerHoursTab(tab);
-    }
-  });
+  const chosen = markModalityTabs({ tabs: nodes.tabs }, view.key, nodes.panel);
+  if (chosen) centerHoursTab(chosen);
+  // The card takes the tone of the chosen type: its tab accent, meter, chart,
+  // and slider are all drawn in that color (styles.ts).
+  nodes.card.dataset.tone = modalityTone(view.key);
   nodes.measures.forEach(function (button) { button.setAttribute("aria-pressed", String(button.dataset.measure === view.measure)); });
   renderHoursNotices();
 
@@ -450,6 +422,13 @@ function drawHoursView(announce) {
   nodes.details.querySelector("summary").textContent = "Show exact values (" + plural(hoursTableRows(modality).length, "channel count", "channel counts") + ")";
   if (nodes.details.open) fillHoursTable(modality);
   if (announce) nodes.live.textContent = hoursAnnouncement(shown, nodes.claim.textContent, nodes.share.textContent);
+  // The Dataset size card follows the chosen type. A failure drawing it stays
+  // in that card: it must not replace the explorer, which has drawn fine.
+  try {
+    syncSizeCard();
+  } catch (err) {
+    console.error("[ui] dataset size display failed:", err);
+  }
 }
 
 function renderHoursNotices() {

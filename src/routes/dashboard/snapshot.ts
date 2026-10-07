@@ -127,11 +127,11 @@ function renderHoursSafely(snap) {
 // again, so nothing is left on a skeleton.
 function renderSnapshotError(kind, err) {
   const retry = function () {
-    ["catalog", "usage-snapshot", "sections", "channel-hours"].forEach(function (id) {
+    ["catalog", "catalog-size", "usage-snapshot", "sections", "channel-hours"].forEach(function (id) {
       const root = document.getElementById(id);
       if (!root) return;
       root.dataset.ready = "false";
-      markRefreshing(root, id === "channel-hours" ? chartSkeleton : gridSkeleton);
+      markRefreshing(root, id === "channel-hours" || id === "catalog-size" ? chartSkeleton : gridSkeleton);
     });
     document.getElementById("health-meta").textContent = "Loading the latest snapshot.";
     state.snapshot = null;
@@ -146,6 +146,12 @@ function renderSnapshotError(kind, err) {
   document.getElementById("health-meta").textContent = title + ".";
   stateMessage(document.getElementById("sections"), "error", title, (reason + "The current state of the pipelines is unknown until it " + (display ? "can be shown." : "loads.")).trim(), retry);
   stateMessage(document.getElementById("catalog"), "error", display ? "Could not display catalog figures" : "Could not load catalog figures", (reason + "Catalog figures are unknown right now.").trim(), retry);
+  sizeView = null;
+  const sizeRoot = document.getElementById("catalog-size");
+  if (sizeRoot) {
+    sizeRoot.textContent = "";
+    sizeRoot.removeAttribute("aria-busy");
+  }
   stateMessage(document.getElementById("usage-snapshot"), "error", display ? "Could not display the rolling 30-day measures" : "Could not load the rolling 30-day measures", (reason + "These measures are unknown right now.").trim(), retry);
   hoursView.nodes = null;
   const hours = document.getElementById("channel-hours");
@@ -290,13 +296,14 @@ const CATALOG_NOTES = {
   "datasets.by_modality": "One dataset can include several modalities, so the bars add up to more than the number of datasets. EEG is electroencephalography, MEG magnetoencephalography, iEEG intracranial EEG, fNIRS functional near-infrared spectroscopy, EMG electromyography, and MRI magnetic resonance imaging.",
   "datasets.by_license": "Public domain covers CC0 and similar dedications; attribution covers CC BY and ODC-BY. A license that combines clauses counts in its most restrictive group."
 };
-const CATALOG_ORDER = ["datasets.by_modality", "datasets.by_license", "sizes.largest", "sizes.histogram"];
-function histogramCard(metric) {
+const CATALOG_ORDER = ["datasets.by_modality", "datasets.by_license", "sizes.largest"];
+function histogramCard(metric, typeName) {
   const items = metric.breakdown;
   const cutoffIndex = items.findIndex(function (it) { return /cutoff/i.test(it.label); });
   const cleaned = items.map(function (it) { return String(it.label).replace(/\s*[^\w<>.\s]+\s*cutoff\s*$/i, "").replace(/\s*cutoff\s*$/i, "").trim(); });
   const total = items.reduce(function (sum, it) { return sum + it.value; }, 0);
   const points = items.map(function (it, i) { return { value: it.value, tick: cleaned[i] }; });
+  const whose = typeName ? typeName + " datasets" : "the catalog";
   function rangeLabel(i) {
     const low = cleaned[i];
     if (/^</.test(low)) return "Under " + low.replace(/^<\s*/, "");
@@ -309,14 +316,14 @@ function histogramCard(metric) {
     unit: "count",
     cutoffIndex: cutoffIndex,
     cutoffLabel: cutoffName ? "Archive cutoff, " + cutoffName : "",
-    ariaLabel: "Public datasets by size, " + items.length + " log-scaled bins",
+    ariaLabel: (typeName ? "Public " + typeName + " datasets" : "Public datasets") + " by size, " + items.length + " log-scaled bins",
     description: cutoffName ? "Bins from " + cutoffName + " up are shaded: those datasets are too large for a downloadable archive." : "",
     tooltip: function (i) {
       const p = pct(items[i].value, total);
       return {
         title: rangeLabel(i),
-        value: plural(items[i].value, "dataset", "datasets"),
-        notes: [p != null ? p + "% of the catalog" : "", cutoffIndex >= 0 && i >= cutoffIndex ? "Too large for a downloadable archive" : ""]
+        value: plural(items[i].value, typeName ? typeName + " dataset" : "dataset", typeName ? typeName + " datasets" : "datasets"),
+        notes: [p != null ? p + "% of " + whose : "", cutoffIndex >= 0 && i >= cutoffIndex ? "Too large for a downloadable archive" : ""]
       };
     }
   });
@@ -339,26 +346,29 @@ function histogramTable(metric) {
   details.appendChild(scroll);
   return details;
 }
-function catalogCard(metric, publicCount) {
+// The head every catalog card starts with: title, one line under it, and the
+// About popover. sub overrides the stock line.
+function catalogHead(metric, sub) {
   const titles = CATALOG_TITLES[metric.key];
-  const isHistogram = metric.key === "sizes.histogram";
-  const isRanked = metric.breakdown_style === "ranked";
-  const card = el("article", "card catalog-card" + (isHistogram ? " card-wide" : "") + (isRanked ? " card-ranked" : ""));
-  card.id = cardId(metric.key);
   const head = el("div", "card-head");
   const text = el("div", "card-titles");
   text.appendChild(el("h3", "card-title", titles ? titles[0] : metric.label));
-  let sub = titles ? titles[1] : "";
-  if (isRanked && metric.total) sub = "The ten largest hold " + pct(metric.value, metric.total) + "% of all public data (" + humanBytes(metric.value) + " of " + humanBytes(metric.total) + ").";
-  if (sub) text.appendChild(el("p", "card-sub", sub));
+  const line = sub === undefined ? (titles ? titles[1] : "") : sub;
+  const subNode = line ? el("p", "card-sub", line) : null;
+  if (subNode) text.appendChild(subNode);
   head.appendChild(text);
   const notes = [metric.hint, CATALOG_NOTES[metric.key]].filter(Boolean);
   if (notes.length) head.appendChild(infoDisclosure("About " + (titles ? titles[0] : metric.label), notes));
-  card.appendChild(head);
-  if (isHistogram) {
-    card.appendChild(histogramCard(metric));
-    card.appendChild(histogramTable(metric));
-  } else if (isRanked) {
+  return { head: head, sub: subNode };
+}
+function catalogCard(metric, publicCount) {
+  const isRanked = metric.breakdown_style === "ranked";
+  const card = el("article", "card catalog-card" + (isRanked ? " card-ranked" : ""));
+  card.id = cardId(metric.key);
+  let sub;
+  if (isRanked && metric.total) sub = "The ten largest hold " + pct(metric.value, metric.total) + "% of all public data (" + humanBytes(metric.value) + " of " + humanBytes(metric.total) + ").";
+  card.appendChild(catalogHead(metric, sub).head);
+  if (isRanked) {
     card.appendChild(rankedList(metric, metric.breakdown));
   } else {
     const shareOf = metric.unit === "datasets" && (metric.breakdown_unit || metric.unit) === "datasets" ? metric.value || publicCount : 0;
@@ -366,44 +376,177 @@ function catalogCard(metric, publicCount) {
   }
   return card;
 }
+// ---------- the Dataset size card ----------
+// "All" is the whole catalog's histogram; the other tabs are the same bins for
+// the datasets that include one recording type (the sizes.histogram.<type>
+// metrics). The tabs are the explorer's own strip, and the two follow one
+// choice: picking a type in either moves the other, through hoursView (whose
+// modality is also what the address carries). "All" is only the size card's:
+// picking it leaves the explorer where it is. Not stored anywhere.
+const SIZE_METRIC_PREFIX = "sizes.histogram.";
+const SIZE_TAB_CODES = ["eeg", "meg", "ieeg", "emg"];
+let sizeView = null;
+function sizeTypeName(key) { return MODALITY_NAMES[key] || String(key).toUpperCase(); }
+function sizeCardFor(all, byModality) {
+  const card = el("article", "card catalog-card card-wide size-card");
+  card.id = cardId(all.key);
+  const codes = SIZE_TAB_CODES.filter(function (code) { return byModality[code]; });
+  const made = catalogHead(all);
+  card.appendChild(made.head);
+  if (!codes.length) {
+    card.appendChild(histogramCard(all, null));
+    card.appendChild(histogramTable(all));
+    sizeView = null;
+    return card;
+  }
+  const view = { node: card, codes: codes, all: all, byModality: byModality, key: "all", followed: null, seen: false, sub: made.sub, stock: made.sub ? made.sub.textContent : "", strip: null, panel: null, note: null, live: null, shown: {} };
+  const spokenCount = function (metric) { return plural(metric.value, "dataset", "datasets"); };
+  const items = [{ key: "all", name: "All", total: num(all.value), spoken: spokenCount(all) }].concat(codes.map(function (code) {
+    const metric = byModality[code];
+    return { key: code, name: sizeTypeName(code), tone: modalityTone(code), total: num(metric.value), spoken: spokenCount(metric) };
+  }));
+  view.strip = buildModalityTabs({ label: "Recording type, dataset size", idPrefix: "size-tab-", panelId: "size-panel", className: "size-tabs", items: items, onSelect: chooseSizeTab });
+  const top = el("div", "size-top");
+  top.appendChild(view.strip.tablist);
+  card.appendChild(top);
+  const panel = el("div", "size-panel");
+  panel.id = "size-panel";
+  panel.setAttribute("role", "tabpanel");
+  view.panel = panel;
+  // Said when the explorer is on a type the catalog is not grouped by.
+  view.note = el("p", "size-note");
+  view.note.hidden = true;
+  panel.appendChild(view.note);
+  view.live = el("p", "sr-only");
+  view.live.setAttribute("aria-live", "polite");
+  panel.appendChild(view.live);
+  card.appendChild(panel);
+  sizeView = view;
+  showSizeView();
+  syncSizeCard();
+  return card;
+}
+// Draws the chosen tab: its own histogram (built the first time it is shown),
+// the card's tone, and the line under the title.
+function showSizeView() {
+  const view = sizeView;
+  if (!view) return;
+  const key = view.key;
+  const metric = key === "all" ? view.all : view.byModality[key];
+  const name = key === "all" ? null : sizeTypeName(key);
+  if (!view.shown[key]) {
+    const block = el("div", "size-block");
+    block.appendChild(histogramCard(metric, name));
+    block.appendChild(histogramTable(metric));
+    view.panel.appendChild(block);
+    view.shown[key] = block;
+  }
+  Object.keys(view.shown).forEach(function (k) { view.shown[k].hidden = k !== key; });
+  const chosen = markModalityTabs(view.strip, key, view.panel);
+  if (chosen) centerStripTab(view.strip.tablist, chosen);
+  if (key === "all") view.node.removeAttribute("data-tone");
+  else view.node.dataset.tone = modalityTone(key);
+  if (view.sub) view.sub.textContent = key === "all" ? view.stock : "Public datasets that include " + name + " recordings, by size, on a log scale.";
+  const explorerType = hoursView.nodes ? hoursView.key : null;
+  const unsorted = key === "all" && explorerType !== null && view.followed === explorerType && view.codes.indexOf(explorerType) < 0;
+  view.note.hidden = !unsorted;
+  view.note.textContent = unsorted ? "Datasets are not grouped by " + hoursModality().name + ", so all datasets are shown." : "";
+}
+function chooseSizeTab(key) {
+  const view = sizeView;
+  if (!view) return;
+  view.key = key;
+  showSizeView();
+  view.live.textContent = "Showing " + (key === "all" ? "all datasets" : sizeTypeName(key) + " datasets") + " by size.";
+  // A type moves the explorer too, when it has that type; "All" does not.
+  if (key !== "all" && hoursView.nodes && hoursView.key !== key && hoursView.modalities.some(function (m) { return m.key === key; })) selectHoursModality(key);
+}
+// The explorer's type changed (or was set by a link): the size card follows it.
+// A type the card has no tab for shows "All" with a note; a change of minimum or
+// measure does not touch the card, and neither does the explorer's first draw
+// unless the address named a view, so the card opens on "All".
+function syncSizeCard() {
+  const view = sizeView;
+  if (!view) return;
+  const target = hoursView.nodes ? hoursView.key : null;
+  if (target === view.followed) return;
+  view.followed = target;
+  if (target === null) return;
+  const first = !view.seen;
+  view.seen = true;
+  if (first && !hoursView.linkedView) return;
+  view.key = view.codes.indexOf(target) >= 0 ? target : "all";
+  showSizeView();
+}
+
+// The catalog's two recorded-data figures come from the pushed recordings
+// section; without it (not collected yet, or a failed run) they are not shown.
+const RECORDED_SCOPE = "Counts only the public datasets converted for in-browser viewing so far, not the whole archive.";
+function statItem(metric, label, hint) {
+  const item = el("div", "stat-item");
+  const dt = el("dt");
+  dt.appendChild(el("span", null, label || metric.label));
+  const note = hint === undefined ? metric.hint : hint;
+  if (note) dt.appendChild(infoDisclosure("About " + (label || metric.label), note));
+  item.appendChild(dt);
+  const dd = el("dd", null, fmt(metric));
+  const p = pct(metric.value, metric.total);
+  if (p != null) dd.appendChild(el("span", "stat-share", partShare(metric.value, metric.total) + " of " + unitFormatter(metric.unit)(metric.total)));
+  item.appendChild(dd);
+  return item;
+}
+function recordedStatItems() {
+  const index = metricIndex(state.snapshot);
+  const items = [];
+  [["recordings.recordings", "Recordings"], ["recordings.hours", "Recorded hours"]].forEach(function (pair) {
+    const metric = index[pair[0]];
+    if (!metric || !(metric.value > 0)) return;
+    items.push(statItem(metric, pair[1], RECORDED_SCOPE + (metric.hint ? " " + metric.hint : "")));
+  });
+  return items;
+}
 function renderCatalog(sections) {
   const root = document.getElementById("catalog");
+  const sizeRoot = document.getElementById("catalog-size");
   settle(root);
+  sizeView = null;
+  // Settled whether or not there is a size card to draw: the placeholder goes,
+  // and a snapshot without size data leaves nothing behind.
+  if (sizeRoot) settle(sizeRoot);
   if (!sections.length) {
     stateMessage(root, "info", "Catalog figures are not in this snapshot", "They are unknown right now, which is not the same as zero.");
     return;
   }
-  const scalars = []; const charts = [];
+  const scalars = []; const charts = []; const sizeByType = {};
   sections.forEach(function (section) {
     (section.metrics || []).forEach(function (metric) {
+      // The per-type size histograms belong to the Dataset size card's tabs.
+      if (String(metric.key).indexOf(SIZE_METRIC_PREFIX) === 0) {
+        if (metric.breakdown && metric.breakdown.length) sizeByType[metric.key.slice(SIZE_METRIC_PREFIX.length)] = metric;
+        return;
+      }
       if (metric.breakdown && metric.breakdown.length) charts.push(metric); else scalars.push(metric);
     });
   });
   const index = metricIndex(state.snapshot);
   const publicCount = index["datasets.public"] ? index["datasets.public"].value : 0;
-  if (scalars.length) {
+  const recorded = recordedStatItems();
+  if (scalars.length || recorded.length) {
     const strip = el("dl", "stat-strip");
-    scalars.forEach(function (metric) {
-      const item = el("div", "stat-item");
-      const dt = el("dt");
-      dt.appendChild(el("span", null, metric.label));
-      if (metric.hint) dt.appendChild(infoDisclosure("About " + metric.label, metric.hint));
-      item.appendChild(dt);
-      const dd = el("dd", null, fmt(metric));
-      const p = pct(metric.value, metric.total);
-      if (p != null) dd.appendChild(el("span", "stat-share", partShare(metric.value, metric.total) + " of " + unitFormatter(metric.unit)(metric.total)));
-      item.appendChild(dd);
-      strip.appendChild(item);
-    });
+    scalars.forEach(function (metric) { strip.appendChild(statItem(metric)); });
+    recorded.forEach(function (item) { strip.appendChild(item); });
     root.appendChild(strip);
   }
   charts.sort(function (a, b) {
     const ia = CATALOG_ORDER.indexOf(a.key); const ib = CATALOG_ORDER.indexOf(b.key);
     return (ia < 0 ? 99 : ia) - (ib < 0 ? 99 : ib);
   });
+  // The size card sits below the recorded-hours explorer, not in the grid.
+  const sizes = charts.find(function (metric) { return metric.key === "sizes.histogram"; });
   const grid = el("div", "catalog-grid");
-  charts.forEach(function (metric) { grid.appendChild(catalogCard(metric, publicCount)); });
-  root.appendChild(grid);
+  charts.forEach(function (metric) { if (metric !== sizes) grid.appendChild(catalogCard(metric, publicCount)); });
+  if (grid.childNodes.length) root.appendChild(grid);
+  if (sizes && sizeRoot) sizeRoot.appendChild(sizeCardFor(sizes, sizeByType));
 }
 
 function load() {

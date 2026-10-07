@@ -10,6 +10,7 @@ import { CLIENT_JS } from "../src/routes/dashboard/client";
 import { CORE_JS } from "../src/routes/dashboard/core";
 import { EXPLORER_JS } from "../src/routes/dashboard/explorer";
 import { FORMAT_JS } from "../src/routes/dashboard/format";
+import { MODALITY_JS } from "../src/routes/dashboard/modality";
 import { MODEL_JS } from "../src/routes/dashboard/model";
 import { OVERVIEW_JS } from "../src/routes/dashboard/overview";
 import { RANGE_JS } from "../src/routes/dashboard/range";
@@ -283,6 +284,7 @@ describe("payloads the checks refuse", () => {
     CHARTS_JS,
     USAGE_JS,
     REACH_JS,
+    MODALITY_JS,
     EXPLORER_JS,
     SNAPSHOT_JS,
     OVERVIEW_JS,

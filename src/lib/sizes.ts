@@ -27,6 +27,28 @@ export function sizeBinEdges(): number[] {
   return edges;
 }
 
+/**
+ * The recording types the Dataset size card can be split by: the ones the
+ * recorded-hours explorer also offers as tabs, so one choice drives both. The
+ * code is the datatype code stored in `datasets.modalities`.
+ */
+export const SIZE_MODALITIES = [
+  { code: "eeg", label: "EEG" },
+  { code: "meg", label: "MEG" },
+  { code: "ieeg", label: "iEEG" },
+  { code: "emg", label: "EMG" },
+] as const;
+
+/** The datatype codes in a comma-separated `modalities` value: trimmed, lowercase, no blanks. */
+export function modalityCodes(csv: string | null | undefined): Set<string> {
+  const codes = new Set<string>();
+  for (const part of (csv ?? "").split(",")) {
+    const code = part.trim().toLowerCase();
+    if (code) codes.add(code);
+  }
+  return codes;
+}
+
 /** The 100 GB archive cutoff, which is deliberately one of the bin edges. */
 export const ARCHIVE_CUTOFF_BYTES = 100_000_000_000;
 

@@ -14,7 +14,7 @@ import {
   type Severity,
   metric,
 } from "./schema";
-import { ARCHIVE_CUTOFF_BYTES, buildSizeHistogram } from "./sizes";
+import { ARCHIVE_CUTOFF_BYTES, SIZE_MODALITIES, buildSizeHistogram, modalityCodes } from "./sizes";
 import { MANAGED, PRIVATE_MANAGED, PUBLIC_MANAGED, PUBLISHED, counts, scalar } from "./sql";
 import { loadPushedSections } from "./store";
 
@@ -143,16 +143,20 @@ async function datasetsSection(db: D1Database, now: string): Promise<Section> {
  * beside it over a tall empty row. See src/lib/sizes.ts for why the bins are
  * logarithmic and why 100 GB is an exact boundary.
  *
+ * Besides the whole-catalog histogram it carries one histogram per recording
+ * type (`sizes.histogram.<code>`, same bins), which the page shows behind the
+ * Dataset size card's type tabs. A dataset with several types counts under each.
+ *
  * Exported for tests; buildSnapshot() is the only production caller.
  */
 export async function sizesSection(db: D1Database, now: string): Promise<Section> {
   const rows = await db
     .prepare(
-      `SELECT dataset_id, file_size FROM datasets
+      `SELECT dataset_id, file_size, modalities FROM datasets
        WHERE ${PUBLIC_MANAGED} AND file_size IS NOT NULL AND file_size > 0
        ORDER BY file_size DESC`,
     )
-    .all<{ dataset_id: string; file_size: number }>();
+    .all<{ dataset_id: string; file_size: number; modalities: string | null }>();
   const sized = rows.results ?? [];
   const overCutoff = sized.filter((r) => r.file_size > ARCHIVE_CUTOFF_BYTES).length;
   const pct = sized.length ? Math.round((overCutoff / sized.length) * 100) : 0;
@@ -164,6 +168,12 @@ export async function sizesSection(db: D1Database, now: string): Promise<Section
   const smallHalf = sized.slice(Math.ceil(sized.length / 2));
   const smallHalfBytes = smallHalf.reduce((n, r) => n + r.file_size, 0);
   const smallHalfPct = totalBytes ? Math.round((smallHalfBytes / totalBytes) * 100) : 0;
+
+  const byModality = SIZE_MODALITIES.map(({ code, label }) => ({
+    code,
+    label,
+    sizes: sized.filter((r) => modalityCodes(r.modalities).has(code)).map((r) => r.file_size),
+  })).filter((m) => m.sizes.length > 0);
 
   return {
     key: "sizes",
@@ -196,6 +206,17 @@ export async function sizesSection(db: D1Database, now: string): Promise<Section
         breakdown_style: "ranked",
         hint: `The ten largest of ${sized.length} public datasets. Storage is heavily concentrated: the smaller half of the catalog accounts for ${smallHalfPct}% of all bytes.`,
       }),
+      ...byModality.map((m) =>
+        metric({
+          key: `sizes.histogram.${m.code}`,
+          label: `Size distribution, ${m.label}`,
+          value: m.sizes.length,
+          unit: "datasets",
+          severity: "info",
+          breakdown: buildSizeHistogram(m.sizes),
+          hint: `The same size bins as the whole catalog, for the ${m.sizes.length} public datasets that include ${m.label} recordings. A dataset with several kinds of recording counts under each.`,
+        }),
+      ),
     ],
   };
 }

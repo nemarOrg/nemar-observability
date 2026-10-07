@@ -126,7 +126,8 @@ The body must conform to `src/lib/metric-snapshot.schema.json` (`$defs/sectionIn
 ### Recorded hours by channel count
 
 A section may also carry a `channel_hours` payload (`$defs/channelHours`): per modality, the exact hours and recordings at each channel count, and each dataset's largest channel count.
-The dashboard draws it under the pipeline cards as an explorer, only from the section with key `recordings` (the Zarr indexer's push); the explorer names that source, so a payload on any other section is not shown.
+The dashboard draws it as an explorer in "What does NEMAR hold?", below the catalog cards and above the Dataset size card, only from the section with key `recordings` (the Zarr indexer's push); the explorer names that source, so a payload on any other section is not shown.
+The catalog's headline strip also shows the section's `recordings.recordings` and `recordings.hours` as Recordings and Recorded hours (left out without the section, or when a figure is zero).
 The page checks the payload by the same rules as `ChannelHoursSchema` before drawing it.
 
 What the numbers cover, as the page also says:
@@ -140,6 +141,14 @@ How it reads:
 - The chart shows the selected measure at each exact channel count, colored at and above the minimum. The axis doubles at each step and counts stay exact because montages cluster just around powers of two (60, 63, 64, 65 and 127, 128, 129 channels), which bins such as 32-63 would split, and one scale has to hold 2-channel sleep EEG and 415-channel MEG.
 - The view is kept in the address as `#hours=eeg:16` (optionally `:recordings` or `:datasets`, any case) so it can be shared; a link the snapshot cannot show says so and the address is set to the view shown (a minimum above the largest count of that type shows the largest count). Nothing is stored in the browser.
 - Data more than three days old, or from a run that could not read some datasets, carries a notice above the readout. Without a payload the explorer says no recorded-hours data is available right now.
+- Each recording type is drawn in its own color, the NEMAR website's (`--modality-*` in its `tokens.css`): the chosen tab's underline, the meter, the in-range bars, the shaded band, and the slider. A type the website has no color for (ECG, MISC) is drawn in its slate "other".
+
+### The Dataset size card by recording type
+
+`sizesSection` adds one histogram per recording type to the `sizes` section, `sizes.histogram.eeg`, `.meg`, `.ieeg` and `.emg`, with the same size bins as `sizes.histogram`, over the public datasets whose `modalities` list the type (a dataset with several types counts under each; a type with no sized dataset has none).
+The page does not draw them as cards: they are the tabs of the Dataset size card, next to All.
+The card's tabs and the explorer's tabs are one choice. Picking a type in either moves the other, and the address (`#hours=ieeg:16`) is the only place it is kept. All is the size card's own and leaves the explorer where it is. A type the catalog is not grouped by (ECG, MISC) leaves the size card on All with a line saying so.
+The card opens on All; a link to a view (`#hours=emg:64`) opens both on that type.
 
 ## API
 
