@@ -34,9 +34,12 @@ function hoursClaim(measure, name, minChannels, value) {
   return "of " + name + " recorded with " + threshold;
 }
 // "52.6% of the 4,646 EEG hours".
+// Two totals need their own sentence: no hours at all (recordings measured with
+// no duration), and less than a tenth of an hour, which cannot follow "the".
 function hoursShareLine(measure, value, total, name) {
-  if (!total) return "No " + name + " " + measureFigure(measure, 0).unit + " are measured yet.";
+  if (!total) return "These " + name + " recordings have no recorded duration, so there are no hours to compare.";
   const whole = measureFigure(measure, total);
+  if (measure === "hours" && total < 0.05) return partShare(value, total) + " of all " + name + " hours, less than 0.1 hours in total";
   return partShare(value, total) + " of the " + whole.number + " " + name + " " + whole.unit;
 }
 // Channel-hours: channels times hours, a measure of how much signal there is.

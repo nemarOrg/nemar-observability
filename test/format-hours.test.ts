@@ -6,9 +6,9 @@ import { describe, expect, test } from "bun:test";
 import sample from "./fixtures/channel-hours.sample.json";
 import { clientLogic } from "./helpers/client-logic";
 
-const { humanHours, exactHours, unitFormatter, fmt } = clientLogic([
+const { humanHours, spelledOutHours, unitFormatter, fmt } = clientLogic([
   "humanHours",
-  "exactHours",
+  "spelledOutHours",
   "unitFormatter",
   "fmt",
 ]);
@@ -29,19 +29,19 @@ describe("hours formatting", () => {
     expect(humanHours(-1)).toBe("Unknown");
   });
 
-  test("hours in words keep whole hours exact and never read a small amount as zero", () => {
-    expect(exactHours(0)).toBe("0 hours");
-    expect(exactHours(0.01)).toBe("less than 0.1 hours");
-    expect(exactHours(1)).toBe("1 hour");
-    expect(exactHours(3.6142)).toBe("3.6 hours");
-    expect(exactHours(143_212.4)).toBe("143,212 hours");
+  test("hours in words round like the readout and never read a small amount as zero", () => {
+    expect(spelledOutHours(0)).toBe("0 hours");
+    expect(spelledOutHours(0.01)).toBe("less than 0.1 hours");
+    expect(spelledOutHours(1)).toBe("1 hour");
+    expect(spelledOutHours(3.6142)).toBe("3.6 hours");
+    expect(spelledOutHours(143_212.4)).toBe("143,212 hours");
   });
 
   test("a metric in hours formats as hours on tiles, totals, and bar lists", () => {
-    const total = sample.modalities.reduce((s, m) => s + m.hours, 0);
     const eeg = sample.modalities.find((m) => m.modality === "EEG");
-    expect(fmt({ unit: "hours", value: total })).toBe("5,640 h");
-    expect(unitFormatter("hours")(eeg?.hours)).toBe("4,646 h");
+    const emg = sample.modalities.find((m) => m.modality === "EMG");
+    expect(fmt({ unit: "hours", value: eeg?.hours })).toBe("4,646 h");
+    expect(unitFormatter("hours")(emg?.hours)).toBe("627 h");
     // Other units read as before.
     expect(fmt({ unit: "bytes", value: 1_500_000 })).toBe("1.5 MB");
     expect(unitFormatter("bytes")(1_500_000)).toBe("1.5 MB");

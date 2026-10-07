@@ -41,8 +41,9 @@ function humanHours(n) {
   if (n < 0.05) return "<0.1 h";
   return (n < 10000 ? hoursNumber(n) : shortScaled(n)) + " h";
 }
-// Hours in words, for sentences and screen readers: 7.1 hours, 2,445 hours.
-function exactHours(n) {
+// Hours spelled out for sentences and screen readers, rounded like the
+// readout: 7.1 hours, 2,445 hours (4,645.6 reads 4,646 hours).
+function spelledOutHours(n) {
   if (typeof n !== "number" || !Number.isFinite(n) || n < 0) return "an unknown number of hours";
   const text = hoursNumber(n);
   return text + (text === "1" ? " hour" : " hours");
@@ -117,7 +118,7 @@ const SOURCE_LABELS = {
   cloudflare: "network edge analytics",
   "aws-s3-cloudwatch": "storage metrics",
   umami: "website analytics",
-  "nemar-zarr-index": "the Zarr copies of public datasets"
+  "nemar-zarr-index": "public datasets converted for in-browser viewing"
 };
 const SECTION_LABELS = {
   datasets: "Datasets", sizes: "Dataset sizes", archive: "Archives", zarr: "Zarr conversion",

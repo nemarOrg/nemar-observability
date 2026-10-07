@@ -9,6 +9,8 @@ import { Window } from "happy-dom";
 import worker from "../src/index";
 import type { Section } from "../src/lib/schema";
 import { savePushedSection } from "../src/lib/store";
+import { CHANNELS_JS } from "../src/routes/dashboard/channels";
+import { EXPLORER_JS } from "../src/routes/dashboard/explorer";
 import { STYLES } from "../src/routes/dashboard/styles";
 import { renderDashboardPage } from "../src/routes/ui";
 import type { Bindings } from "../src/types";
@@ -28,9 +30,10 @@ afterEach(async () => {
   }
 });
 
-const totalHours = sample.modalities.reduce((s, m) => s + m.hours, 0);
-// The section the Zarr indexer pushes: headline metrics derived from the same
-// fixture, and the fixture itself as the channel_hours payload.
+// The section the Zarr indexer pushes: metrics derived from the same fixture,
+// and the fixture itself as the channel_hours payload. Hours are listed per
+// recording type only: a recording with two types counts under each, so the
+// sum over types is not a total and no metric here presents it as one.
 function recordingsSection(
   withHours = true,
   options: { updatedAt?: string; payload?: typeof sample } = {},
@@ -42,16 +45,17 @@ function recordingsSection(
     updated_at: options.updatedAt ?? new Date().toISOString(),
     metrics: [
       {
-        key: "recordings.hours",
-        label: "Recorded hours",
-        value: totalHours,
-        unit: "hours",
+        key: "recordings.types",
+        label: "Recording types",
+        value: sample.modalities.length,
+        unit: "count",
         severity: "info",
+        breakdown_unit: "hours",
         breakdown: sample.modalities.map((m) => ({ label: m.modality, value: m.hours })),
       },
       {
         key: "recordings.datasets",
-        label: "Datasets indexed",
+        label: "Datasets read",
         value: sample.datasets_scanned,
         unit: "datasets",
         severity: "info",
@@ -297,7 +301,10 @@ describe("recorded hours explorer", () => {
     );
     expect(text(document, ".hours-table .hours-cut")).toBe("Counted: 16 or more channels");
     expect(text(document, ".hours-foot")).toContain(
-      `From the Zarr copies of ${sample.datasets_scanned} public datasets`,
+      `Read from ${sample.datasets_scanned} public datasets converted for in-browser viewing`,
+    );
+    expect(text(document, ".hours-caption")).toBe(
+      "Datasets are counted once, at the channel count of their largest recording. Hours and recordings are counted at each recording's own channel count.",
     );
   });
 
@@ -520,9 +527,46 @@ describe("recorded hours explorer", () => {
     const { document } = await openPage(recordingsSection());
     await until(() => document.getElementById("card-recordings") !== null, "the recordings card");
     const card = text(document, "#card-recordings");
-    expect(card).toContain(`${whole(totalHours)} h`);
+    expect(card).toContain(`Recording types${sample.modalities.length}`);
     expect(card).toContain(`EEG${whole(eeg.hours)} h`);
-    expect(card).toContain("From the Zarr copies of public datasets");
+    expect(card).toContain("From public datasets converted for in-browser viewing");
     expect(q(document, "#card-recordings .card-link").getAttribute("href")).toBe("#recorded-hours");
+  });
+
+  test("the title area says what the hours cover", async () => {
+    const { document } = await openPage(recordingsSection());
+    expect(text(document, "#recorded-hours-scope")).toBe(
+      `Counts only the public datasets converted for in-browser viewing so far (${sample.datasets_scanned} of them), not the whole archive. A recording with two signal types is counted once under each type, so totals across tabs overlap.`,
+    );
+  });
+
+  // The words a neuroscientist reads, checked for pipeline jargon. JARGON is a
+  // local copy of the pattern in test/public-copy.test.ts (vendor names, file
+  // names, issue numbers, em dashes); that file is being changed elsewhere and
+  // the two will be unified. The explorer adds its own storage terms.
+  const JARGON =
+    /Cloudflare|\bS3\b|CloudWatch|presigned|index\.json|nemar approve|archive-sweep|#\d{3}|source='|\b\d+d\b|—/;
+  const EXPLORER_JARGON = /\bZarr\b|\bindex(?:ed|ing)?\b/i;
+
+  test("the explorer's words are plain", async () => {
+    const { window, document } = await openPage(recordingsSection());
+    openTable(document);
+    // Show a tooltip too, so its words are on the page.
+    const chart = document.querySelector(".hours-chart") as unknown as { focus(): void };
+    chart.focus();
+    const shown = `${text(document, "#recorded-hours")} ${text(document, "#card-recordings")}`;
+    expect(shown).not.toMatch(JARGON);
+    expect(shown).not.toMatch(EXPLORER_JARGON);
+    // Every string the explorer's script can put on the page, including notices
+    // and empty states that this view does not show.
+    const literals = [...(CHANNELS_JS + EXPLORER_JS).matchAll(/"((?:[^"\\\n]|\\.){12,})"/g)].map(
+      (m) => m[1],
+    );
+    // Words with spaces; not log lines, and not code caught between two
+    // string literals on one line.
+    const prose = literals.filter((s) => / /.test(s) && !/^\[ui\]/.test(s) && !/[{}();=]/.test(s));
+    expect(prose.length).toBeGreaterThan(20);
+    expect(prose.filter((s) => JARGON.test(s) || EXPLORER_JARGON.test(s))).toEqual([]);
+    expect(window.document.body.textContent ?? "").not.toContain("—");
   });
 });

@@ -316,7 +316,7 @@ export function renderDashboardPage(): string {
       <div class="section-head">
         <div>
           <h2 id="pipelines-title">What is the latest state of datasets and pipelines?</h2>
-          <p class="section-lede">Counts for archive building, Zarr conversion for in-browser viewing, OpenNeuro imports, publication review, and accounts. Admins manage these in the admin portal.</p>
+          <p class="section-lede">Counts for archive building, Zarr conversion for in-browser viewing, OpenNeuro imports, publication review, and accounts, then the recorded hours in converted datasets by channel count. Admins manage these in the admin portal.</p>
         </div>
         <div class="section-tools">${CURRENT_STATE}</div>
       </div>
@@ -325,7 +325,8 @@ export function renderDashboardPage(): string {
       <div id="recorded-hours" class="hours-block">
         <div class="subsection-head">
           <h3>Recorded hours by channel count</h3>
-          <p>Recording time in the Zarr copies of public datasets, by recording type and number of channels.</p>
+          <p>Recording time by recording type and number of channels.</p>
+          <p id="recorded-hours-scope" class="hours-scope">Counts only the public datasets converted for in-browser viewing so far, not the whole archive. A recording with two signal types is counted once under each type, so totals across tabs overlap.</p>
         </div>
         <div id="channel-hours" aria-busy="true">${CHART_SKELETON}</div>
       </div>

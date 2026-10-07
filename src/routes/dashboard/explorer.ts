@@ -104,6 +104,9 @@ function renderRecordedHours(snap) {
   }
   settle(root);
   hoursView.found = found;
+  // The title area says how much of the archive these hours cover.
+  const scope = document.getElementById("recorded-hours-scope");
+  if (scope) scope.textContent = "Counts only the public datasets converted for in-browser viewing so far (" + num(found.payload.datasets_scanned) + " of them), not the whole archive. A recording with two signal types is counted once under each type, so totals across tabs overlap.";
   hoursView.modalities = prepareModalities(found.payload);
   hoursView.axisMax = axisMaxFor(hoursView.modalities);
   const linked = applyHoursHash(location.hash);
@@ -154,7 +157,7 @@ function buildHoursExplorer() {
     tab.setAttribute("role", "tab");
     tab.setAttribute("aria-controls", "hours-panel");
     tab.appendChild(el("span", "hours-tab-name", m.name));
-    tab.appendChild(figure("span", "hours-tab-total", humanHours(m.hours), exactHours(m.hours)));
+    tab.appendChild(figure("span", "hours-tab-total", humanHours(m.hours), spelledOutHours(m.hours)));
     tab.addEventListener("click", function () { selectHoursModality(m.key); });
     tablist.appendChild(tab);
     return tab;
@@ -227,7 +230,7 @@ function buildHoursExplorer() {
     const dt = el("dt");
     const label = el("span");
     dt.appendChild(label);
-    if (i === 2) dt.appendChild(infoDisclosure("About channel-hours", "Channel-hours add up every channel's recording time: one hour from a 64-channel recording is 64 channel-hours. They measure the amount of signal, as when sizing data for training models."));
+    if (i === 2) dt.appendChild(infoDisclosure("About channel-hours", "Channel-hours add up every channel's recording time: one hour from a 64-channel recording is 64 channel-hours. They show how much signal there is, which matters when sizing data for model training."));
     const dd = el("dd");
     item.appendChild(dt); item.appendChild(dd);
     facts.appendChild(item);
@@ -305,7 +308,7 @@ function buildHoursExplorer() {
   });
   const table = el("table", "data-table hours-table");
   // The datasets column holds dataset peaks, so the caption says how they count.
-  table.appendChild(el("caption", "hours-caption", "Each dataset is counted once, at the channel count of its largest recording."));
+  table.appendChild(el("caption", "hours-caption", "Datasets are counted once, at the channel count of their largest recording. Hours and recordings are counted at each recording's own channel count."));
   const thead = el("thead");
   const hr = el("tr");
   [["Channels", ""], ["Hours", "num"], ["Recordings", "num"], ["Datasets", "num"]].forEach(function (h) {
@@ -334,7 +337,7 @@ function hoursSourceNotes(found) {
   const payload = found.payload;
   const notes = [];
   const updated = found.section && found.section.updated_at ? ", updated " + relativeTime(found.section.updated_at) : "";
-  notes.push("From the Zarr copies of " + plural(payload.datasets_scanned, "public dataset", "public datasets") + updated + ".");
+  notes.push("Read from " + plural(payload.datasets_scanned, "public dataset", "public datasets") + " converted for in-browser viewing" + updated + ".");
   if (payload.recordings_unmeasured) notes.push(plural(payload.recordings_unmeasured, "recording", "recordings") + " without a known duration or channel count " + (payload.recordings_unmeasured === 1 ? "is" : "are") + " left out.");
   return notes;
 }
@@ -495,6 +498,10 @@ function hoursChart() {
     const x0 = margin.l + pad;
     const span = plotW - 2 * pad;
     const octaves = Math.log2(view.axisMax);
+    // A doubling axis with exact counts: montages cluster just around powers
+    // of two (60, 63, 64, 65 and 127, 128, 129 channels), which bins such as
+    // 32-63 would split, and one scale must hold 2-channel sleep EEG and
+    // 415-channel MEG alike.
     function xOf(c) { return x0 + (Math.log2(c) / octaves) * span; }
     function yOf(v) { return margin.t + plotH - (v / (scale.max || 1)) * plotH; }
     // One width for every bar, so width never reads as amount: half of a
@@ -558,11 +565,12 @@ function hoursChart() {
     const bin = modality.bins.find(function (b) { return b.channels === p.channels; });
     const notes = [];
     if (view.measure === "hours" && bin) notes.push(plural(bin.recordings, "recording", "recordings"));
-    if (view.measure === "recordings" && bin) notes.push(exactHours(bin.hours));
-    notes.push(p.channels >= view.min ? "Counted in " + thresholdText(view.min) : "Below the minimum of " + thresholdText(view.min));
+    if (view.measure === "recordings" && bin) notes.push(tableHours(bin.hours) + " hours");
+    notes.push(p.channels >= view.min ? "Counted: " + thresholdText(view.min) : "Below " + plural(view.min, "channel", "channels"));
     return {
       title: (view.measure === "datasets" ? "Largest recording: " : "") + plural(p.channels, "channel", "channels"),
-      value: measureText(view.measure, p.value),
+      // One bar is one exact count, so its hours keep a decimal, as in the table.
+      value: view.measure === "hours" ? tableHours(p.value) + " hours" : measureText(view.measure, p.value),
       notes: notes
     };
   }
@@ -629,7 +637,9 @@ function hoursChart() {
     wrap: frame.wrap,
     update: function () {
       // Drawn at once from the laid-out width, so the slider is placed before the
-      // first resize report arrives.
+      // first resize report arrives. 600 is a stand-in only where nothing has a
+      // width yet (a hidden block, or a test DOM without layout); the resize
+      // observer redraws at the real width as soon as there is one.
       if (!width) width = Math.floor(frame.canvas.clientWidth || frame.wrap.clientWidth || 0) || 600;
       active = -1;
       hide();

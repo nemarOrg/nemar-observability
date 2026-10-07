@@ -551,6 +551,13 @@ describe("words", () => {
       "52.6% of the 4,646 EEG hours",
     );
     expect(hoursShareLine("datasets", 1, 4, "EMG")).toBe("25% of the 4 EMG datasets");
+    // A total under a tenth of an hour, and recordings with no duration at all.
+    expect(hoursShareLine("hours", 0.03, 0.03, "TINY")).toBe(
+      "100% of all TINY hours, less than 0.1 hours in total",
+    );
+    expect(hoursShareLine("hours", 0, 0, "ZERO")).toBe(
+      "These ZERO recordings have no recorded duration, so there are no hours to compare.",
+    );
     expect(hoursFacts("hours", part).map((f: { label: string }) => f.label)).toEqual([
       "Recordings",
       "Datasets",

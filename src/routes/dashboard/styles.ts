@@ -506,6 +506,7 @@ main > section { scroll-margin-top: calc(var(--topbar-h) + 16px); padding-top: v
    and the table's divider row carry the same split without color. */
 .hours-block { margin-top: var(--space-6); }
 .hours-block > .subsection-head { margin-top: 0; }
+.hours-block .hours-scope { flex-basis: 100%; max-width: 75ch; color: var(--text-2); }
 .hours-card { padding: 0; }
 .hours-top { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: var(--space-2) var(--space-4); padding: 10px 20px 0; border-bottom: 1px solid var(--border); }
 /* Positioned, so the screen-reader text inside each tab total (absolutely
