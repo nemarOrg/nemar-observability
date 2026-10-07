@@ -1,5 +1,7 @@
 import { describe, expect, test } from "bun:test";
+import { readFileSync } from "node:fs";
 import {
+  ChannelHoursSchema,
   MetricSchema,
   MetricSnapshotSchema,
   SCHEMA_VERSION,
@@ -187,5 +189,71 @@ describe("breakdown_unit", () => {
     const r = MetricSchema.safeParse({ key: "a.b", label: "A", value: 1 });
     expect(r.success).toBe(true);
     expect(r.success && r.data.breakdown_unit).toBeUndefined();
+  });
+});
+
+describe("channel_hours", () => {
+  // Aggregated from the real zarr index.json files of 64 public datasets (a
+  // subset of the catalog), not hand-built.
+  const sample = JSON.parse(
+    readFileSync(new URL("./fixtures/channel-hours.sample.json", import.meta.url), "utf8"),
+  );
+
+  test("accepts a real aggregated sample", () => {
+    expect(ChannelHoursSchema.safeParse(sample).success).toBe(true);
+  });
+
+  test("survives a section ingest round-trip", () => {
+    const r = SectionIngestSchema.safeParse({
+      key: "recordings",
+      label: "Recorded hours",
+      source: "nemar-zarr-index",
+      metrics: [{ key: "recordings.hours", label: "Recorded hours", value: 1, unit: "hours" }],
+      channel_hours: sample,
+    });
+    expect(r.success).toBe(true);
+    expect(r.success && r.data.channel_hours?.modalities.map((m) => m.modality)).toEqual(
+      sample.modalities.map((m: { modality: string }) => m.modality),
+    );
+  });
+
+  test("is optional", () => {
+    const r = SectionIngestSchema.safeParse({
+      key: "qa",
+      label: "QA",
+      source: "qa-pipeline",
+      metrics: [{ key: "qa.pass", label: "Passing", value: 42 }],
+    });
+    expect(r.success && r.data.channel_hours).toBeUndefined();
+  });
+
+  test("rejects duplicate channel counts, duplicate modalities, and inconsistent totals", () => {
+    const bad = (mutate: (v: typeof sample) => void) => {
+      const v = structuredClone(sample);
+      mutate(v);
+      return ChannelHoursSchema.safeParse(v).success;
+    };
+    expect(bad((v) => v.modalities[0].bins.push({ ...v.modalities[0].bins[0] }))).toBe(false);
+    expect(bad((v) => v.modalities.push({ ...v.modalities[0], modality: "eeg" }))).toBe(false);
+    expect(
+      bad((v) => {
+        v.modalities[0].hours += 1;
+      }),
+    ).toBe(false);
+    expect(
+      bad((v) => {
+        v.modalities[0].recordings += 1;
+      }),
+    ).toBe(false);
+    expect(
+      bad((v) => {
+        v.modalities[0].datasets += 1;
+      }),
+    ).toBe(false);
+    expect(
+      bad((v) => {
+        v.modalities[0].bins[0].channels = 0;
+      }),
+    ).toBe(false);
   });
 });

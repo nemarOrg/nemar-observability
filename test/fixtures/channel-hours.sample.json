@@ -1,0 +1,838 @@
+{
+ "datasets_scanned": 64,
+ "datasets_unavailable": 0,
+ "recordings_unmeasured": 0,
+ "modalities": [
+  {
+   "modality": "EEG",
+   "hours": 4645.5859,
+   "recordings": 13540,
+   "datasets": 50,
+   "bins": [
+    {
+     "channels": 2,
+     "hours": 837.9071,
+     "recordings": 58
+    },
+    {
+     "channels": 3,
+     "hours": 1155.6778,
+     "recordings": 71
+    },
+    {
+     "channels": 5,
+     "hours": 205.0,
+     "recordings": 34
+    },
+    {
+     "channels": 8,
+     "hours": 2.134,
+     "recordings": 9
+    },
+    {
+     "channels": 16,
+     "hours": 2.5139,
+     "recordings": 25
+    },
+    {
+     "channels": 19,
+     "hours": 19.6084,
+     "recordings": 88
+    },
+    {
+     "channels": 22,
+     "hours": 37.2233,
+     "recordings": 173
+    },
+    {
+     "channels": 29,
+     "hours": 0.4973,
+     "recordings": 5
+    },
+    {
+     "channels": 30,
+     "hours": 19.6013,
+     "recordings": 43
+    },
+    {
+     "channels": 31,
+     "hours": 6.1616,
+     "recordings": 22
+    },
+    {
+     "channels": 32,
+     "hours": 258.6157,
+     "recordings": 1671
+    },
+    {
+     "channels": 41,
+     "hours": 19.5875,
+     "recordings": 40
+    },
+    {
+     "channels": 60,
+     "hours": 618.9378,
+     "recordings": 604
+    },
+    {
+     "channels": 63,
+     "hours": 78.1964,
+     "recordings": 249
+    },
+    {
+     "channels": 64,
+     "hours": 146.4671,
+     "recordings": 811
+    },
+    {
+     "channels": 65,
+     "hours": 121.0529,
+     "recordings": 848
+    },
+    {
+     "channels": 66,
+     "hours": 98.0442,
+     "recordings": 155
+    },
+    {
+     "channels": 68,
+     "hours": 40.1899,
+     "recordings": 28
+    },
+    {
+     "channels": 71,
+     "hours": 39.8986,
+     "recordings": 138
+    },
+    {
+     "channels": 73,
+     "hours": 64.8422,
+     "recordings": 98
+    },
+    {
+     "channels": 77,
+     "hours": 1.1621,
+     "recordings": 50
+    },
+    {
+     "channels": 80,
+     "hours": 57.2597,
+     "recordings": 105
+    },
+    {
+     "channels": 82,
+     "hours": 35.8486,
+     "recordings": 167
+    },
+    {
+     "channels": 109,
+     "hours": 0.3036,
+     "recordings": 18
+    },
+    {
+     "channels": 110,
+     "hours": 0.1111,
+     "recordings": 5
+    },
+    {
+     "channels": 114,
+     "hours": 8.7457,
+     "recordings": 80
+    },
+    {
+     "channels": 115,
+     "hours": 34.0926,
+     "recordings": 313
+    },
+    {
+     "channels": 127,
+     "hours": 175.5692,
+     "recordings": 852
+    },
+    {
+     "channels": 129,
+     "hours": 534.296,
+     "recordings": 6716
+    },
+    {
+     "channels": 138,
+     "hours": 1.6458,
+     "recordings": 3
+    },
+    {
+     "channels": 144,
+     "hours": 20.7803,
+     "recordings": 37
+    },
+    {
+     "channels": 257,
+     "hours": 3.6142,
+     "recordings": 24
+    }
+   ],
+   "dataset_peaks": [
+    {
+     "channels": 2,
+     "datasets": 1
+    },
+    {
+     "channels": 5,
+     "datasets": 1
+    },
+    {
+     "channels": 8,
+     "datasets": 1
+    },
+    {
+     "channels": 16,
+     "datasets": 1
+    },
+    {
+     "channels": 19,
+     "datasets": 1
+    },
+    {
+     "channels": 22,
+     "datasets": 1
+    },
+    {
+     "channels": 30,
+     "datasets": 1
+    },
+    {
+     "channels": 31,
+     "datasets": 1
+    },
+    {
+     "channels": 32,
+     "datasets": 7
+    },
+    {
+     "channels": 60,
+     "datasets": 2
+    },
+    {
+     "channels": 63,
+     "datasets": 3
+    },
+    {
+     "channels": 64,
+     "datasets": 9
+    },
+    {
+     "channels": 65,
+     "datasets": 2
+    },
+    {
+     "channels": 66,
+     "datasets": 3
+    },
+    {
+     "channels": 68,
+     "datasets": 1
+    },
+    {
+     "channels": 71,
+     "datasets": 2
+    },
+    {
+     "channels": 73,
+     "datasets": 1
+    },
+    {
+     "channels": 80,
+     "datasets": 1
+    },
+    {
+     "channels": 82,
+     "datasets": 1
+    },
+    {
+     "channels": 110,
+     "datasets": 1
+    },
+    {
+     "channels": 115,
+     "datasets": 1
+    },
+    {
+     "channels": 127,
+     "datasets": 3
+    },
+    {
+     "channels": 129,
+     "datasets": 3
+    },
+    {
+     "channels": 144,
+     "datasets": 1
+    },
+    {
+     "channels": 257,
+     "datasets": 1
+    }
+   ]
+  },
+  {
+   "modality": "EMG",
+   "hours": 626.5928,
+   "recordings": 2220,
+   "datasets": 4,
+   "bins": [
+    {
+     "channels": 16,
+     "hours": 281.9725,
+     "recordings": 1089
+    },
+    {
+     "channels": 32,
+     "hours": 344.6203,
+     "recordings": 1131
+    }
+   ],
+   "dataset_peaks": [
+    {
+     "channels": 16,
+     "datasets": 3
+    },
+    {
+     "channels": 32,
+     "datasets": 1
+    }
+   ]
+  },
+  {
+   "modality": "MEG",
+   "hours": 74.3089,
+   "recordings": 712,
+   "datasets": 3,
+   "bins": [
+    {
+     "channels": 65,
+     "hours": 31.6252,
+     "recordings": 350
+    },
+    {
+     "channels": 321,
+     "hours": 0.125,
+     "recordings": 2
+    },
+    {
+     "channels": 325,
+     "hours": 0.1614,
+     "recordings": 4
+    },
+    {
+     "channels": 341,
+     "hours": 7.0712,
+     "recordings": 62
+    },
+    {
+     "channels": 395,
+     "hours": 13.1967,
+     "recordings": 96
+    },
+    {
+     "channels": 415,
+     "hours": 22.1294,
+     "recordings": 198
+    }
+   ],
+   "dataset_peaks": [
+    {
+     "channels": 65,
+     "datasets": 1
+    },
+    {
+     "channels": 395,
+     "datasets": 1
+    },
+    {
+     "channels": 415,
+     "datasets": 1
+    }
+   ]
+  },
+  {
+   "modality": "iEEG",
+   "hours": 293.5667,
+   "recordings": 612,
+   "datasets": 4,
+   "bins": [
+    {
+     "channels": 14,
+     "hours": 0.8953,
+     "recordings": 1
+    },
+    {
+     "channels": 16,
+     "hours": 0.8953,
+     "recordings": 1
+    },
+    {
+     "channels": 46,
+     "hours": 0.8375,
+     "recordings": 1
+    },
+    {
+     "channels": 52,
+     "hours": 1.4483,
+     "recordings": 6
+    },
+    {
+     "channels": 53,
+     "hours": 0.7453,
+     "recordings": 1
+    },
+    {
+     "channels": 55,
+     "hours": 2.7369,
+     "recordings": 3
+    },
+    {
+     "channels": 58,
+     "hours": 2.4742,
+     "recordings": 3
+    },
+    {
+     "channels": 59,
+     "hours": 0.4478,
+     "recordings": 5
+    },
+    {
+     "channels": 60,
+     "hours": 0.8375,
+     "recordings": 1
+    },
+    {
+     "channels": 61,
+     "hours": 0.3011,
+     "recordings": 4
+    },
+    {
+     "channels": 63,
+     "hours": 0.5211,
+     "recordings": 5
+    },
+    {
+     "channels": 64,
+     "hours": 7.2894,
+     "recordings": 8
+    },
+    {
+     "channels": 67,
+     "hours": 0.7086,
+     "recordings": 1
+    },
+    {
+     "channels": 68,
+     "hours": 3.9117,
+     "recordings": 4
+    },
+    {
+     "channels": 71,
+     "hours": 0.3825,
+     "recordings": 5
+    },
+    {
+     "channels": 72,
+     "hours": 8.1247,
+     "recordings": 8
+    },
+    {
+     "channels": 73,
+     "hours": 2.0486,
+     "recordings": 2
+    },
+    {
+     "channels": 74,
+     "hours": 2.9186,
+     "recordings": 10
+    },
+    {
+     "channels": 76,
+     "hours": 0.2922,
+     "recordings": 1
+    },
+    {
+     "channels": 77,
+     "hours": 1.0875,
+     "recordings": 1
+    },
+    {
+     "channels": 80,
+     "hours": 3.5886,
+     "recordings": 10
+    },
+    {
+     "channels": 82,
+     "hours": 0.8183,
+     "recordings": 12
+    },
+    {
+     "channels": 83,
+     "hours": 3.1908,
+     "recordings": 3
+    },
+    {
+     "channels": 84,
+     "hours": 2.8922,
+     "recordings": 3
+    },
+    {
+     "channels": 85,
+     "hours": 11.3869,
+     "recordings": 14
+    },
+    {
+     "channels": 86,
+     "hours": 3.3619,
+     "recordings": 4
+    },
+    {
+     "channels": 87,
+     "hours": 2.6281,
+     "recordings": 3
+    },
+    {
+     "channels": 88,
+     "hours": 7.3807,
+     "recordings": 14
+    },
+    {
+     "channels": 90,
+     "hours": 0.7175,
+     "recordings": 5
+    },
+    {
+     "channels": 92,
+     "hours": 7.065,
+     "recordings": 13
+    },
+    {
+     "channels": 93,
+     "hours": 1.0969,
+     "recordings": 1
+    },
+    {
+     "channels": 94,
+     "hours": 3.9594,
+     "recordings": 7
+    },
+    {
+     "channels": 95,
+     "hours": 4.4494,
+     "recordings": 5
+    },
+    {
+     "channels": 96,
+     "hours": 5.2369,
+     "recordings": 16
+    },
+    {
+     "channels": 97,
+     "hours": 3.5683,
+     "recordings": 5
+    },
+    {
+     "channels": 98,
+     "hours": 1.3681,
+     "recordings": 7
+    },
+    {
+     "channels": 99,
+     "hours": 0.7781,
+     "recordings": 1
+    },
+    {
+     "channels": 100,
+     "hours": 9.3581,
+     "recordings": 14
+    },
+    {
+     "channels": 102,
+     "hours": 8.7586,
+     "recordings": 14
+    },
+    {
+     "channels": 104,
+     "hours": 10.3853,
+     "recordings": 22
+    },
+    {
+     "channels": 105,
+     "hours": 0.3794,
+     "recordings": 4
+    },
+    {
+     "channels": 106,
+     "hours": 6.1269,
+     "recordings": 4
+    },
+    {
+     "channels": 107,
+     "hours": 5.1436,
+     "recordings": 3
+    },
+    {
+     "channels": 108,
+     "hours": 2.6164,
+     "recordings": 10
+    },
+    {
+     "channels": 109,
+     "hours": 0.485,
+     "recordings": 7
+    },
+    {
+     "channels": 110,
+     "hours": 9.1556,
+     "recordings": 10
+    },
+    {
+     "channels": 111,
+     "hours": 2.7294,
+     "recordings": 2
+    },
+    {
+     "channels": 112,
+     "hours": 18.8589,
+     "recordings": 22
+    },
+    {
+     "channels": 114,
+     "hours": 3.4867,
+     "recordings": 3
+    },
+    {
+     "channels": 115,
+     "hours": 1.7986,
+     "recordings": 2
+    },
+    {
+     "channels": 116,
+     "hours": 7.2839,
+     "recordings": 12
+    },
+    {
+     "channels": 117,
+     "hours": 3.3708,
+     "recordings": 10
+    },
+    {
+     "channels": 118,
+     "hours": 3.7075,
+     "recordings": 19
+    },
+    {
+     "channels": 119,
+     "hours": 4.6331,
+     "recordings": 5
+    },
+    {
+     "channels": 120,
+     "hours": 2.9044,
+     "recordings": 10
+    },
+    {
+     "channels": 121,
+     "hours": 7.1913,
+     "recordings": 14
+    },
+    {
+     "channels": 122,
+     "hours": 3.7222,
+     "recordings": 23
+    },
+    {
+     "channels": 123,
+     "hours": 3.3625,
+     "recordings": 4
+    },
+    {
+     "channels": 124,
+     "hours": 4.1356,
+     "recordings": 4
+    },
+    {
+     "channels": 126,
+     "hours": 13.5468,
+     "recordings": 29
+    },
+    {
+     "channels": 127,
+     "hours": 0.915,
+     "recordings": 12
+    },
+    {
+     "channels": 128,
+     "hours": 10.6742,
+     "recordings": 28
+    },
+    {
+     "channels": 130,
+     "hours": 3.3625,
+     "recordings": 4
+    },
+    {
+     "channels": 133,
+     "hours": 0.8675,
+     "recordings": 1
+    },
+    {
+     "channels": 135,
+     "hours": 0.9065,
+     "recordings": 1
+    },
+    {
+     "channels": 136,
+     "hours": 0.4989,
+     "recordings": 7
+    },
+    {
+     "channels": 138,
+     "hours": 1.8942,
+     "recordings": 2
+    },
+    {
+     "channels": 139,
+     "hours": 3.4472,
+     "recordings": 4
+    },
+    {
+     "channels": 140,
+     "hours": 5.1239,
+     "recordings": 4
+    },
+    {
+     "channels": 141,
+     "hours": 1.2872,
+     "recordings": 2
+    },
+    {
+     "channels": 142,
+     "hours": 5.11,
+     "recordings": 6
+    },
+    {
+     "channels": 146,
+     "hours": 0.9264,
+     "recordings": 1
+    },
+    {
+     "channels": 149,
+     "hours": 2.8567,
+     "recordings": 9
+    },
+    {
+     "channels": 152,
+     "hours": 0.1058,
+     "recordings": 1
+    },
+    {
+     "channels": 162,
+     "hours": 0.3886,
+     "recordings": 5
+    },
+    {
+     "channels": 163,
+     "hours": 0.4131,
+     "recordings": 6
+    },
+    {
+     "channels": 164,
+     "hours": 0.3939,
+     "recordings": 5
+    },
+    {
+     "channels": 172,
+     "hours": 1.1394,
+     "recordings": 15
+    },
+    {
+     "channels": 173,
+     "hours": 2.5214,
+     "recordings": 3
+    },
+    {
+     "channels": 174,
+     "hours": 0.4342,
+     "recordings": 7
+    },
+    {
+     "channels": 177,
+     "hours": 0.9992,
+     "recordings": 1
+    },
+    {
+     "channels": 178,
+     "hours": 0.9671,
+     "recordings": 1
+    },
+    {
+     "channels": 180,
+     "hours": 0.8939,
+     "recordings": 12
+    },
+    {
+     "channels": 186,
+     "hours": 4.1206,
+     "recordings": 13
+    },
+    {
+     "channels": 188,
+     "hours": 2.5214,
+     "recordings": 3
+    },
+    {
+     "channels": 190,
+     "hours": 0.4925,
+     "recordings": 7
+    },
+    {
+     "channels": 192,
+     "hours": 1.5453,
+     "recordings": 3
+    },
+    {
+     "channels": 194,
+     "hours": 1.1464,
+     "recordings": 1
+    },
+    {
+     "channels": 206,
+     "hours": 1.2274,
+     "recordings": 1
+    },
+    {
+     "channels": 232,
+     "hours": 0.2961,
+     "recordings": 2
+    },
+    {
+     "channels": 273,
+     "hours": 0.5584,
+     "recordings": 4
+    }
+   ],
+   "dataset_peaks": [
+    {
+     "channels": 188,
+     "datasets": 1
+    },
+    {
+     "channels": 206,
+     "datasets": 1
+    },
+    {
+     "channels": 232,
+     "datasets": 1
+    },
+    {
+     "channels": 273,
+     "datasets": 1
+    }
+   ]
+  }
+ ]
+}

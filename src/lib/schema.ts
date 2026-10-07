@@ -66,6 +66,135 @@ export const MetricSchema = z.object({
 export type Metric = z.infer<typeof MetricSchema>;
 
 /**
+ * One exact channel count within a modality: how much recorded time was
+ * captured with that many channels. Bins are sparse (only counts that occur)
+ * and exact, never pre-grouped, so a consumer can apply any "N channels or
+ * more" threshold and draw any binning it likes.
+ */
+export const ChannelHoursBinSchema = z
+  .object({
+    channels: z.number().int().min(1).max(100_000),
+    /** Summed recording time, in hours, of recordings with this channel count. */
+    hours: z.number().finite().nonnegative(),
+    recordings: z.number().int().nonnegative(),
+  })
+  .strict();
+export type ChannelHoursBin = z.infer<typeof ChannelHoursBinSchema>;
+
+/**
+ * Datasets whose largest recording in this modality has exactly `channels`
+ * channels. Summing the peaks at or above N gives the exact number of datasets
+ * that offer N or more channels, which per-recording bins cannot (a dataset
+ * with recordings at 16 and 32 channels would count twice).
+ */
+export const ChannelHoursDatasetPeakSchema = z
+  .object({
+    channels: z.number().int().min(1).max(100_000),
+    datasets: z.number().int().positive(),
+  })
+  .strict();
+export type ChannelHoursDatasetPeak = z.infer<typeof ChannelHoursDatasetPeakSchema>;
+
+/** Hours of data by channel count for one modality (EEG, iEEG, MEG, EMG, ...). */
+export const ChannelHoursModalitySchema = z
+  .object({
+    /** Stable key and display name, e.g. "EEG", "iEEG", "MEG", "EMG". Unique per section. */
+    modality: z.string().min(1).max(32),
+    /** Totals across all bins; the superRefine below keeps them consistent. */
+    hours: z.number().finite().nonnegative(),
+    recordings: z.number().int().nonnegative(),
+    datasets: z.number().int().nonnegative(),
+    bins: z.array(ChannelHoursBinSchema).min(1).max(1024),
+    dataset_peaks: z.array(ChannelHoursDatasetPeakSchema).max(1024),
+  })
+  .strict()
+  .superRefine((m, ctx) => {
+    const seen = new Set<number>();
+    let hours = 0;
+    let recordings = 0;
+    m.bins.forEach((bin, index) => {
+      if (seen.has(bin.channels)) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["bins", index, "channels"],
+          message: "Duplicate channel count",
+        });
+      }
+      seen.add(bin.channels);
+      hours += bin.hours;
+      recordings += bin.recordings;
+    });
+    const peakSeen = new Set<number>();
+    let datasets = 0;
+    m.dataset_peaks.forEach((peak, index) => {
+      if (peakSeen.has(peak.channels)) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["dataset_peaks", index, "channels"],
+          message: "Duplicate channel count",
+        });
+      }
+      peakSeen.add(peak.channels);
+      datasets += peak.datasets;
+    });
+    if (recordings !== m.recordings) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["recordings"],
+        message: "recordings must equal the sum over bins",
+      });
+    }
+    if (Math.abs(hours - m.hours) > Math.max(1e-6, m.hours * 1e-9)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["hours"],
+        message: "hours must equal the sum over bins",
+      });
+    }
+    if (datasets !== m.datasets) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["datasets"],
+        message: "datasets must equal the sum over dataset_peaks",
+      });
+    }
+  });
+export type ChannelHoursModality = z.infer<typeof ChannelHoursModalitySchema>;
+
+/**
+ * Recorded hours by channel count, per modality: the payload behind the
+ * "hours of data" explorer. Aggregates over public datasets only, so it carries
+ * no dataset identifiers. Recordings that converted but lack a duration or a
+ * channel count are counted in `recordings_unmeasured` and left out of every
+ * bin: unknown is not zero.
+ */
+export const ChannelHoursSchema = z
+  .object({
+    /** Public datasets whose Zarr index was read. */
+    datasets_scanned: z.number().int().nonnegative(),
+    /** Public datasets with a Zarr copy whose index could not be read this run. */
+    datasets_unavailable: z.number().int().nonnegative(),
+    recordings_unmeasured: z.number().int().nonnegative(),
+    modalities: z.array(ChannelHoursModalitySchema).min(1).max(32),
+  })
+  .strict()
+  .superRefine((value, ctx) => {
+    const seen = new Set<string>();
+    value.modalities.forEach((m, index) => {
+      const key = m.modality.toLowerCase();
+      if (seen.has(key)) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["modalities", index, "modality"],
+          message: "Duplicate modality",
+        });
+      }
+      seen.add(key);
+    });
+  });
+export type ChannelHours = z.infer<typeof ChannelHoursSchema>;
+
+/**
  * A group of related metrics from one producer. `source` identifies the
  * producer ("nemar-cli", "access", or a pipeline id like "qa-pipeline").
  */
@@ -87,6 +216,12 @@ export const SectionSchema = z.object({
    * field fall back to the uniform grid, so it can only ever affect layout.
    */
   layout: z.enum(["tiles", "split"]).optional(),
+  /**
+   * Recorded hours by channel count per modality, for the Zarr "hours of data"
+   * explorer. Optional and additive: a consumer that does not know the field
+   * ignores it and still renders the section's metrics.
+   */
+  channel_hours: ChannelHoursSchema.optional(),
 });
 export type Section = z.infer<typeof SectionSchema>;
 

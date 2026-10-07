@@ -35,6 +35,45 @@
         "points": { "type": "array", "minItems": 1, "maxItems": 3660, "uniqueItems": true, "items": { "$ref": "#/$defs/dailySeriesPoint" }, "description": "Dates must be unique and within coverage; values are finite non-negative additive observations. Missing dates are unknown, not zero. uniqueItems rejects identical points; the API additionally rejects repeated dates with different values." }
       }
     },
+    "channelHoursBin": {
+      "type": "object", "required": ["channels", "hours", "recordings"], "additionalProperties": false,
+      "properties": {
+        "channels": { "type": "integer", "minimum": 1, "maximum": 100000, "description": "Exact channel count of the recordings in this bin." },
+        "hours": { "type": "number", "minimum": 0, "description": "Summed recording time, in hours." },
+        "recordings": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "channelHoursDatasetPeak": {
+      "type": "object", "required": ["channels", "datasets"], "additionalProperties": false,
+      "properties": {
+        "channels": { "type": "integer", "minimum": 1, "maximum": 100000 },
+        "datasets": { "type": "integer", "minimum": 1, "description": "Datasets whose largest recording in this modality has exactly this many channels." }
+      }
+    },
+    "channelHoursModality": {
+      "type": "object",
+      "description": "Cross-field rules also enforced by the Zod validator: channel counts are unique within bins and within dataset_peaks, hours equals the sum over bins, recordings equals the sum over bins, and datasets equals the sum over dataset_peaks.",
+      "required": ["modality", "hours", "recordings", "datasets", "bins", "dataset_peaks"], "additionalProperties": false,
+      "properties": {
+        "modality": { "type": "string", "minLength": 1, "maxLength": 32, "description": "Stable key and display name, e.g. EEG, iEEG, MEG, EMG. Unique per section, case-insensitive." },
+        "hours": { "type": "number", "minimum": 0 },
+        "recordings": { "type": "integer", "minimum": 0 },
+        "datasets": { "type": "integer", "minimum": 0 },
+        "bins": { "type": "array", "minItems": 1, "maxItems": 1024, "items": { "$ref": "#/$defs/channelHoursBin" } },
+        "dataset_peaks": { "type": "array", "maxItems": 1024, "items": { "$ref": "#/$defs/channelHoursDatasetPeak" } }
+      }
+    },
+    "channelHours": {
+      "type": "object",
+      "description": "Recorded hours by channel count, per modality, over public datasets only (no dataset identifiers). Recordings that lack a duration or channel count are counted in recordings_unmeasured and left out of every bin.",
+      "required": ["datasets_scanned", "datasets_unavailable", "recordings_unmeasured", "modalities"], "additionalProperties": false,
+      "properties": {
+        "datasets_scanned": { "type": "integer", "minimum": 0 },
+        "datasets_unavailable": { "type": "integer", "minimum": 0 },
+        "recordings_unmeasured": { "type": "integer", "minimum": 0 },
+        "modalities": { "type": "array", "minItems": 1, "maxItems": 32, "items": { "$ref": "#/$defs/channelHoursModality" } }
+      }
+    },
     "severity": { "enum": ["ok", "warn", "error", "info"] },
     "breakdownItem": {
       "type": "object",
@@ -91,7 +130,8 @@
         "layout": {
           "enum": ["tiles", "split"],
           "description": "Tile arrangement. 'split' pairs a wide distribution with a narrow companion list. Layout hint only; consumers may ignore it."
-        }
+        },
+        "channel_hours": { "$ref": "#/$defs/channelHours" }
       }
     },
     "sectionIngest": {
@@ -104,7 +144,9 @@
         "label": { "type": "string", "minLength": 1 },
         "source": { "type": "string", "minLength": 1 },
         "metrics": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/metric" } },
-        "daily_series": { "type": "array", "maxItems": 16, "items": { "$ref": "#/$defs/dailySeries" } }
+        "daily_series": { "type": "array", "maxItems": 16, "items": { "$ref": "#/$defs/dailySeries" } },
+        "layout": { "enum": ["tiles", "split"] },
+        "channel_hours": { "$ref": "#/$defs/channelHours" }
       }
     }
   }
