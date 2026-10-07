@@ -535,6 +535,69 @@ describe("channel_hours", () => {
   });
 });
 
+describe("channel_hours edge inputs", () => {
+  const base = () => ({
+    datasets_scanned: 5,
+    datasets_unavailable: 0,
+    recordings_unmeasured: 0,
+    modalities: [
+      {
+        modality: "EEG",
+        hours: 3,
+        recordings: 3,
+        datasets: 2,
+        bins: [
+          { channels: 8, hours: 1, recordings: 1 },
+          { channels: 64, hours: 2, recordings: 2 },
+        ],
+        dataset_peaks: [
+          { channels: 8, datasets: 1 },
+          { channels: 64, datasets: 1 },
+        ],
+      },
+    ],
+  });
+  const ok = (v: unknown) => ChannelHoursSchema.safeParse(v).success;
+
+  test("a negative or non-finite bin duration is rejected", () => {
+    for (const hours of [-1, Number.POSITIVE_INFINITY, Number.NaN]) {
+      const v = base();
+      v.modalities[0].bins[0].hours = hours;
+      expect(ok(v)).toBe(false);
+    }
+    // JSON can carry an overflowing literal that parses to Infinity.
+    const parsed = JSON.parse(JSON.stringify(base()).replace('"hours":1,', '"hours":1e999,'));
+    expect(ok(parsed)).toBe(false);
+  });
+
+  test("a peak with zero datasets is rejected", () => {
+    const v = base();
+    v.modalities[0].dataset_peaks[0].datasets = 0;
+    v.modalities[0].datasets = 1;
+    expect(ok(v)).toBe(false);
+  });
+
+  test("unsorted dataset peaks are rejected by path", () => {
+    const v = base();
+    v.modalities[0].dataset_peaks.reverse();
+    const r = ChannelHoursSchema.safeParse(v);
+    expect(r.success).toBe(false);
+    expect(!r.success && r.error.issues.map((i) => i.path.join("."))).toEqual([
+      "modalities.0.dataset_peaks.1.channels",
+    ]);
+  });
+
+  test("empty bins or peaks give their own issue without a noisy largest-channel one", () => {
+    const noPeaks = base();
+    noPeaks.modalities[0].dataset_peaks = [];
+    noPeaks.modalities[0].datasets = 0;
+    const r = ChannelHoursSchema.safeParse(noPeaks);
+    expect(r.success).toBe(false);
+    const messages = !r.success ? r.error.issues.map((i) => i.message) : [];
+    expect(messages.some((m) => m.includes("Infinity"))).toBe(false);
+  });
+});
+
 describe("channel_hours JSON Schema mirror", () => {
   const mirror = JSON.parse(
     readFileSync(new URL("../src/lib/metric-snapshot.schema.json", import.meta.url), "utf8"),
@@ -554,6 +617,61 @@ describe("channel_hours JSON Schema mirror", () => {
     same(ChannelHoursDatasetPeakSchema.shape, "channelHoursDatasetPeak");
     same(ChannelHoursModalitySchema.innerType().shape, "channelHoursModality");
     same(ChannelHoursSchema.innerType().shape, "channelHours");
+  });
+
+  /**
+   * Effective inclusive bounds of a Zod number or array, from its checks, so the
+   * JSON Schema's minimum, maximum, minItems and maxItems can be compared with
+   * what the validator really enforces.
+   */
+  type Bounds = { min?: number; max?: number };
+  const boundsOf = (type: unknown): Bounds => {
+    const def = (
+      type as {
+        _def: {
+          checks?: { kind: string; value: number; inclusive?: boolean }[];
+          minLength?: { value: number } | null;
+          maxLength?: { value: number } | null;
+        };
+      }
+    )._def;
+    const out: Bounds = {};
+    for (const c of def.checks ?? []) {
+      if (c.kind === "min") {
+        const v = c.inclusive === false ? c.value + 1 : c.value;
+        out.min = out.min === undefined ? v : Math.max(out.min, v);
+      } else if (c.kind === "max") {
+        out.max = out.max === undefined ? c.value : Math.min(out.max, c.value);
+      }
+    }
+    if (def.minLength) out.min = def.minLength.value;
+    if (def.maxLength) out.max = def.maxLength.value;
+    return out;
+  };
+  const SAFE_MIN = Number.MIN_SAFE_INTEGER;
+  const jsonBounds = (prop: Record<string, number | undefined>): Bounds => ({
+    min: prop.minimum ?? prop.minItems,
+    max: prop.maximum ?? prop.maxItems,
+  });
+  const compare = (shape: Record<string, unknown>, def: string) => {
+    for (const [name, type] of Object.entries(shape)) {
+      const z = boundsOf(type);
+      const j = jsonBounds(mirror[def].properties[name]);
+      // A safe-integer floor is implied by "integer" in JSON Schema terms.
+      const zMin = z.min === SAFE_MIN ? undefined : z.min;
+      expect({ field: `${def}.${name}`, ...{ min: zMin, max: z.max } }).toEqual({
+        field: `${def}.${name}`,
+        min: j.min,
+        max: j.max,
+      });
+    }
+  };
+
+  test("numeric and array bounds match what Zod enforces", () => {
+    compare(ChannelHoursBinSchema.shape, "channelHoursBin");
+    compare(ChannelHoursDatasetPeakSchema.shape, "channelHoursDatasetPeak");
+    compare(ChannelHoursModalitySchema.innerType().shape, "channelHoursModality");
+    compare(ChannelHoursSchema.innerType().shape, "channelHours");
   });
 
   test("the modality name pattern is the same expression", () => {
