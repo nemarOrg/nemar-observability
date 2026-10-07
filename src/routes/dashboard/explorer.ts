@@ -177,7 +177,7 @@ function buildHoursExplorer() {
   // the measure toggle.
   const top = el("div", "hours-top");
   const strip = buildModalityTabs({
-    label: "Recording type",
+    label: "Recording type, recorded hours",
     idPrefix: "hours-tab-",
     panelId: "hours-panel",
     items: view.modalities.map(function (m) {
@@ -422,8 +422,13 @@ function drawHoursView(announce) {
   nodes.details.querySelector("summary").textContent = "Show exact values (" + plural(hoursTableRows(modality).length, "channel count", "channel counts") + ")";
   if (nodes.details.open) fillHoursTable(modality);
   if (announce) nodes.live.textContent = hoursAnnouncement(shown, nodes.claim.textContent, nodes.share.textContent);
-  // The Dataset size card follows the chosen type.
-  syncSizeCard();
+  // The Dataset size card follows the chosen type. A failure drawing it stays
+  // in that card: it must not replace the explorer, which has drawn fine.
+  try {
+    syncSizeCard();
+  } catch (err) {
+    console.error("[ui] dataset size display failed:", err);
+  }
 }
 
 function renderHoursNotices() {

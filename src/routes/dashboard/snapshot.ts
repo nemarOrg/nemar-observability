@@ -127,11 +127,11 @@ function renderHoursSafely(snap) {
 // again, so nothing is left on a skeleton.
 function renderSnapshotError(kind, err) {
   const retry = function () {
-    ["catalog", "usage-snapshot", "sections", "channel-hours"].forEach(function (id) {
+    ["catalog", "catalog-size", "usage-snapshot", "sections", "channel-hours"].forEach(function (id) {
       const root = document.getElementById(id);
       if (!root) return;
       root.dataset.ready = "false";
-      markRefreshing(root, id === "channel-hours" ? chartSkeleton : gridSkeleton);
+      markRefreshing(root, id === "channel-hours" || id === "catalog-size" ? chartSkeleton : gridSkeleton);
     });
     document.getElementById("health-meta").textContent = "Loading the latest snapshot.";
     state.snapshot = null;
@@ -148,7 +148,10 @@ function renderSnapshotError(kind, err) {
   stateMessage(document.getElementById("catalog"), "error", display ? "Could not display catalog figures" : "Could not load catalog figures", (reason + "Catalog figures are unknown right now.").trim(), retry);
   sizeView = null;
   const sizeRoot = document.getElementById("catalog-size");
-  if (sizeRoot) sizeRoot.textContent = "";
+  if (sizeRoot) {
+    sizeRoot.textContent = "";
+    sizeRoot.removeAttribute("aria-busy");
+  }
   stateMessage(document.getElementById("usage-snapshot"), "error", display ? "Could not display the rolling 30-day measures" : "Could not load the rolling 30-day measures", (reason + "These measures are unknown right now.").trim(), retry);
   hoursView.nodes = null;
   const hours = document.getElementById("channel-hours");
@@ -402,7 +405,7 @@ function sizeCardFor(all, byModality) {
     const metric = byModality[code];
     return { key: code, name: sizeTypeName(code), tone: modalityTone(code), total: num(metric.value), spoken: spokenCount(metric) };
   }));
-  view.strip = buildModalityTabs({ label: "Recording type", idPrefix: "size-tab-", panelId: "size-panel", className: "size-tabs", items: items, onSelect: chooseSizeTab });
+  view.strip = buildModalityTabs({ label: "Recording type, dataset size", idPrefix: "size-tab-", panelId: "size-panel", className: "size-tabs", items: items, onSelect: chooseSizeTab });
   const top = el("div", "size-top");
   top.appendChild(view.strip.tablist);
   card.appendChild(top);
@@ -507,7 +510,9 @@ function renderCatalog(sections) {
   const sizeRoot = document.getElementById("catalog-size");
   settle(root);
   sizeView = null;
-  if (sizeRoot) sizeRoot.textContent = "";
+  // Settled whether or not there is a size card to draw: the placeholder goes,
+  // and a snapshot without size data leaves nothing behind.
+  if (sizeRoot) settle(sizeRoot);
   if (!sections.length) {
     stateMessage(root, "info", "Catalog figures are not in this snapshot", "They are unknown right now, which is not the same as zero.");
     return;

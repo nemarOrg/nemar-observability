@@ -324,7 +324,7 @@ export function renderDashboardPage(): string {
       <div class="section-head">
         <div>
           <h2 id="datasets-title">What does NEMAR hold?</h2>
-          <p class="section-lede">The public catalog by recording type, license, and size, with the hours of recorded data by channel count, from the latest hourly snapshot.</p>
+          <p class="section-lede">The public catalog by recording type, license, and size is from the latest hourly snapshot. The hours of recorded data by channel count are from the latest count, which runs a few times a day.</p>
         </div>
         <div class="section-tools">${CURRENT_STATE}</div>
       </div>
@@ -337,7 +337,7 @@ export function renderDashboardPage(): string {
         </div>
         <div id="channel-hours" aria-busy="true">${CHART_SKELETON}</div>
       </div>
-      <div id="catalog-size" class="catalog-size"></div>
+      <div id="catalog-size" class="catalog-size" aria-busy="true">${CHART_SKELETON}</div>
     </section>
 
     <section id="pipelines" aria-labelledby="pipelines-title">

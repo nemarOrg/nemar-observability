@@ -549,6 +549,10 @@ main > section { scroll-margin-top: calc(var(--topbar-h) + 16px); padding-top: v
 .hours-block > .subsection-head { margin-top: 0; }
 .catalog-size { margin-top: var(--space-5); }
 .catalog-size:empty { margin-top: 0; }
+/* The placeholder reserves about the height of the finished card (head, tabs,
+   a 220px chart, and the table link), so the content below does not move when
+   the card replaces it. */
+.catalog-size > .skeleton-card { min-height: 400px; }
 .size-top { margin: 0 -20px var(--space-4); padding: 0 20px; border-bottom: 1px solid var(--border); }
 .size-note { margin: 0 0 var(--space-3); color: var(--text-2); font-size: var(--fs-sm); }
 .size-note[hidden], .size-block[hidden] { display: none; }

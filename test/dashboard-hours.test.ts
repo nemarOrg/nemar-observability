@@ -99,7 +99,7 @@ describe("recorded hours explorer", () => {
   test("tabs, panel, and slider carry their roles and labels", async () => {
     const { document, errors } = await openPage(recordingsSection());
     const tablist = q(document, "#channel-hours [role=tablist]");
-    expect(tablist.getAttribute("aria-label")).toBe("Recording type");
+    expect(tablist.getAttribute("aria-label")).toBe("Recording type, recorded hours");
     const tabs = all(document, "[role=tab]");
     // Ordered by hours: EEG 4,646, EMG 627, iEEG 294, MEG 74.
     expect(tabs.map((t) => text(document, `#${t.id} .hours-tab-name`))).toEqual([

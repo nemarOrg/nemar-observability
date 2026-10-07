@@ -49,6 +49,30 @@ const note = (doc: Doc) => {
   return node.hidden ? null : node.textContent;
 };
 
+// The catalog draws first; the rolling-usage section after it has a breakdown
+// row that is not a row, so drawing it throws and the page falls back to its
+// "could not display" state with the catalog already drawn.
+function snapshotWithUndrawableUsage() {
+  const snap = catalogSnapshot();
+  snap.sections.push({
+    key: "access",
+    label: "Dataset reads",
+    source: "analytics-engine",
+    updated_at: new Date().toISOString(),
+    metrics: [
+      {
+        key: "access.broken",
+        label: "Broken",
+        value: 1,
+        unit: "count",
+        severity: "info",
+        breakdown: [null as never],
+      },
+    ],
+  } as never);
+  return snap;
+}
+
 describe("where the explorer sits", () => {
   test("in the catalog, after its cards and before the size card, and not in the pipeline section", async () => {
     const { document, errors } = await open();
@@ -164,7 +188,12 @@ describe("the size card's tabs", () => {
   test("All, then the types the explorer also has, with their dataset counts, opening on All", async () => {
     const { document, errors } = await open();
     const strip = q(document, "#catalog-size [role=tablist]");
-    expect(strip.getAttribute("aria-label")).toBe("Recording type");
+    expect(strip.getAttribute("aria-label")).toBe("Recording type, dataset size");
+    // The page has two strips, so each is named for what it changes.
+    expect(all(document, "[role=tablist]").map((t) => t.getAttribute("aria-label"))).toEqual([
+      "Recording type, recorded hours",
+      "Recording type, dataset size",
+    ]);
     const tabs = all(document, "#catalog-size [role=tab]");
     expect(tabs.map((t) => name(document, t))).toEqual(["All", "EEG", "MEG", "iEEG", "EMG"]);
     // What shows under each name (a reader hears the count with "datasets" after it).
@@ -420,6 +449,74 @@ describe("the tooltip names the type", () => {
   });
 });
 
+describe("a size card that cannot be drawn", () => {
+  test("stays in its own card: the explorer keeps drawing and says so in the console", async () => {
+    const snap = catalogSnapshot();
+    const meg = snap.sections
+      .find((s) => s.key === "sizes")
+      ?.metrics.find((m) => m.key === "sizes.histogram.meg");
+    if (!meg) throw new Error("the helper has no MEG size metric");
+    // A row that is not a row: drawing this type's histogram throws.
+    meg.breakdown = [null as never];
+    const { document, logged } = await openPage(null, "", { snapshotBody: snap });
+    tabIn(document, "#channel-hours", "MEG").click();
+    expect(chosen(document, "#channel-hours")).toBe("MEG");
+    expect(document.querySelector("#channel-hours .hours-panel")).not.toBeNull();
+    expect(text(document, "#channel-hours")).not.toContain("Could not display recorded hours");
+    expect(logged.join(" ")).toContain("[ui] dataset size display failed:");
+    // Both keep working: the explorer moves on, and the card draws the next type.
+    tabIn(document, "#channel-hours", "EMG").click();
+    expect(chosen(document, "#channel-hours")).toBe("EMG");
+    expect(chosen(document, "#catalog-size")).toBe("EMG");
+  });
+});
+
+describe("the size card's place before and after it draws", () => {
+  const busy = (doc: Doc) => q(doc, "#catalog-size").getAttribute("aria-busy");
+  const skeletons = (doc: Doc) => all(doc, "#catalog-size .skeleton").length;
+
+  test("the placeholder is gone once the card is drawn", async () => {
+    const { document } = await open();
+    expect(document.querySelector("#catalog-size .size-card")).not.toBeNull();
+    expect(skeletons(document)).toBe(0);
+    expect(busy(document)).toBeNull();
+  });
+
+  test("a snapshot without size data leaves nothing behind, not even the placeholder", async () => {
+    const snap = catalogSnapshot();
+    snap.sections = snap.sections.filter((s) => s.key !== "sizes");
+    const { document } = await openPage(null, "", { snapshotBody: snap });
+    expect(document.querySelector("#catalog .stat-strip")).not.toBeNull();
+    expect(document.querySelector("#catalog-size")?.childNodes.length).toBe(0);
+    expect(busy(document)).toBeNull();
+  });
+
+  test("a failed load clears it, and Try again puts it back until the card is drawn", async () => {
+    const { document } = await open({}, "", { failSnapshotOnce: true });
+    expect(document.querySelector("#catalog-size")?.childNodes.length).toBe(0);
+    expect(busy(document)).toBeNull();
+    click(document, "#catalog button");
+    // The click handler runs the placeholder before the new request answers,
+    // and it is the chart-shaped one the card will replace.
+    expect(all(document, "#catalog-size .skeleton-chart")).toHaveLength(1);
+    expect(document.querySelector("#catalog-size .skeleton-grid")).toBeNull();
+    expect(busy(document)).toBe("true");
+    await until(() => document.querySelector("#catalog-size .size-card") !== null, "the size card");
+    expect(skeletons(document)).toBe(0);
+    expect(busy(document)).toBeNull();
+  });
+
+  test("after a failure that came once the card had drawn, Try again still puts it back", async () => {
+    const { document } = await openPage(null, "", { snapshotBody: snapshotWithUndrawableUsage() });
+    expect(text(document, "#catalog")).toContain("Could not display catalog figures");
+    expect(document.querySelector("#catalog-size")?.childNodes.length).toBe(0);
+    expect(busy(document)).toBeNull();
+    click(document, "#catalog button");
+    expect(all(document, "#catalog-size .skeleton-chart")).toHaveLength(1);
+    expect(busy(document)).toBe("true");
+  });
+});
+
 describe("the size card without the explorer", () => {
   test("its tabs still work when there are no recorded hours to move", async () => {
     const { document, errors } = await open({ recordings: "none" });
@@ -434,27 +531,9 @@ describe("the size card without the explorer", () => {
 
 describe("when the snapshot cannot be shown", () => {
   test("an error that replaces the drawn catalog takes the size card with it", async () => {
-    // The catalog draws first; the rolling-usage section after it cannot be
-    // drawn (a breakdown row that is not a row), so the page replaces the
-    // catalog with its error and must not leave the size card behind.
-    const snap = catalogSnapshot();
-    snap.sections.push({
-      key: "access",
-      label: "Dataset reads",
-      source: "analytics-engine",
-      updated_at: new Date().toISOString(),
-      metrics: [
-        {
-          key: "access.broken",
-          label: "Broken",
-          value: 1,
-          unit: "count",
-          severity: "info",
-          breakdown: [null as never],
-        },
-      ],
-    } as never);
-    const { document, logged } = await openPage(null, "", { snapshotBody: snap });
+    const { document, logged } = await openPage(null, "", {
+      snapshotBody: snapshotWithUndrawableUsage(),
+    });
     expect(logged.join(" ")).toContain("snapshot display failed");
     expect(text(document, "#catalog")).toContain("Could not display catalog figures");
     expect(document.querySelector("#catalog-size")?.childNodes.length).toBe(0);
