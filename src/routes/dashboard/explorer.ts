@@ -381,7 +381,9 @@ function setHoursMin(channels) {
 
 // Everything that follows the view, in one place, so the readout, slider,
 // chart, and table never disagree. announce reads the new answer aloud. The
-// address is written first, so it names the chosen view even if drawing fails.
+// address update is scheduled before drawing (it lands 250 ms after the last
+// change, debounced because browsers limit how often the address may change),
+// so the address still names the chosen view if drawing fails.
 function updateHours(fromUser, announce) {
   if (!hoursView.nodes) return;
   if (fromUser) {

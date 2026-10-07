@@ -320,7 +320,8 @@ describe("recorded hours explorer", () => {
     // The rest of the page is untouched, and nothing escaped as an uncaught error.
     expect(document.getElementById("card-recordings")).not.toBeNull();
     expect(errors).toEqual([]);
-    // The address was written before the drawing failed.
+    // The address update was scheduled before the drawing failed, so it still
+    // lands once its 250 ms debounce runs out.
     await until(() => window.location.hash === "#hours=eeg:19", "the address to follow the view");
   });
 
