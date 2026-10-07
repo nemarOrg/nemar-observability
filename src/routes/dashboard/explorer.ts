@@ -92,7 +92,7 @@ function failHoursExplorer(err) {
   if (!root) return;
   const found = hoursView.found;
   const retry = found ? function () {
-    try { drawRecordedHours(root, found); } catch (again) { failHoursExplorer(again); }
+    try { drawRecordedHours(root, found, true); } catch (again) { failHoursExplorer(again); }
   } : null;
   stateMessage(root, "error", "Could not display recorded hours", "Something went wrong while drawing them. The rest of the page is shown.", retry);
 }
@@ -119,8 +119,9 @@ function renderRecordedHours(snap) {
 // Draws a payload that has passed the checks. Kept apart from them so the
 // tests can show that drawing alone is safe with names the checks would refuse
 // (markup, colons, percent signs): names only ever reach textContent and an
-// encoded address.
-function drawRecordedHours(root, found) {
+// encoded address. keepView (from Try again) keeps the view in memory rather
+// than the address, which may still lag the reader's last change by 250 ms.
+function drawRecordedHours(root, found, keepView) {
   settle(root);
   hoursView.found = found;
   // The title area says how much of the archive these hours cover.
@@ -128,7 +129,7 @@ function drawRecordedHours(root, found) {
   if (scope) scope.textContent = "Counts only the public datasets converted for in-browser viewing so far (" + num(found.payload.datasets_scanned) + " of them), not the whole archive. A recording of two types at once is counted under each type, so totals across tabs overlap.";
   hoursView.modalities = prepareModalities(found.payload);
   hoursView.axisMax = axisMaxFor(hoursView.modalities);
-  const linked = applyHoursHash(location.hash);
+  const linked = keepView ? "none" : applyHoursHash(location.hash);
   if (!hoursView.modalities.some(function (m) { return m.key === hoursView.key; })) hoursView.key = hoursView.modalities[0].key;
   if (CHANNEL_MEASURES.indexOf(hoursView.measure) < 0) hoursView.measure = "hours";
   root.appendChild(buildHoursExplorer());

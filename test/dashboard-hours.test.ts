@@ -317,7 +317,10 @@ describe("recorded hours explorer", () => {
   });
 
   test("a failure while redrawing stays in the explorer, and the address still follows", async () => {
-    const { window, document, errors, logged } = await openPage(recordingsSection());
+    const { window, document, errors, logged } = await openPage(
+      recordingsSection(),
+      "#hours=eeg:16",
+    );
     await until(() => document.getElementById("card-recordings") !== null, "the recordings card");
     // happy-dom keeps the page script's functions private, so the fault goes
     // into something the redraw touches: the slider's setAttribute, which the
@@ -334,14 +337,16 @@ describe("recorded hours explorer", () => {
     expect(document.getElementById("card-recordings")).not.toBeNull();
     expect(errors).toEqual([]);
     expect(logged).toContain("[ui] recorded hours display failed: injected for this test");
-    // The address update was scheduled before the drawing failed, so it still
-    // lands once its 250 ms debounce runs out.
-    await until(() => window.location.hash === "#hours=eeg:19", "the address to follow the view");
-    // Try again draws afresh (the injected fault went with the old slider) and
-    // keeps the view the reader had chosen.
+    // Try again at once, while the address still says 16: it draws afresh (the
+    // injected fault went with the old slider) and keeps the view the reader
+    // chose, not the address that lags it.
+    expect(window.location.hash).toBe("#hours=eeg:16");
     (document.querySelector("#channel-hours .button") as unknown as { click(): void }).click();
     expect(document.querySelector("#channel-hours [role=tablist]")).not.toBeNull();
     expect(readout(document).claim).toBe("of EEG recorded with 19 or more channels");
+    // The address update was scheduled before the drawing failed, so it still
+    // lands once its 250 ms debounce runs out.
+    await until(() => window.location.hash === "#hours=eeg:19", "the address to follow the view");
     expect(errors).toEqual([]);
   });
 
