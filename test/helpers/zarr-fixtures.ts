@@ -63,8 +63,6 @@ export function startIndexServer(objects: Map<string, ServedObject>) {
     ignoreConditional: false,
     /** id -> statuses to answer, in order, before serving normally. */
     failures: new Map<string, number[]>(),
-    /** ids whose body is cut off after this many bytes with the connection closed. */
-    truncateAt: new Map<string, number>(),
   };
   const server = Bun.serve({
     port: 0,
@@ -97,19 +95,6 @@ export function startIndexServer(objects: Map<string, ServedObject>) {
         return new Response(null, { status: 304, headers: { etag: object.etag } });
       }
       record(200);
-      const cut = state.truncateAt.get(id);
-      if (cut !== undefined) {
-        const head = object.body.subarray(0, cut);
-        return new Response(
-          new ReadableStream({
-            start(controller) {
-              controller.enqueue(head);
-              controller.error(new Error("connection reset"));
-            },
-          }),
-          { headers: { etag: object.etag, "content-type": "application/json" } },
-        );
-      }
       return new Response(object.body, {
         headers: { etag: object.etag, "content-type": "application/json" },
       });
@@ -121,6 +106,33 @@ export function startIndexServer(objects: Map<string, ServedObject>) {
     requests,
     url: server.url.href.replace(/\/$/, ""),
     stop: () => server.stop(true),
+  };
+}
+
+/**
+ * A server that promises the whole body and then drops the connection after
+ * `cutAt` bytes of it, as a network fault does mid-download. A raw TCP socket,
+ * because an HTTP framework would not let a response lie about its length.
+ */
+export function startDroppingServer(body: Uint8Array, cutAt: number) {
+  let connections = 0;
+  const listener = Bun.listen({
+    hostname: "127.0.0.1",
+    port: 0,
+    socket: {
+      data(socket) {
+        connections += 1;
+        const head = `HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nETag: "dropped"\r\nContent-Length: ${body.length}\r\nConnection: close\r\n\r\n`;
+        socket.write(head);
+        socket.write(body.subarray(0, cutAt));
+        socket.end();
+      },
+    },
+  });
+  return {
+    url: `http://127.0.0.1:${listener.port}`,
+    connections: () => connections,
+    stop: () => listener.stop(true),
   };
 }
 
