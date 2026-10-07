@@ -146,7 +146,7 @@ function findChannelHours(snap) {
   if (!validChannelHours(section.channel_hours)) return { state: "invalid", section: section, payload: null };
   return { state: "ok", section: section, payload: section.channel_hours };
 }
-// Modalities by hours, most first (ties by name), each with a lowercase key for
+// Modalities by hours, most first (ties by name, ignoring case), each with a lowercase key for
 // the URL and ids, and its bins and dataset peaks in channel order.
 function modalityKey(name) { return String(name).toLowerCase(); }
 function prepareModalities(payload) {
@@ -161,7 +161,7 @@ function prepareModalities(payload) {
       bins: m.bins.slice().sort(byChannels),
       peaks: m.dataset_peaks.slice().sort(byChannels)
     };
-  }).sort(function (a, b) { return b.hours - a.hours || (a.name < b.name ? -1 : a.name > b.name ? 1 : 0); });
+  }).sort(function (a, b) { return b.hours - a.hours || (a.key < b.key ? -1 : a.key > b.key ? 1 : 0); });
 }
 // Everything recorded with minChannels channels or more. Hours, recordings and
 // channel-hours come from the exact bins; datasets from the dataset peaks, so a

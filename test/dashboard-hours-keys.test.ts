@@ -310,8 +310,14 @@ describe("pure pieces", () => {
       ...structuredClone(emg),
       modality: "ECG",
     } as Payload["modalities"][number]);
+    tied.modalities.push({
+      ...structuredClone(emg),
+      modality: "fNIRS",
+    } as Payload["modalities"][number]);
     const names = prepareModalities(tied).map((m: { name: string }) => m.name);
     expect(names.indexOf("ECG")).toBe(names.indexOf("EMG") - 1);
+    // Case does not decide the order: fNIRS sorts with F, before the others' later letters.
+    expect(names.indexOf("fNIRS")).toBe(names.indexOf("EMG") + 1);
   });
 
   test("one hour is singular", () => {
