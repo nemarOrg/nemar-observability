@@ -9,8 +9,16 @@
 import { Database } from "bun:sqlite";
 import { describe, expect, test } from "bun:test";
 import { sizesSection } from "../src/lib/metrics";
-import { ARCHIVE_CUTOFF_BYTES, buildSizeHistogram, sizeBinEdges } from "../src/lib/sizes";
+import { SectionSchema } from "../src/lib/schema";
+import {
+  ARCHIVE_CUTOFF_BYTES,
+  SIZE_MODALITIES,
+  buildSizeHistogram,
+  modalityCodes,
+  sizeBinEdges,
+} from "../src/lib/sizes";
 import { asD1 } from "./helpers/d1";
+import { JARGON } from "./helpers/public-copy";
 
 const GB = 1_000_000_000;
 const MB = 1_000_000;
@@ -90,17 +98,17 @@ describe("buildSizeHistogram", () => {
 describe("sizesSection", () => {
   const DDL = `CREATE TABLE datasets (
     dataset_id TEXT PRIMARY KEY, owner_user_id INTEGER NOT NULL, is_sandbox INTEGER DEFAULT 0,
-    status TEXT, visibility TEXT, file_size INTEGER);`;
+    status TEXT, visibility TEXT, file_size INTEGER, modalities TEXT);`;
 
-  function db(rows: [string, number | null][]) {
+  function db(rows: [string, number | null, string?][]) {
     const engine = new Database(":memory:");
     engine.run(DDL);
-    for (const [id, size] of rows) {
+    for (const [id, size, modalities] of rows) {
       engine
         .query(
-          "INSERT INTO datasets (dataset_id, owner_user_id, is_sandbox, status, visibility, file_size) VALUES (?,1,0,'active','public',?)",
+          "INSERT INTO datasets (dataset_id, owner_user_id, is_sandbox, status, visibility, file_size, modalities) VALUES (?,1,0,'active','public',?,?)",
         )
-        .run(id, size);
+        .run(id, size, modalities ?? null);
     }
     return engine;
   }
@@ -141,6 +149,135 @@ describe("sizesSection", () => {
     const s = await sizesSection(asD1(engine), "2026-07-29T14:00:00.000Z");
     expect(s.metrics).toHaveLength(2);
     expect(s.metrics[0].value).toBe(0);
+    engine.close();
+  });
+});
+
+describe("modalityCodes", () => {
+  test("reads the stored csv as lowercase codes, without blanks or spacing", () => {
+    expect([...modalityCodes("eeg,ieeg")]).toEqual(["eeg", "ieeg"]);
+    expect([...modalityCodes(" EEG , iEEG ,, MEG ")]).toEqual(["eeg", "ieeg", "meg"]);
+    expect([...modalityCodes("eeg,eeg")]).toEqual(["eeg"]);
+    expect(modalityCodes("").size).toBe(0);
+    expect(modalityCodes(null).size).toBe(0);
+    expect(modalityCodes(undefined).size).toBe(0);
+  });
+});
+
+describe("sizesSection by recording type", () => {
+  const DDL = `CREATE TABLE datasets (
+    dataset_id TEXT PRIMARY KEY, owner_user_id INTEGER NOT NULL, is_sandbox INTEGER DEFAULT 0,
+    status TEXT, visibility TEXT, file_size INTEGER, modalities TEXT);`;
+  const NOW = "2026-10-07T14:00:00.000Z";
+
+  function db(rows: [string, number | null, string | null, string?][]) {
+    const engine = new Database(":memory:");
+    engine.run(DDL);
+    for (const [id, size, modalities, visibility] of rows) {
+      engine
+        .query(
+          "INSERT INTO datasets (dataset_id, owner_user_id, is_sandbox, status, visibility, file_size, modalities) VALUES (?,1,0,'active',?,?,?)",
+        )
+        .run(id, visibility ?? "public", size, modalities);
+    }
+    return engine;
+  }
+  const metricOf = (s: Awaited<ReturnType<typeof sizesSection>>, key: string) =>
+    s.metrics.find((m) => m.key === key);
+  // The same bins as the whole catalog, counted here by hand.
+  const total = (list?: { value: number }[]) => (list ?? []).reduce((n, b) => n + b.value, 0);
+
+  const ROWS: [string, number | null, string | null][] = [
+    ["a", 5 * GB, "eeg"],
+    ["b", 50 * GB, "eeg,meg"],
+    ["c", 200 * GB, " iEEG , EEG "],
+    ["d", 3 * MB, "emg"],
+    ["e", 8 * GB, "anat,func"],
+    ["f", 20 * GB, null],
+    ["g", 12 * GB, ""],
+  ];
+
+  test("one histogram per recording type, with the same bins as the whole catalog", async () => {
+    const engine = db(ROWS);
+    const s = await sizesSection(asD1(engine), NOW);
+    const all = metricOf(s, "sizes.histogram");
+    expect(all?.value).toBe(7);
+    expect(s.metrics.map((m) => m.key)).toEqual([
+      "sizes.histogram",
+      "sizes.largest",
+      "sizes.histogram.eeg",
+      "sizes.histogram.meg",
+      "sizes.histogram.ieeg",
+      "sizes.histogram.emg",
+    ]);
+    for (const code of ["eeg", "meg", "ieeg", "emg"]) {
+      const m = metricOf(s, `sizes.histogram.${code}`);
+      expect(m?.unit).toBe("datasets");
+      expect(m?.breakdown?.map((b) => b.label)).toEqual(all?.breakdown?.map((b) => b.label));
+      // The headline is the number of datasets, which is what the bins add up to.
+      expect(total(m?.breakdown)).toBe(m?.value);
+    }
+    engine.close();
+  });
+
+  test("a dataset counts under each of its types, and spacing and case do not matter", async () => {
+    const engine = db(ROWS);
+    const s = await sizesSection(asD1(engine), NOW);
+    // eeg: a, b, and c (" iEEG , EEG "); meg: b; ieeg: c; emg: d.
+    expect(metricOf(s, "sizes.histogram.eeg")?.value).toBe(3);
+    expect(metricOf(s, "sizes.histogram.meg")?.value).toBe(1);
+    expect(metricOf(s, "sizes.histogram.ieeg")?.value).toBe(1);
+    expect(metricOf(s, "sizes.histogram.emg")?.value).toBe(1);
+    // Of those three (5, 50 and 200 GB), only the 200 GB one is at or above the
+    // archive cutoff, and the bins carry the cutoff for eeg too.
+    const eeg = metricOf(s, "sizes.histogram.eeg")?.breakdown ?? [];
+    const cutoff = eeg.findIndex((b) => /cutoff/i.test(b.label));
+    expect(cutoff).toBeGreaterThan(-1);
+    expect(total(eeg.slice(cutoff))).toBe(1);
+    expect(total(eeg.slice(0, cutoff))).toBe(2);
+    engine.close();
+  });
+
+  test("a type with no sized dataset has no histogram, and other kinds of data are not split out", async () => {
+    const engine = db([
+      ["a", 5 * GB, "eeg"],
+      ["b", null, "meg"],
+      ["c", 7 * GB, "anat"],
+    ]);
+    const s = await sizesSection(asD1(engine), NOW);
+    expect(s.metrics.map((m) => m.key)).toEqual([
+      "sizes.histogram",
+      "sizes.largest",
+      "sizes.histogram.eeg",
+    ]);
+    engine.close();
+  });
+
+  test("private datasets are not counted under any type", async () => {
+    const engine = db([
+      ["a", 5 * GB, "eeg"],
+      ["secret", 5 * GB, "eeg,meg", "private"],
+    ]);
+    const s = await sizesSection(asD1(engine), NOW);
+    expect(metricOf(s, "sizes.histogram.eeg")?.value).toBe(1);
+    expect(metricOf(s, "sizes.histogram.meg")).toBeUndefined();
+    expect(JSON.stringify(s)).not.toContain("secret");
+    engine.close();
+  });
+
+  test("the offered types are the ones the recorded-hours explorer has tabs for", () => {
+    expect(SIZE_MODALITIES.map((m) => m.code)).toEqual(["eeg", "meg", "ieeg", "emg"]);
+    expect(SIZE_MODALITIES.map((m) => m.label)).toEqual(["EEG", "MEG", "iEEG", "EMG"]);
+  });
+
+  test("the section still passes the snapshot schema, and its copy is in plain words", async () => {
+    const engine = db(ROWS);
+    const s = await sizesSection(asD1(engine), NOW);
+    expect(SectionSchema.safeParse(s).success).toBe(true);
+    for (const m of s.metrics.filter((x) => x.key.startsWith("sizes.histogram."))) {
+      expect(`${m.label} ${m.hint}`).not.toMatch(JARGON);
+      expect(m.hint).toContain("public datasets that include");
+    }
     engine.close();
   });
 });
