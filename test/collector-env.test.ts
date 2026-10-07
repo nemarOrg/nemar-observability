@@ -25,6 +25,7 @@ import {
   mkdirSync,
   mkdtempSync,
   readFileSync,
+  realpathSync,
   rmSync,
   writeFileSync,
 } from "node:fs";
@@ -34,9 +35,13 @@ import { join } from "node:path";
 const PROFILES = new URL("../ops/collector-profiles.sh", import.meta.url).pathname;
 
 /** Every distinct bash found: the PATH one and the system one. */
-const bashes = [...new Set([Bun.which("bash"), "/bin/bash", "/usr/bin/bash"])].filter(
-  (path): path is string => typeof path === "string" && existsSync(path),
-);
+const bashes = [
+  ...new Map(
+    [Bun.which("bash"), "/bin/bash", "/usr/bin/bash"]
+      .filter((path): path is string => typeof path === "string" && existsSync(path))
+      .map((path) => [realpathSync(path), path] as const),
+  ).values(),
+];
 const ENV_BIN = Bun.which("env") ?? "/usr/bin/env";
 
 const version = (bash: string) =>
@@ -68,7 +73,7 @@ const INHERITED = {
   BUN_BIN: "/home/yahya/.bun/bin/bun",
   RECORDINGS_STATE_DIR: "/elsewhere",
   AWS_PROFILE: "inherited-profile",
-  LD_PRELOAD: "/tmp/evil.so",
+  LD_LIBRARY_PATH: "/tmp/evil-libs",
   UNRELATED: "1",
 };
 
@@ -312,7 +317,7 @@ function runWholeWrapper(
         STATE_DIRECTORY: "/var/lib/nemar-observability-recordings",
         RECORDINGS_STATE_DIR: "/elsewhere",
         AWS_PROFILE: "inherited-profile",
-        LD_PRELOAD: "/tmp/evil.so",
+        LD_LIBRARY_PATH: "/tmp/evil-libs",
         UNRELATED: "1",
       },
       stdout: "pipe",
