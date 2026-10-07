@@ -93,7 +93,7 @@ that only validate JSON Schema must apply those rules separately.
 
 A section may also carry one optional `channel_hours` object: recorded hours by exact channel count per modality, with per-modality dataset peaks, over public datasets only (see `$defs/channelHours`).
 Its rules go beyond field shapes (bins ascending with matching totals, every dataset peak backed by a bin), so producers that only validate JSON Schema must apply them separately.
-Unlike the rest of a section, its objects are strict: an unknown key is rejected with 422 instead of dropped, because an unknown key could be a dataset identifier.
+Like `daily_series`, and unlike the rest of a section, its objects are strict: an unknown key is rejected with 422 instead of dropped, because an unknown key could be a dataset identifier.
 A producer that adds a field to it needs the Worker deployed first.
 
 The body must conform to `src/lib/metric-snapshot.schema.json` (`$defs/sectionIngest`), its `key` must match the URL, and its headline metrics are merged into the next snapshot. Optional daily series are stored separately. A pushed section cannot shadow a built-in key.
