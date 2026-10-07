@@ -23,8 +23,14 @@ export const INDEX_FORMAT_VERSION = 3;
 
 /** The contract's bounds (src/lib/schema.ts ChannelHoursSchema). */
 export const MAX_CHANNELS = 100_000;
-/** Same rule as the contract's modality name; a name outside it cannot be attributed. */
-const MODALITY_NAME = /^[A-Za-z][A-Za-z0-9_-]{0,31}$/;
+/**
+ * The contract's modality-name rule, copied from `modalityNameSchema` in
+ * src/lib/schema.ts (the collector cannot import the schema at runtime, which
+ * needs zod). test/zarr-contract-parity.test.ts reads the schema source and
+ * fails if the two ever differ. A name outside it cannot be attributed, and the
+ * recording counts as unmeasured instead of getting a 422 on every push.
+ */
+export const MODALITY_NAME = /^[A-Za-z][A-Za-z0-9_-]{0,31}$/;
 /** The contract allows 32 modalities per section; a store naming more is not credible. */
 export const MAX_MODALITIES_PER_STORE = 32;
 /**

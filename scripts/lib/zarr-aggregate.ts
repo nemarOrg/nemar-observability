@@ -12,7 +12,7 @@ import type {
   Severity,
 } from "../../src/lib/schema";
 import { codeStaleMetrics, fail, utcDate } from "./s3-cloudwatch";
-import { type DatasetSummary, MAX_CHANNELS } from "./zarr-recordings";
+import { type DatasetSummary, MAX_CHANNELS, MODALITY_NAME } from "./zarr-recordings";
 
 export const SECTION_KEY = "recordings";
 export const SECTION_LABEL = "Recorded data";
@@ -263,9 +263,6 @@ const isChannels = (value: unknown): value is number =>
 
 const isHours = (value: unknown): value is number =>
   typeof value === "number" && Number.isFinite(value) && value >= 0;
-
-/** The contract's modality name: a letter, then up to 31 letters, digits, hyphens or underscores. */
-const MODALITY_NAME = /^[A-Za-z][A-Za-z0-9_-]{0,31}$/;
 
 function exactKeys(value: Record<string, unknown>, keys: string[], what: string): void {
   const extra = Object.keys(value).filter((key) => !keys.includes(key));

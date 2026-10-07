@@ -15,7 +15,7 @@ import {
   assertChannelHours,
   recordingsSection,
 } from "../scripts/lib/zarr-aggregate";
-import { summarizeIndex } from "../scripts/lib/zarr-recordings";
+import { MAX_CHANNELS, MODALITY_NAME, summarizeIndex } from "../scripts/lib/zarr-recordings";
 import { SectionIngestSchema } from "../src/lib/schema";
 import { FIXTURES, datasetIdOf, fixtureObject } from "./helpers/zarr-fixtures";
 
@@ -713,6 +713,55 @@ const cases: Case[] = [
     },
   },
 ];
+
+describe("the collector's copies of the contract's constants", () => {
+  // The collector cannot import the schema (it needs zod, which a bare checkout lacks), so it
+  // copies a few constants. Reading the schema source here makes a drift a failing test.
+  const schemaSource = readFileSync(new URL("../src/lib/schema.ts", import.meta.url), "utf8");
+
+  test("the modality-name rule is the schema's, letter for letter", () => {
+    const schemaRule = /const modalityNameSchema = z\.string\(\)\.regex\(\/(.+?)\/,/s.exec(
+      schemaSource,
+    );
+    expect(schemaRule?.[1]).toBeDefined();
+    expect(MODALITY_NAME.source).toBe(schemaRule?.[1]);
+    expect(MODALITY_NAME.flags).toBe("");
+  });
+
+  test("names a future converter might emit are refused by both, so they are unmeasured not a 422", () => {
+    for (const name of [
+      "EEG/EMG",
+      "Force Plate",
+      "EEG+EMG",
+      "a.b",
+      "3T",
+      "",
+      "-x",
+      "x".repeat(33),
+    ]) {
+      const value = structuredClone(ours);
+      value.modalities[0].modality = name;
+      expect({ name, regex: MODALITY_NAME.test(name), schema: schemaAccepts(value) }).toEqual({
+        name,
+        regex: false,
+        schema: false,
+      });
+    }
+  });
+
+  test("the channel bound, the modality limit and the bin limit are the schema's", () => {
+    expect(schemaSource).toContain(
+      `z.number().int().min(1).max(${MAX_CHANNELS.toLocaleString("en-US").replaceAll(",", "_")})`,
+    );
+    expect(schemaSource).toMatch(
+      /modalities: z\.array\(ChannelHoursModalitySchema\)\.min\(1\)\.max\(32\)/,
+    );
+    expect(schemaSource).toMatch(/bins: z\.array\(ChannelHoursBinSchema\)\.min\(1\)\.max\(1024\)/);
+    expect(schemaSource).toMatch(
+      /dataset_peaks: z\.array\(ChannelHoursDatasetPeakSchema\)\.min\(1\)\.max\(1024\)/,
+    );
+  });
+});
 
 describe("assertChannelHours agrees with SectionIngestSchema", () => {
   test("the unchanged payloads are accepted by both", () => {

@@ -70,22 +70,23 @@ describe("modality attribution under the contract's names", () => {
   });
 
   test("names outside the contract's rule are unmeasured, never an error for the run", () => {
-    // Changes nm000118: five stores get a modality the contract would reject.
+    // Changes nm000118: seven stores get a modality the contract would reject
+    // (names a future converter could plausibly emit among them).
     const index = copy();
-    const bad = ["EEG EMG", "<b>EEG</b>", "3T", "x".repeat(33), "EEG.1"];
+    const bad = ["EEG EMG", "<b>EEG</b>", "3T", "x".repeat(33), "EEG.1", "EEG/EMG", "Force Plate"];
     bad.forEach((name, i) => {
       index.stores[i].groups[0].modality = name;
     });
     const summary = summarize(index);
-    expect(summary.unmeasured).toBe(5);
-    expect(summary.unmeasuredStores).toBe(5);
-    expect(summary.measuredStores).toBe(4);
+    expect(summary.unmeasured).toBe(7);
+    expect(summary.unmeasuredStores).toBe(7);
+    expect(summary.measuredStores).toBe(2);
     // And the section built from it is still valid for the Worker.
     const aggregate = aggregateOutcomes(1, [
       { id: "nm000118", kind: "summary", summary, from: "network" },
     ]);
     expect(SectionIngestSchema.safeParse(recordingsSection(aggregate)).success).toBe(true);
-    expect(aggregate.unmeasuredRecordings).toBe(5);
+    expect(aggregate.unmeasuredRecordings).toBe(7);
   });
 
   test("a store naming more than 32 distinct modalities is one unmeasured recording", () => {
