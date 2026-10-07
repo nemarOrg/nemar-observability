@@ -310,14 +310,21 @@ describe("pure pieces", () => {
       ...structuredClone(emg),
       modality: "ECG",
     } as Payload["modalities"][number]);
-    tied.modalities.push({
-      ...structuredClone(emg),
-      modality: "fNIRS",
-    } as Payload["modalities"][number]);
+    for (const name of ["Motion", "fNIRS"]) {
+      tied.modalities.push({
+        ...structuredClone(emg),
+        modality: name,
+      } as Payload["modalities"][number]);
+    }
     const names = prepareModalities(tied).map((m: { name: string }) => m.name);
     expect(names.indexOf("ECG")).toBe(names.indexOf("EMG") - 1);
-    // Case does not decide the order: fNIRS sorts with F, before the others' later letters.
-    expect(names.indexOf("fNIRS")).toBe(names.indexOf("EMG") + 1);
+    // Case does not decide the order: fNIRS sorts with F, so it comes before
+    // Motion, though a code-point sort would put every capital first.
+    expect(names.slice(names.indexOf("EMG"), names.indexOf("EMG") + 3)).toEqual([
+      "EMG",
+      "fNIRS",
+      "Motion",
+    ]);
   });
 
   test("one hour is singular", () => {
