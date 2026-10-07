@@ -58,7 +58,8 @@ function unitFormatter(unit) {
   if (unit === "bytes") return humanBytes;
   if (unit === "hours") return humanHours;
   if (!unit || PLAIN_UNITS.indexOf(unit) >= 0) return num;
-  return function (v) { return num(v) + " " + readableId(unit).toLowerCase(); };
+  // Exactly as the producer wrote it: "GB" stays GB, "wall_clock_s" stays as is.
+  return function (v) { return num(v) + " " + unit; };
 }
 function fmt(metric) {
   if (metric.unit === "hours") return humanHours(metric.value);

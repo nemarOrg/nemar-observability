@@ -52,7 +52,10 @@ describe("hours formatting", () => {
 
   test("a unit the page does not know keeps its name instead of passing as a count", () => {
     expect(fmt({ unit: "minutes", value: 12 })).toBe("12 minutes");
-    expect(unitFormatter("wall_clock_seconds")(3)).toBe("3 wall clock seconds");
+    // Kept exactly as given: case and underscores included.
+    expect(unitFormatter("GB")(3)).toBe("3 GB");
+    expect(fmt({ unit: "MiB", value: 1536 })).toBe("1,536 MiB");
+    expect(unitFormatter("wall_clock_seconds")(3)).toBe("3 wall_clock_seconds");
     // The units the page already shows as plain numbers stay plain.
     for (const unit of ["count", "datasets", "errors", "requests", "users"]) {
       expect(fmt({ unit, value: 1234 })).toBe("1,234");
