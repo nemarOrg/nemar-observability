@@ -102,6 +102,13 @@ function renderRecordedHours(snap) {
     stateMessage(root, "error", "Could not display recorded hours", "The latest snapshot holds them in a form this page does not recognize.");
     return;
   }
+  drawRecordedHours(root, found);
+}
+// Draws a payload that has passed the checks. Kept apart from them so the
+// tests can show that drawing alone is safe with names the checks would refuse
+// (markup, colons, percent signs): names only ever reach textContent and an
+// encoded address.
+function drawRecordedHours(root, found) {
   settle(root);
   hoursView.found = found;
   // The title area says how much of the archive these hours cover.
