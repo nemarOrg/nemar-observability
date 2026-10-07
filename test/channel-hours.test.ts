@@ -28,6 +28,7 @@ const {
   channelStops,
   stepStop,
   stepPower,
+  largestCount,
   countScale,
   nearestStop,
   parseHoursHash,
@@ -52,6 +53,7 @@ const {
   "channelStops",
   "stepStop",
   "stepPower",
+  "largestCount",
   "countScale",
   "nearestStop",
   "parseHoursHash",
@@ -426,6 +428,14 @@ describe("the channel axis and the slider's stops", () => {
     expect(eegStops).toEqual([...new Set(eegStops)].sort((a, b) => a - b));
     expect(eegStops.at(-1)).toBe(257);
     expect(channelStops(byKey("meg"), 512).at(-1)).toBe(415);
+  });
+
+  test("End goes to the largest count that occurs, not the last power of two", () => {
+    // EMG's stops run on to 256, where nothing was recorded; End stops at 32.
+    expect(largestCount(byKey("emg"))).toBe(32);
+    expect(largestCount(byKey("eeg"))).toBe(257);
+    expect(largestCount(byKey("meg"))).toBe(415);
+    expect(largestCount(byKey("ieeg"))).toBe(Math.max(...raw("iEEG").bins.map((b) => b.channels)));
   });
 
   test("arrow keys step to the neighboring stop, Page keys to the neighboring power of two", () => {

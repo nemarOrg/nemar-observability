@@ -216,8 +216,14 @@ function stepStop(stops, current, direction) {
   for (let i = stops.length - 1; i >= 0; i--) if (stops[i] < current) return stops[i];
   return current;
 }
+// The largest channel count that occurs in a modality: where End goes, so it
+// never lands on an empty power of two (EMG in the sample tops out at 32).
+function largestCount(modality) {
+  return modality.bins.reduce(function (m, b) { return Math.max(m, b.channels); }, 1);
+}
 // Page Up and Page Down jump between powers of two; past the last power they
-// fall back to the next exact count, so 256 then Page Up still reaches 257.
+// fall back to the next occurring count (in the sample, EEG's 256 then Page Up
+// reaches 257).
 function stepPower(stops, current, direction) {
   const powers = stops.filter(function (c) { return (c & (c - 1)) === 0; });
   const next = stepStop(powers, current, direction);

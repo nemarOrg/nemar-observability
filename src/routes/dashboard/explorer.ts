@@ -249,7 +249,7 @@ function buildHoursExplorer() {
     else if (event.key === "PageUp") next = stepPower(stops, view.min, 1);
     else if (event.key === "PageDown") next = stepPower(stops, view.min, -1);
     else if (event.key === "Home") next = stops[0];
-    else if (event.key === "End") next = stops[stops.length - 1];
+    else if (event.key === "End") next = largestCount(hoursModality());
     if (next === null) return;
     event.preventDefault();
     setHoursMin(next);

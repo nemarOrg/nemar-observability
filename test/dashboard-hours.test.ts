@@ -403,6 +403,14 @@ describe("recorded hours explorer", () => {
     expect(readout(document).claim).toBe("of EEG recorded with 257 or more channels");
   });
 
+  test("End goes to the largest count the selected modality has", async () => {
+    const { window, document } = await openPage(recordingsSection(), "#hours=emg:16");
+    key(document, window, "#hours-min", "End");
+    // EMG in the sample tops out at 32 channels, below the 256 stop.
+    expect(readout(document).claim).toBe("of EMG recorded with 32 or more channels");
+    expectThumbAt(document, 32);
+  });
+
   test("a link to a modality that is not present is ignored", async () => {
     const { document } = await openPage(recordingsSection(), "#hours=fnirs:8");
     expect(text(document, '[role=tab][aria-selected="true"] .hours-tab-name')).toBe("EEG");
