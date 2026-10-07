@@ -9,10 +9,15 @@
 # and one branch to collector_profile. Every other collector then stops seeing
 # the new token, with no second or third list to edit.
 #
+# These are deny-lists of the known names. A secret added to the Infisical path
+# and not listed here reaches every collector's child until it is. An allow-list
+# would be stricter, but it would change what egress and storage see and could
+# not be tested on the host, so that is deliberately not done.
+#
 # Plain bash 3.2 is enough (no associative arrays, no mapfile), so this also
 # runs under the system bash of macOS.
 
-# Every collector's section-ingest token. A collector sees only its own.
+# Every collector's section-ingest token. A collector is denied the others'.
 COLLECTOR_INGEST_TOKENS=(
   OBS_EGRESS_INGEST_TOKEN
   OBS_STORAGE_INGEST_TOKEN

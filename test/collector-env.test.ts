@@ -1,15 +1,35 @@
 // The exact environment each collector's child process gets, from real bash
-// running the real ops/collector-profiles.sh (the same functions the wrapper
-// runs). Infisical's injection is the one thing simulated, by exporting the
-// variables the Infisical path holds; the filtering, the unsetting, and the
-// fixed settings are the wrapper's own code. Each case runs under every bash on
-// the machine, including the system bash 3.2 of macOS when present, because the
-// functions must not need a newer one. The whole wrapper (token file, Infisical
-// CLI, GNU stat) can only run on nemaring; everything about the child's
-// environment is here.
+// running the real wrapper code. Two levels, each under every bash on the machine
+// (including the system bash 3.2 of macOS when present, because none of it may
+// need a newer one):
+//
+//  1. the wrapper's own functions in ops/collector-profiles.sh, with Infisical's
+//     injection simulated by exporting the variables its path holds;
+//  2. the whole ops/with-collector-secrets.sh under its `set -euo pipefail`, with
+//     stand-ins for the external tools it execs: an `infisical` that injects those
+//     variables and runs what follows `--`, a `bun` that prints its environment,
+//     and (only where `stat -c` is not GNU, as on macOS) a `stat` shim with GNU
+//     semantics. The one edit to the script under test is its install root
+//     constant, pointed at a temporary directory.
+//
+// What this does not cover: the real Infisical CLI (that it injects what its path
+// holds, that its own token stays out of every argv) and the real Bun. And it
+// pins a limitation rather than fixing it: the wrapper is a deny-list, so a
+// secret nobody listed, added to /observability/egress, reaches every collector's
+// child. What is hidden from whom is the known tokens and AWS keys.
 
 import { describe, expect, test } from "bun:test";
-import { existsSync } from "node:fs";
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 const PROFILES = new URL("../ops/collector-profiles.sh", import.meta.url).pathname;
 
@@ -205,5 +225,151 @@ describe("the environment each collector's child sees", () => {
       { stdout: "pipe", env: INHERITED },
     );
     expect(result.stdout.toString().trim()).toBe("same");
+  });
+});
+
+/** The expectation above with the home and PATH of the run it is compared to. */
+const expectedFor = (script: string, home: string, path: string) => ({
+  ...EXPECTED[script],
+  HOME: home,
+  PATH: path,
+});
+
+const GNU_STAT =
+  Bun.spawnSync(["stat", "-c", "%u", "/"], { stdout: "pipe", stderr: "pipe" }).exitCode === 0;
+const REPO_OPS = new URL("../ops/", import.meta.url).pathname;
+
+/**
+ * Lay out a temporary install root, home and bin directory, run the real wrapper
+ * on `script` under `bash`, and return the stand-in `bun`'s environment.
+ */
+function runWholeWrapper(
+  bash: string,
+  script: string,
+  extraInjected: Record<string, string> = {},
+): { code: number; stderr: string; env: Record<string, string>; home: string; path: string } {
+  const root = mkdtempSync(join(tmpdir(), "collector-wrapper-"));
+  try {
+    const install = join(root, "install");
+    const home = join(root, "home");
+    const bin = join(root, "bin");
+    mkdirSync(join(install, "scripts"), { recursive: true });
+    mkdirSync(join(home, ".config", "infisical"), { recursive: true });
+    mkdirSync(bin);
+    for (const name of Object.keys(EXPECTED)) {
+      writeFileSync(join(install, "scripts", name), "// stand-in\n");
+    }
+    const token = join(home, ".config", "infisical", "nemar-observability-egress.token");
+    writeFileSync(token, "scoped-token");
+    chmodSync(token, 0o600);
+
+    // The script under test, with only its install root changed, beside its profile table.
+    const source = readFileSync(join(REPO_OPS, "with-collector-secrets.sh"), "utf8");
+    const rooted = source.replace(
+      'INSTALL_ROOT="/opt/nemar-observability"',
+      `INSTALL_ROOT="${install}"`,
+    );
+    if (rooted === source) {
+      throw new Error("the wrapper no longer has the install root line this test edits");
+    }
+    const wrapper = join(root, "with-collector-secrets.sh");
+    writeFileSync(wrapper, rooted);
+    chmodSync(wrapper, 0o755);
+    writeFileSync(
+      join(root, "collector-profiles.sh"),
+      readFileSync(join(REPO_OPS, "collector-profiles.sh"), "utf8"),
+    );
+
+    // The stand-in tools. `infisical run ... -- COMMAND` injects the variables its path holds.
+    const injected = { ...INJECTED, ...extraInjected };
+    const exports = Object.entries(injected)
+      .map(([name, value]) => `export ${name}='${value}'`)
+      .join("\n");
+    writeFileSync(
+      join(bin, "infisical"),
+      `#!/usr/bin/env bash\nwhile [ "$1" != "--" ]; do shift; done\nshift\n${exports}\nexec "$@"\n`,
+    );
+    writeFileSync(join(bin, "bun"), `#!/bin/sh\nexec "${ENV_BIN}"\n`);
+    if (!GNU_STAT) {
+      writeFileSync(
+        join(bin, "stat"),
+        '#!/usr/bin/env bash\ncase "$2" in\n  %u) /usr/bin/stat -f %u "$4" ;;\n  %a) /usr/bin/stat -f %Lp "$4" ;;\nesac\n',
+      );
+    }
+    for (const tool of ["infisical", "bun", "stat"]) {
+      if (existsSync(join(bin, tool))) chmodSync(join(bin, tool), 0o755);
+    }
+
+    const path = `${bin}:/usr/bin:/bin`;
+    const result = Bun.spawnSync([bash, wrapper, join(install, "scripts", script)], {
+      env: {
+        HOME: home,
+        PATH: path,
+        INFISICAL_CLI: join(bin, "infisical"),
+        BUN_BIN: join(bin, "bun"),
+        EGRESS_START_DATE: "2026-08-01",
+        EGRESS_LOOKBACK_DAYS: "3",
+        STATE_DIRECTORY: "/var/lib/nemar-observability-recordings",
+        RECORDINGS_STATE_DIR: "/elsewhere",
+        AWS_PROFILE: "inherited-profile",
+        LD_PRELOAD: "/tmp/evil.so",
+        UNRELATED: "1",
+      },
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+    const env: Record<string, string> = {};
+    for (const line of result.stdout.toString().split("\n")) {
+      const at = line.indexOf("=");
+      if (at > 0 && !SHELL_NOISE.has(line.slice(0, at)))
+        env[line.slice(0, at)] = line.slice(at + 1);
+    }
+    return { code: result.exitCode, stderr: result.stderr.toString(), env, home, path };
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+}
+
+describe("the whole wrapper with stand-in external tools", () => {
+  for (const bash of bashes) {
+    for (const script of Object.keys(EXPECTED)) {
+      test(`${script} under bash ${version(bash)}: the child's exact environment`, () => {
+        const run = runWholeWrapper(bash, script);
+        expect({ code: run.code, stderr: run.stderr }).toEqual({ code: 0, stderr: "" });
+        expect(run.env).toEqual(expectedFor(script, run.home, run.path));
+      });
+    }
+  }
+
+  test("a secret nobody listed reaches the child: the known tokens and AWS keys are hidden, unknown ones are not", () => {
+    // The pinned limitation. Switching to an allow-list would change what egress and storage
+    // see and could not be checked on the host, so the lists are explicit and documented instead.
+    const run = runWholeWrapper(bashes[0], "push-zarr-recordings.ts", {
+      OBS_UNLISTED_SECRET: "surprise",
+    });
+    expect(run.code).toBe(0);
+    expect(run.env.OBS_UNLISTED_SECRET).toBe("surprise");
+    // while everything that was listed is still hidden
+    expect(run.env.OBS_EGRESS_INGEST_TOKEN).toBeUndefined();
+    expect(run.env.AWS_ACCESS_KEY_ID).toBeUndefined();
+  });
+
+  test("the wrapper stops, under its own tag, when a requirement is missing", () => {
+    // No collector installed at the real root and no token file: it fails before running anything.
+    const root = mkdtempSync(join(tmpdir(), "collector-wrapper-missing-"));
+    try {
+      const result = Bun.spawnSync(
+        [
+          bashes[0],
+          join(REPO_OPS, "with-collector-secrets.sh"),
+          "/opt/nemar-observability/scripts/push-s3-egress.ts",
+        ],
+        { env: { HOME: root, PATH: "/usr/bin:/bin" }, stdout: "pipe", stderr: "pipe" },
+      );
+      expect(result.exitCode).toBe(2);
+      expect(result.stderr.toString()).toContain("[s3-egress] ERROR:");
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 });

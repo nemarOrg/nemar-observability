@@ -4,9 +4,12 @@ set -euo pipefail
 # Runs one installed collector with secrets injected from the read-only
 # Infisical path prod:/observability/egress. The two S3 CloudWatch collectors
 # (egress, storage) reuse its CloudWatch read key; the Zarr recordings collector
-# needs no AWS key and loses it. Each child sees only its own section-ingest
-# token. Which collector may see what is defined once, in collector-profiles.sh
-# next to this file, which is also what the environment test runs.
+# needs no AWS key and loses it. Each child is denied the other collectors'
+# known section-ingest tokens. That is a deny-list of the known names, not an
+# allow-list: a secret added to the Infisical path and not yet listed in
+# collector-profiles.sh reaches every collector's child. Which collector is
+# denied what is defined once, in collector-profiles.sh next to this file,
+# which is also what the environment test runs.
 
 case "${BASH_SOURCE[0]}" in
   */*) SELF_DIR="${BASH_SOURCE[0]%/*}" ;;
