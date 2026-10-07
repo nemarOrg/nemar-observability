@@ -516,8 +516,8 @@ main > section { scroll-margin-top: calc(var(--topbar-h) + 16px); padding-top: v
 .hours-tabs {
   position: relative; display: flex; gap: 2px; min-width: 0; max-width: 100%; overflow-x: auto; scrollbar-width: thin; margin-bottom: -1px;
   background:
-    linear-gradient(to right, var(--surface) 40%, transparent) left center / 28px 100% no-repeat local,
-    linear-gradient(to left, var(--surface) 40%, transparent) right center / 28px 100% no-repeat local,
+    linear-gradient(to right, var(--surface) 50%, transparent) left center / 28px 100% no-repeat local,
+    linear-gradient(to left, var(--surface) 50%, transparent) right center / 28px 100% no-repeat local,
     radial-gradient(farthest-side at 0 50%, var(--edge-shadow), transparent) left center / 12px 100% no-repeat scroll,
     radial-gradient(farthest-side at 100% 50%, var(--edge-shadow), transparent) right center / 12px 100% no-repeat scroll;
 }
