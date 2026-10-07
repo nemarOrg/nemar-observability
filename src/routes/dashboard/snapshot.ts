@@ -85,6 +85,7 @@ function renderSnapshot(snap) {
   renderCatalog(catalog);
   renderUsageSnapshot(usage);
   renderHealth(health);
+  renderHoursSafely(snap);
   renderAllTime();
   renderHeadline();
   const generated = new Date(snap.generated_at);
@@ -98,15 +99,28 @@ function renderSnapshot(snap) {
   meta.textContent = "Latest snapshot generated " + formatDateTime(snap.generated_at) + " (" + relativeTime(snap.generated_at) + "). It refreshes every hour."
     + (missing.length ? " Not in this snapshot: " + missing.join(", ") + "." : "");
 }
+// The explorer is the newest and most intricate block on the page; if it cannot
+// be drawn, it says so in its own place and every other figure still shows.
+function renderHoursSafely(snap) {
+  try {
+    renderRecordedHours(snap);
+  } catch (err) {
+    console.error("[ui] recorded hours display failed:", err);
+    hoursView.nodes = null;
+    const root = document.getElementById("channel-hours");
+    if (root) stateMessage(root, "error", "Could not display recorded hours", "They loaded, but this page could not show them. The rest of the snapshot is shown.");
+  }
+}
 // A snapshot that failed to load and one that loaded but could not be drawn
 // get different words; both offer Try again, which also asks for the history
 // again, so nothing is left on a skeleton.
 function renderSnapshotError(kind, err) {
   const retry = function () {
-    ["catalog", "usage-snapshot", "sections"].forEach(function (id) {
+    ["catalog", "usage-snapshot", "sections", "channel-hours"].forEach(function (id) {
       const root = document.getElementById(id);
+      if (!root) return;
       root.dataset.ready = "false";
-      markRefreshing(root, gridSkeleton);
+      markRefreshing(root, id === "channel-hours" ? chartSkeleton : gridSkeleton);
     });
     document.getElementById("health-meta").textContent = "Loading the latest snapshot.";
     state.snapshot = null;
@@ -122,6 +136,9 @@ function renderSnapshotError(kind, err) {
   stateMessage(document.getElementById("sections"), "error", title, (reason + "The current state of the pipelines is unknown until it " + (display ? "can be shown." : "loads.")).trim(), retry);
   stateMessage(document.getElementById("catalog"), "error", display ? "Could not display catalog figures" : "Could not load catalog figures", (reason + "Catalog figures are unknown right now.").trim(), retry);
   stateMessage(document.getElementById("usage-snapshot"), "error", display ? "Could not display the rolling 30-day measures" : "Could not load the rolling 30-day measures", (reason + "These measures are unknown right now.").trim(), retry);
+  hoursView.nodes = null;
+  const hours = document.getElementById("channel-hours");
+  if (hours) stateMessage(hours, "error", display ? "Could not display recorded hours" : "Could not load recorded hours", (reason + "Recorded hours are unknown right now.").trim(), retry);
   renderAllTime();
   renderHeadline();
 }
@@ -195,9 +212,16 @@ function healthCard(section) {
     list.appendChild(row);
   });
   card.appendChild(list);
-  if (metrics.some(function (m) { return m.drilldown; })) {
+  const hasHours = section.channel_hours !== undefined;
+  if (metrics.some(function (m) { return m.drilldown; }) || hasHours) {
     const foot = el("div", "card-foot");
-    foot.appendChild(portalLink("Review in admin portal (administrators)"));
+    // The section behind the recorded-hours explorer points to it.
+    if (hasHours) {
+      const explore = el("a", "card-link", "Explore hours by channel count");
+      explore.href = "#recorded-hours";
+      foot.appendChild(explore);
+    }
+    if (metrics.some(function (m) { return m.drilldown; })) foot.appendChild(portalLink("Review in admin portal (administrators)"));
     card.appendChild(foot);
   }
   return card;

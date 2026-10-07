@@ -12,6 +12,7 @@
 import { CHANNELS_JS } from "./channels";
 import { CHARTS_JS } from "./charts";
 import { CORE_JS } from "./core";
+import { EXPLORER_JS } from "./explorer";
 import { FORMAT_JS } from "./format";
 import { MODEL_JS } from "./model";
 import { OVERVIEW_JS } from "./overview";
@@ -49,6 +50,7 @@ export const CLIENT_JS = [
   CHARTS_JS,
   USAGE_JS,
   REACH_JS,
+  EXPLORER_JS,
   SNAPSHOT_JS,
   OVERVIEW_JS,
   BOOT_JS,

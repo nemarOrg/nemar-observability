@@ -322,6 +322,13 @@ export function renderDashboardPage(): string {
       </div>
       <p id="health-meta" class="health-meta">Loading the latest snapshot.</p>
       <div id="sections" class="health-grid">${GRID_SKELETON}</div>
+      <div id="recorded-hours" class="hours-block">
+        <div class="subsection-head">
+          <h3>Recorded hours by channel count</h3>
+          <p>Recording time in the Zarr copies of public datasets, by recording type and number of channels.</p>
+        </div>
+        <div id="channel-hours" aria-busy="true">${CHART_SKELETON}</div>
+      </div>
     </section>
   </main>
   <footer class="site-footer">
