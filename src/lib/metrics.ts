@@ -294,9 +294,9 @@ function countOf(n: number, one: string, many: string): string {
 
 /** Reader-facing text for the partly-converted tile. Public copy: plain words. */
 export function partialHint(datasets: number, recordings: number): string {
-  return datasets > 0
-    ? `Ready, but ${countOf(recordings, "recording", "recordings")} across these datasets did not convert yet`
-    : "Datasets that are ready but missing some recordings";
+  if (datasets === 0) return "Datasets that are ready but missing some recordings";
+  const where = datasets === 1 ? "in this dataset" : "across these datasets";
+  return `Ready, but ${countOf(recordings, "recording", "recordings")} ${where} did not convert yet`;
 }
 
 /** Reader-facing text for the processing tile. Public copy: plain words. */
@@ -355,7 +355,9 @@ export async function zarrSection(db: D1Database, now: string): Promise<Section>
        COALESCE(SUM(st = 'ready'), 0) AS ready,
        COALESCE(SUM(st = 'ready' AND errs = 0 AND jp = 0), 0) AS complete,
        COALESCE(SUM(st = 'ready' AND (errs > 0 OR jp > 0)), 0) AS partial,
-       COALESCE(SUM(CASE WHEN st = 'ready' AND (errs > 0 OR jp > 0) THEN errs + jp ELSE 0 END), 0) AS partial_recordings,
+       COALESCE(SUM(CASE WHEN st = 'ready' AND (errs > 0 OR jp > 0)
+         THEN CASE WHEN jd > 0 THEN MAX(jd - stores, 0) ELSE errs + jp END
+         ELSE 0 END), 0) AS partial_recordings,
        COALESCE(SUM(st = 'pending'), 0) AS pending,
        COALESCE(SUM(st = 'pending' AND (converted_at IS NULL OR datetime(converted_at) < ?1)), 0) AS pending_stale,
        COALESCE(SUM(st = 'failed'), 0) AS failed,
@@ -363,13 +365,17 @@ export async function zarrSection(db: D1Database, now: string): Promise<Section>
        COALESCE(SUM(stores), 0) AS converted,
        -- Recordings found per dataset: the last index sweep's count, or what the
        -- conversion callback reported when that is larger (a sweep can lag a
-       -- rebuild). A failed dataset keeps its last good stores and reports this
-       -- run's errors, which can overlap them, so take the larger rather than the
-       -- sum. A dataset that failed outright has no sweep and no stores, so its
-       -- failed recordings are its count.
+       -- rebuild). The converter's own count (discovered = stores + failed +
+       -- pending) is preferred when it reports one, because a failed recording
+       -- can also sit in pending and would be counted twice by adding errors to
+       -- pending; without it, stores + errors + pending is the best estimate. A
+       -- failed dataset keeps its last good stores and reports this run's errors,
+       -- which can overlap them, so take the larger rather than the sum. A
+       -- dataset that failed outright has no sweep and no stores, so its failed
+       -- recordings are its count.
        COALESCE(SUM(CASE WHEN st = 'failed'
          THEN MAX(COALESCE(rc, 0), stores, errs, jd)
-         ELSE MAX(COALESCE(rc, 0), stores + errs + jp, jd) END), 0) AS discovered
+         ELSE MAX(COALESCE(rc, 0), stores, CASE WHEN jd > 0 THEN jd ELSE stores + errs + jp END) END), 0) AS discovered
      FROM (${ZARR_FACTS})`,
     staleBefore,
   );

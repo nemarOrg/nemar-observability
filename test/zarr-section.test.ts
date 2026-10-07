@@ -183,6 +183,11 @@ describe("zarrSection", () => {
     expect(m["zarr.partial"].hint).toBe(
       "Ready, but 14 recordings across these datasets did not convert yet",
     );
+    // Zero partial datasets goes back to the plain wording and the ok severity.
+    engine.run("DELETE FROM datasets WHERE dataset_id IN ('nm2', 'nm5')");
+    const clean = await metricsOf();
+    expect(clean["zarr.partial"].value).toBe(0);
+    expect(clean["zarr.partial"].severity).toBe("ok");
   });
 
   test("recordings converted counts stores of every dataset against all recordings found", async () => {
@@ -325,6 +330,48 @@ describe("recordings found and converted: the awkward shapes", () => {
   });
 });
 
+describe("failed recordings that are also pending are not counted twice", () => {
+  test("the converter's discovered count wins over errors plus pending", async () => {
+    // 90 converted, 6 failed that also wait in pending: discovered = 90 + 6 pending.
+    insert({
+      id: "dup",
+      zarr: "ready",
+      stores: 90,
+      errors: 6,
+      recordings: 96,
+      summary: summary(6, 96),
+    });
+    const m = await metricsOf();
+    expect(m["zarr.partial"].value).toBe(1);
+    expect(m["zarr.partial"].hint).toBe(
+      "Ready, but 6 recordings in this dataset did not convert yet",
+    );
+    expect(m["zarr.recordings"].value).toBe(90);
+    expect(m["zarr.recordings"].total).toBe(96);
+  });
+
+  test("without a discovered count, errors plus pending is the estimate", async () => {
+    insert({ id: "old", zarr: "ready", stores: 90, errors: 6 });
+    const m = await metricsOf();
+    expect(m["zarr.recordings"].total).toBe(96);
+    expect(m["zarr.partial"].hint).toBe(
+      "Ready, but 6 recordings in this dataset did not convert yet",
+    );
+  });
+
+  test("a failed dataset takes the larger of its errors and the converter's count", async () => {
+    insert({ id: "f", zarr: "failed", stores: 0, errors: 5, summary: summary(0, 12) });
+    expect((await metricsOf())["zarr.recordings"].total).toBe(12);
+  });
+
+  test("a failed dataset's sweep count can exceed its errors", async () => {
+    insert({ id: "f", zarr: "failed", stores: 3, errors: 5, recordings: 20 });
+    const m = await metricsOf();
+    expect(m["zarr.recordings"].total).toBe(20);
+    expect(m["zarr.recordings"].value).toBe(3);
+  });
+});
+
 describe("the stale-pending window", () => {
   const stale = async (converted: string, now = NOW) => {
     engine.run("DELETE FROM datasets");
@@ -357,7 +404,8 @@ describe("the stale-pending window", () => {
 
 describe("hint copy", () => {
   test("counts agree in number and use plain words", () => {
-    expect(partialHint(1, 1)).toBe(
+    expect(partialHint(1, 1)).toBe("Ready, but 1 recording in this dataset did not convert yet");
+    expect(partialHint(2, 1)).toBe(
       "Ready, but 1 recording across these datasets did not convert yet",
     );
     expect(partialHint(3, 1234)).toBe(
