@@ -13,6 +13,11 @@
     "forceConsistentCasingInFileNames": true,
     "resolveJsonModule": true
   },
-  "include": ["src/**/*.ts", "scripts/push-s3-*.ts", "scripts/lib/**/*.ts"],
+  "include": [
+    "src/**/*.ts",
+    "scripts/push-s3-*.ts",
+    "scripts/push-zarr-recordings.ts",
+    "scripts/lib/**/*.ts"
+  ],
   "exclude": ["node_modules"]
 }

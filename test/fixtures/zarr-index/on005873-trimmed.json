@@ -1,0 +1,371 @@
+{
+ "format": "nemar-zarr-index",
+ "format_version": 3,
+ "dataset_id": "on005873",
+ "contract_base": "https://zarr.nemar.org/on005873/zarr/",
+ "data_base": "https://nemar.s3.us-east-2.amazonaws.com/on005873/zarr/",
+ "data_base_kind": "s3-public",
+ "s3_uri": "s3://nemar/on005873/zarr/",
+ "s3_region": "us-east-2",
+ "s3_anonymous": true,
+ "source_commit": "8b38f8588a9f5eab3eff3e1be9bfaf1f4977a210",
+ "engine_version": "3",
+ "biosigio_version": "1.2.8",
+ "updated_utc": "2026-09-27T19:16:35Z",
+ "doi": "10.82901/nemar.on005873",
+ "license": "CC0",
+ "citation": "Miguel Bhagubai, Christos Chatzichristos, Lauren Swinnen, Jaiver Macea, Jingwei Zhang, Lieven Lagae, Katrien Jansen, Andreas Schulze-Bonhage, Francisco Sales, Benno Mahler, Yvonne Weber, Wim Van Paesschen, Maarten De Vos (2026) SeizeIT2 (v1.0.0). NEMAR. https://doi.org/10.82901/nemar.on005873",
+ "hed_version": "score_1.1.0",
+ "layout": {
+  "level0": "<zarr>/<group>/0",
+  "view": "<zarr>/<group>/view/<L>",
+  "view_levels": "1..n_view_levels from the group attrs",
+  "scale_offset": "level-0 array attrs scale[] and offset[]; physical = digital * scale + offset",
+  "events": "<data_base>events.parquet"
+ },
+ "discovered_count": 11,
+ "store_count": 11,
+ "n_recordings": 11,
+ "errors": 0,
+ "failure_count": 0,
+ "pending_count": 0,
+ "events_parquet": "https://nemar.s3.us-east-2.amazonaws.com/on005873/zarr/events.parquet",
+ "events_row_count": 3660,
+ "_derivation": "Real on005873 index (11,009 stores) cut to 11 real stores kept verbatim: 2 eeg/, 2 ecg/ (group modality MISC), 2 emg/, 3 mov/ with an EEG and an EMG group in one store, 1 mov/ EMG only, 1 mov/ EEG only. Counters rewritten to match.",
+ "stores": [
+  {
+   "path": "sub-001/ses-01/eeg/sub-001_ses-01_task-szMonitoring_run-01_eeg.edf",
+   "zarr": "sub-001/ses-01/eeg/sub-001_ses-01_task-szMonitoring_run-01_eeg.zarr",
+   "updated_utc": "2026-09-27T19:16:35Z",
+   "source_tree": "raw",
+   "derived": false,
+   "modalities": [
+    "eeg"
+   ],
+   "groups": [
+    {
+     "name": "eeg_250hz",
+     "modality": "EEG",
+     "rate": 250.0,
+     "n_channels": 2,
+     "n_samples": 16329750,
+     "duration_s": 65319.0,
+     "n_view_levels": 8,
+     "view_chunk_columns": 1024,
+     "source_rate_hz": 256.0,
+     "chunk_samples": 1000,
+     "shard_samples": 75000
+    }
+   ],
+   "power_line_frequency": null,
+   "n_events": 2,
+   "trial_types": {}
+  },
+  {
+   "path": "sub-001/ses-01/eeg/sub-001_ses-01_task-szMonitoring_run-02_eeg.edf",
+   "zarr": "sub-001/ses-01/eeg/sub-001_ses-01_task-szMonitoring_run-02_eeg.zarr",
+   "updated_utc": "2026-09-27T19:16:35Z",
+   "source_tree": "raw",
+   "derived": false,
+   "modalities": [
+    "eeg"
+   ],
+   "groups": [
+    {
+     "name": "eeg_250hz",
+     "modality": "EEG",
+     "rate": 250.0,
+     "n_channels": 2,
+     "n_samples": 4954000,
+     "duration_s": 19816.0,
+     "n_view_levels": 7,
+     "view_chunk_columns": 1024,
+     "source_rate_hz": 256.0,
+     "chunk_samples": 1000,
+     "shard_samples": 75000
+    }
+   ],
+   "power_line_frequency": null,
+   "n_events": 1,
+   "trial_types": {}
+  },
+  {
+   "path": "sub-001/ses-01/ecg/sub-001_ses-01_task-szMonitoring_run-01_ecg.edf",
+   "zarr": "sub-001/ses-01/ecg/sub-001_ses-01_task-szMonitoring_run-01_ecg.zarr",
+   "updated_utc": "2026-09-27T19:16:35Z",
+   "source_tree": "raw",
+   "derived": false,
+   "modalities": [
+    "misc"
+   ],
+   "groups": [
+    {
+     "name": "misc_256hz",
+     "modality": "MISC",
+     "rate": 256.0,
+     "n_channels": 1,
+     "n_samples": 16721664,
+     "duration_s": 65319.0,
+     "n_view_levels": 8,
+     "view_chunk_columns": 1024,
+     "source_rate_hz": 256.0,
+     "chunk_samples": 1024,
+     "shard_samples": 76800
+    }
+   ],
+   "power_line_frequency": null
+  },
+  {
+   "path": "sub-001/ses-01/ecg/sub-001_ses-01_task-szMonitoring_run-02_ecg.edf",
+   "zarr": "sub-001/ses-01/ecg/sub-001_ses-01_task-szMonitoring_run-02_ecg.zarr",
+   "updated_utc": "2026-09-27T19:16:35Z",
+   "source_tree": "raw",
+   "derived": false,
+   "modalities": [
+    "misc"
+   ],
+   "groups": [
+    {
+     "name": "misc_256hz",
+     "modality": "MISC",
+     "rate": 256.0,
+     "n_channels": 1,
+     "n_samples": 5072896,
+     "duration_s": 19816.0,
+     "n_view_levels": 7,
+     "view_chunk_columns": 1024,
+     "source_rate_hz": 256.0,
+     "chunk_samples": 1024,
+     "shard_samples": 76800
+    }
+   ],
+   "power_line_frequency": null
+  },
+  {
+   "path": "sub-001/ses-01/emg/sub-001_ses-01_task-szMonitoring_run-01_emg.edf",
+   "zarr": "sub-001/ses-01/emg/sub-001_ses-01_task-szMonitoring_run-01_emg.zarr",
+   "updated_utc": "2026-09-27T19:16:35Z",
+   "source_tree": "raw",
+   "derived": false,
+   "modalities": [
+    "emg"
+   ],
+   "groups": [
+    {
+     "name": "emg_256hz",
+     "modality": "EMG",
+     "rate": 256.0,
+     "n_channels": 1,
+     "n_samples": 16721664,
+     "duration_s": 65319.0,
+     "n_view_levels": 8,
+     "view_chunk_columns": 1024,
+     "source_rate_hz": 256.0,
+     "chunk_samples": 1024,
+     "shard_samples": 76800
+    }
+   ],
+   "power_line_frequency": null
+  },
+  {
+   "path": "sub-001/ses-01/emg/sub-001_ses-01_task-szMonitoring_run-02_emg.edf",
+   "zarr": "sub-001/ses-01/emg/sub-001_ses-01_task-szMonitoring_run-02_emg.zarr",
+   "updated_utc": "2026-09-27T19:16:35Z",
+   "source_tree": "raw",
+   "derived": false,
+   "modalities": [
+    "emg"
+   ],
+   "groups": [
+    {
+     "name": "emg_256hz",
+     "modality": "EMG",
+     "rate": 256.0,
+     "n_channels": 1,
+     "n_samples": 5072896,
+     "duration_s": 19816.0,
+     "n_view_levels": 7,
+     "view_chunk_columns": 1024,
+     "source_rate_hz": 256.0,
+     "chunk_samples": 1024,
+     "shard_samples": 76800
+    }
+   ],
+   "power_line_frequency": null
+  },
+  {
+   "path": "sub-001/ses-01/mov/sub-001_ses-01_task-szMonitoring_run-01_mov.edf",
+   "zarr": "sub-001/ses-01/mov/sub-001_ses-01_task-szMonitoring_run-01_mov.zarr",
+   "updated_utc": "2026-09-27T19:16:35Z",
+   "source_tree": "raw",
+   "derived": false,
+   "modalities": [
+    "eeg",
+    "emg"
+   ],
+   "groups": [
+    {
+     "name": "eeg_25hz",
+     "modality": "EEG",
+     "rate": 25.0,
+     "n_channels": 6,
+     "n_samples": 1632975,
+     "duration_s": 65319.0,
+     "n_view_levels": 6,
+     "view_chunk_columns": 1024,
+     "source_rate_hz": 25.0,
+     "chunk_samples": 100,
+     "shard_samples": 7500
+    },
+    {
+     "name": "emg_25hz",
+     "modality": "EMG",
+     "rate": 25.0,
+     "n_channels": 6,
+     "n_samples": 1632975,
+     "duration_s": 65319.0,
+     "n_view_levels": 6,
+     "view_chunk_columns": 1024,
+     "source_rate_hz": 25.0,
+     "chunk_samples": 100,
+     "shard_samples": 7500
+    }
+   ],
+   "power_line_frequency": null
+  },
+  {
+   "path": "sub-001/ses-01/mov/sub-001_ses-01_task-szMonitoring_run-02_mov.edf",
+   "zarr": "sub-001/ses-01/mov/sub-001_ses-01_task-szMonitoring_run-02_mov.zarr",
+   "updated_utc": "2026-09-27T19:16:35Z",
+   "source_tree": "raw",
+   "derived": false,
+   "modalities": [
+    "eeg",
+    "emg"
+   ],
+   "groups": [
+    {
+     "name": "eeg_25hz",
+     "modality": "EEG",
+     "rate": 25.0,
+     "n_channels": 6,
+     "n_samples": 495400,
+     "duration_s": 19816.0,
+     "n_view_levels": 5,
+     "view_chunk_columns": 1024,
+     "source_rate_hz": 25.0,
+     "chunk_samples": 100,
+     "shard_samples": 7500
+    },
+    {
+     "name": "emg_25hz",
+     "modality": "EMG",
+     "rate": 25.0,
+     "n_channels": 6,
+     "n_samples": 495400,
+     "duration_s": 19816.0,
+     "n_view_levels": 5,
+     "view_chunk_columns": 1024,
+     "source_rate_hz": 25.0,
+     "chunk_samples": 100,
+     "shard_samples": 7500
+    }
+   ],
+   "power_line_frequency": null
+  },
+  {
+   "path": "sub-001/ses-01/mov/sub-001_ses-01_task-szMonitoring_run-03_mov.edf",
+   "zarr": "sub-001/ses-01/mov/sub-001_ses-01_task-szMonitoring_run-03_mov.zarr",
+   "updated_utc": "2026-09-27T19:16:35Z",
+   "source_tree": "raw",
+   "derived": false,
+   "modalities": [
+    "eeg",
+    "emg"
+   ],
+   "groups": [
+    {
+     "name": "eeg_25hz",
+     "modality": "EEG",
+     "rate": 25.0,
+     "n_channels": 6,
+     "n_samples": 1624475,
+     "duration_s": 64979.0,
+     "n_view_levels": 6,
+     "view_chunk_columns": 1024,
+     "source_rate_hz": 25.0,
+     "chunk_samples": 100,
+     "shard_samples": 7500
+    },
+    {
+     "name": "emg_25hz",
+     "modality": "EMG",
+     "rate": 25.0,
+     "n_channels": 6,
+     "n_samples": 1624475,
+     "duration_s": 64979.0,
+     "n_view_levels": 6,
+     "view_chunk_columns": 1024,
+     "source_rate_hz": 25.0,
+     "chunk_samples": 100,
+     "shard_samples": 7500
+    }
+   ],
+   "power_line_frequency": null
+  },
+  {
+   "path": "sub-010/ses-01/mov/sub-010_ses-01_task-szMonitoring_run-01_mov.edf",
+   "zarr": "sub-010/ses-01/mov/sub-010_ses-01_task-szMonitoring_run-01_mov.zarr",
+   "updated_utc": "2026-09-27T19:16:35Z",
+   "source_tree": "raw",
+   "derived": false,
+   "modalities": [
+    "emg"
+   ],
+   "groups": [
+    {
+     "name": "emg_25hz",
+     "modality": "EMG",
+     "rate": 25.0,
+     "n_channels": 6,
+     "n_samples": 409850,
+     "duration_s": 16394.0,
+     "n_view_levels": 5,
+     "view_chunk_columns": 1024,
+     "source_rate_hz": 25.0,
+     "chunk_samples": 100,
+     "shard_samples": 7500
+    }
+   ],
+   "power_line_frequency": null
+  },
+  {
+   "path": "sub-016/ses-01/mov/sub-016_ses-01_task-szMonitoring_run-02_mov.edf",
+   "zarr": "sub-016/ses-01/mov/sub-016_ses-01_task-szMonitoring_run-02_mov.zarr",
+   "updated_utc": "2026-09-27T19:16:35Z",
+   "source_tree": "raw",
+   "derived": false,
+   "modalities": [
+    "eeg"
+   ],
+   "groups": [
+    {
+     "name": "eeg_25hz",
+     "modality": "EEG",
+     "rate": 25.0,
+     "n_channels": 6,
+     "n_samples": 365325,
+     "duration_s": 14613.0,
+     "n_view_levels": 5,
+     "view_chunk_columns": 1024,
+     "source_rate_hz": 25.0,
+     "chunk_samples": 100,
+     "shard_samples": 7500
+    }
+   ],
+   "power_line_frequency": null
+  }
+ ],
+ "failures": [],
+ "pending": []
+}
