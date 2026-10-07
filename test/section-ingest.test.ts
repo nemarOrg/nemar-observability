@@ -154,7 +154,9 @@ describe("channel_hours through the push endpoint", () => {
   test("a payload carrying a dataset identifier is rejected, not stored", async () => {
     const bad = structuredClone(sample);
     bad.modalities[0].bins[0].dataset_id = "nm000001";
-    expect((await postRecordings(recordings(bad))).status).toBe(422);
+    const response = await postRecordings(recordings(bad));
+    expect(response.status).toBe(422);
+    expect(JSON.stringify(await response.json())).toContain("unrecognized_keys");
     expect(await loadPushedSections(db)).toEqual([]);
   });
 });
