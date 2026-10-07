@@ -1,0 +1,205 @@
+{
+ "format": "nemar-zarr-index",
+ "format_version": 3,
+ "dataset_id": "on005065",
+ "contract_base": "https://zarr.nemar.org/on005065/zarr/",
+ "data_base": "https://nemar.s3.us-east-2.amazonaws.com/on005065/zarr/",
+ "data_base_kind": "s3-public",
+ "s3_uri": "s3://nemar/on005065/zarr/",
+ "s3_region": "us-east-2",
+ "s3_anonymous": true,
+ "source_commit": "d0af40e52315d15f7c5ac8f2433ff4eb4bd65800",
+ "engine_version": "3",
+ "biosigio_version": "1.2.10",
+ "updated_utc": "2026-10-04T04:53:32Z",
+ "doi": "10.82901/nemar.on005065",
+ "license": "CC0",
+ "citation": "Evan M. Russek, Rani Moran, Yunzhe Liu, Ray Dolan, Quentin Huys (2026) Heuristics in risky decision-making relate to preferential representation of information MEG data (v1.0.0). NEMAR. https://doi.org/10.82901/nemar.on005065",
+ "hed_version": null,
+ "layout": {
+  "level0": "<zarr>/<group>/0",
+  "view": "<zarr>/<group>/view/<L>",
+  "view_levels": "1..n_view_levels from the group attrs",
+  "scale_offset": "level-0 array attrs scale[] and offset[]; physical = digital * scale + offset",
+  "events": "<data_base>events.parquet"
+ },
+ "discovered_count": 7,
+ "store_count": 3,
+ "n_recordings": 3,
+ "errors": 4,
+ "failure_count": 2,
+ "pending_count": 2,
+ "events_parquet": "https://nemar.s3.us-east-2.amazonaws.com/on005065/zarr/events.parquet",
+ "events_row_count": 21564,
+ "_derivation": "Real on005065 index (260 stores) cut to its first 3 stores, 2 failures and 2 pending entries, kept verbatim. Counters rewritten to match.",
+ "stores": [
+  {
+   "path": "sub-S001/meg/sub-S001_task-RiskyDecision_run-10_meg.ds",
+   "zarr": "sub-S001/meg/sub-S001_task-RiskyDecision_run-10_meg.zarr",
+   "updated_utc": "2026-10-04T04:53:32Z",
+   "source_tree": "raw",
+   "derived": false,
+   "modalities": [
+    "meg"
+   ],
+   "groups": [
+    {
+     "name": "meg_250hz",
+     "modality": "MEG",
+     "rate": 250.0,
+     "n_channels": 415,
+     "n_samples": 108850,
+     "duration_s": 435.4,
+     "n_view_levels": 4,
+     "view_chunk_columns": 1024,
+     "source_rate_hz": 1200.0,
+     "chunk_samples": 1000,
+     "shard_samples": 75000
+    }
+   ],
+   "power_line_frequency": 50.0,
+   "units_report": {
+    "converted": 0,
+    "relabelled": 0,
+    "kept_importer_unit": 78,
+    "units_column_present": true,
+    "sidecar": "sub-S001/meg/sub-S001_task-RiskyDecision_run-10_channels.tsv",
+    "sidecar_supplied": true,
+    "unmatched_channels": 337,
+    "unmatched_examples": [
+     "SCLK01-177",
+     "BG1-2910",
+     "BG2-2910",
+     "BG3-2910",
+     "BP1-2910"
+    ]
+   },
+   "n_events": 45,
+   "trial_types": {}
+  },
+  {
+   "path": "sub-S001/meg/sub-S001_task-RiskyDecision_run-11_meg.ds",
+   "zarr": "sub-S001/meg/sub-S001_task-RiskyDecision_run-11_meg.zarr",
+   "updated_utc": "2026-10-04T04:53:32Z",
+   "source_tree": "raw",
+   "derived": false,
+   "modalities": [
+    "meg"
+   ],
+   "groups": [
+    {
+     "name": "meg_250hz",
+     "modality": "MEG",
+     "rate": 250.0,
+     "n_channels": 415,
+     "n_samples": 108490,
+     "duration_s": 433.96,
+     "n_view_levels": 4,
+     "view_chunk_columns": 1024,
+     "source_rate_hz": 1200.0,
+     "chunk_samples": 1000,
+     "shard_samples": 75000
+    }
+   ],
+   "power_line_frequency": 50.0,
+   "units_report": {
+    "converted": 0,
+    "relabelled": 0,
+    "kept_importer_unit": 78,
+    "units_column_present": true,
+    "sidecar": "sub-S001/meg/sub-S001_task-RiskyDecision_run-11_channels.tsv",
+    "sidecar_supplied": true,
+    "unmatched_channels": 337,
+    "unmatched_examples": [
+     "SCLK01-177",
+     "BG1-2910",
+     "BG2-2910",
+     "BG3-2910",
+     "BP1-2910"
+    ]
+   },
+   "n_events": 44,
+   "trial_types": {}
+  },
+  {
+   "path": "sub-S001/meg/sub-S001_task-RiskyDecision_run-12_meg.ds",
+   "zarr": "sub-S001/meg/sub-S001_task-RiskyDecision_run-12_meg.zarr",
+   "updated_utc": "2026-10-04T04:53:32Z",
+   "source_tree": "raw",
+   "derived": false,
+   "modalities": [
+    "meg"
+   ],
+   "groups": [
+    {
+     "name": "meg_250hz",
+     "modality": "MEG",
+     "rate": 250.0,
+     "n_channels": 415,
+     "n_samples": 98370,
+     "duration_s": 393.48,
+     "n_view_levels": 4,
+     "view_chunk_columns": 1024,
+     "source_rate_hz": 1200.0,
+     "chunk_samples": 1000,
+     "shard_samples": 75000
+    }
+   ],
+   "power_line_frequency": 50.0,
+   "units_report": {
+    "converted": 0,
+    "relabelled": 0,
+    "kept_importer_unit": 78,
+    "units_column_present": true,
+    "sidecar": "sub-S001/meg/sub-S001_task-RiskyDecision_run-12_channels.tsv",
+    "sidecar_supplied": true,
+    "unmatched_channels": 337,
+    "unmatched_examples": [
+     "SCLK01-177",
+     "BG1-2910",
+     "BG2-2910",
+     "BG3-2910",
+     "BP1-2910"
+    ]
+   },
+   "n_events": 41,
+   "trial_types": {}
+  }
+ ],
+ "failures": [
+  {
+   "path": "sub-S004/meg/sub-S004_task-RiskyDecision_run-7_meg.ds",
+   "zarr": "sub-S004/meg/sub-S004_task-RiskyDecision_run-7_meg.zarr",
+   "code": "corrupt_or_truncated",
+   "reason": "This recording's data file appears truncated or corrupt, so the viewer could not be generated.",
+   "detail": "CorruptFileError: Truncated, incomplete, or corrupt file (<path>): The number of samples is not an even multiple of the trial size",
+   "attempts": 0
+  },
+  {
+   "path": "sub-S004/meg/sub-S004_task-RiskyDecision_run-8_meg.ds",
+   "zarr": "sub-S004/meg/sub-S004_task-RiskyDecision_run-8_meg.zarr",
+   "code": "file_read_error",
+   "reason": "This recording could not be prepared for viewing.",
+   "detail": "FileReadError: Could not read recording (<path>): index 291 is out of bounds for axis 0 with size 291",
+   "attempts": 0
+  }
+ ],
+ "pending": [
+  {
+   "path": "sub-S001/meg/sub-S001_task-RiskyDecision_run-4_meg.ds",
+   "zarr": "sub-S001/meg/sub-S001_task-RiskyDecision_run-4_meg.zarr",
+   "reason": "infra_failure",
+   "attempts": 4,
+   "last_error": "RuntimeError: The number of samples is not an even multiple of the trial size",
+   "last_attempt_utc": "2026-10-04T04:53:32Z"
+  },
+  {
+   "path": "sub-S004/meg/sub-S004_task-RiskyDecision_run-9_meg.ds",
+   "zarr": "sub-S004/meg/sub-S004_task-RiskyDecision_run-9_meg.zarr",
+   "reason": "infra_failure",
+   "attempts": 4,
+   "last_error": "RuntimeError: The number of samples is not an even multiple of the trial size",
+   "last_attempt_utc": "2026-10-04T04:53:32Z"
+  }
+ ]
+}
