@@ -9,6 +9,7 @@ import {
   storageSection,
   storageWindow,
 } from "../scripts/push-s3-storage";
+import { JARGON } from "./helpers/public-copy";
 
 // Metric hints are shown in the public dashboard's popovers, so they are
 // written for readers: no vendor names, commands, issue numbers, file names,
@@ -21,8 +22,6 @@ const SOURCES = [
   "../scripts/push-s3-egress.ts",
   "../scripts/push-s3-storage.ts",
 ];
-const JARGON =
-  /Cloudflare|\bS3\b|CloudWatch|presigned|index\.json|nemar approve|archive-sweep|#\d{3}|source='|\b\d+d\b|—/;
 
 describe("public metric hints", () => {
   test("hints use plain words", async () => {
