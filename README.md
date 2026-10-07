@@ -105,6 +105,17 @@ The body must conform to `src/lib/metric-snapshot.schema.json` (`$defs/sectionIn
 | `drilldown` | optional key the admin drill-down endpoint resolves to a list |
 | `breakdown` | optional `[{label, value}]` (e.g. by-license, by-modality, top-accessed) |
 
+### Recorded hours by channel count
+
+A section may also carry a `channel_hours` payload (`$defs/channelHours`): per modality, the exact hours and recordings at each channel count, and each dataset's largest channel count.
+The dashboard draws it under the pipeline cards as an explorer, from the section with key `recordings` (the Zarr indexer's push), or else the first section that carries one.
+It has a tab per modality, ordered by hours, and a minimum-channels slider on the chart's doubling channel axis.
+A readout states the hours, recordings, and datasets at that minimum or more, with their share of the modality.
+Datasets are counted from their largest recording, so each counts once.
+The chart shows hours, recordings, or datasets at each exact channel count, colored at and above the minimum.
+The view is kept in the address as `#hours=eeg:16` (optionally `:recordings` or `:datasets`) so it can be shared; nothing is stored in the browser.
+Until a section carries the payload, the explorer says the hours are not measured yet.
+
 ## API
 
 | route | auth | purpose |
