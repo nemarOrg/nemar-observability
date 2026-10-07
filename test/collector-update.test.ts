@@ -12,8 +12,11 @@ import {
   codeStaleMetrics,
   codeUpdateProblem,
 } from "../scripts/lib/s3-cloudwatch";
+import { aggregateOutcomes, recordingsSection } from "../scripts/lib/zarr-aggregate";
+import { summarizeIndex } from "../scripts/lib/zarr-recordings";
 import { egressSection } from "../scripts/push-s3-egress";
 import { storageSection } from "../scripts/push-s3-storage";
+import { fixtureObject } from "./helpers/zarr-fixtures";
 
 const SCRIPT = new URL("../ops/update-checkout.sh", import.meta.url).pathname;
 let root: string;
@@ -170,6 +173,19 @@ describe("collector code that has stopped updating", () => {
     expect(keys(storageSection(observation))).not.toContain("storage.collector.code_stale");
     expect(keys(storageSection(observation, "2026-09-28T00:00:00.000Z"))).toContain(
       "storage.collector.code_stale",
+    );
+
+    const recordings = aggregateOutcomes(1, [
+      {
+        id: "nm000118",
+        kind: "summary",
+        summary: summarizeIndex(fixtureObject("nm000118"), "nm000118"),
+        from: "network",
+      },
+    ]);
+    expect(keys(recordingsSection(recordings))).not.toContain("recordings.collector.code_stale");
+    expect(keys(recordingsSection(recordings, "2026-09-28T00:00:00.000Z"))).toContain(
+      "recordings.collector.code_stale",
     );
   });
 });

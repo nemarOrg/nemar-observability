@@ -275,7 +275,7 @@ export async function commitPushedSectionIngest(
       FROM daily_series_point_ingest_staging p
       JOIN section_ingest_staging h ON h.ingest_id=p.ingest_id
       WHERE p.ingest_id=?
-      ON CONFLICT(section_key, series_key, date) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at`)
+      ON CONFLICT(section_key, series_key, date) DO UPDATE SET value=${POINT_UPSERT_VALUE}, updated_at=excluded.updated_at`)
       .bind(ingestId),
     db
       .prepare(`INSERT INTO ingested_sections (key, section_json, source, received_at, last_ok_at)
@@ -339,7 +339,18 @@ export interface DailySeriesRecord extends DailySeries {
   latest_observation_date: string | null;
 }
 
-/** Persist metadata and source observations; a repeated push replaces each day. */
+/**
+ * Value rule for a daily point that already exists. The open day is replaced
+ * with the source's fuller day-to-date figure. A closed day (before the UTC
+ * date of this write) never goes down: every series here is a sum of
+ * non-negative counts or bytes, so a lower re-send is a partial read or a
+ * zero-filled gap, not a correction, and must not erase settled history.
+ */
+const POINT_UPSERT_VALUE = `CASE
+  WHEN excluded.date < substr(excluded.updated_at, 1, 10) AND excluded.value < daily_series_points.value
+  THEN daily_series_points.value ELSE excluded.value END`;
+
+/** Persist metadata and source observations; a repeated push replaces the open day. */
 export async function saveDailySeries(
   db: D1Database,
   section: string,
@@ -383,7 +394,7 @@ export async function saveDailySeries(
       statements.push(
         db
           .prepare(`INSERT INTO daily_series_points (section_key, series_key, date, value, updated_at)
-        VALUES ${values} ON CONFLICT(section_key, series_key, date) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at`)
+        VALUES ${values} ON CONFLICT(section_key, series_key, date) DO UPDATE SET value=${POINT_UPSERT_VALUE}, updated_at=excluded.updated_at`)
           .bind(...bindings),
       );
     }
@@ -547,4 +558,32 @@ export async function loadPushedSections(db: D1Database): Promise<Section[]> {
       );
   }
   return out;
+}
+
+/** Newest write time per UTC day in cf_daily_host on or after `sinceDate`. */
+export async function loadHostDayStamps(
+  db: D1Database,
+  sinceDate: string,
+): Promise<Map<string, string>> {
+  const rows = await db
+    .prepare("SELECT date, MAX(updated_at) AS at FROM cf_daily_host WHERE date >= ?1 GROUP BY date")
+    .bind(sinceDate)
+    .all<{ date: string; at: string }>();
+  return new Map((rows.results ?? []).map((r) => [r.date, r.at]));
+}
+
+/** Stored points of one daily series with the time each was last written. */
+export async function loadSeriesPoints(
+  db: D1Database,
+  section: string,
+  key: string,
+): Promise<{ date: string; value: number; updated_at: string }[]> {
+  const rows = await db
+    .prepare(
+      `SELECT date, value, updated_at FROM daily_series_points
+       WHERE section_key=?1 AND series_key=?2 ORDER BY date`,
+    )
+    .bind(section, key)
+    .all<{ date: string; value: number; updated_at: string }>();
+  return rows.results ?? [];
 }

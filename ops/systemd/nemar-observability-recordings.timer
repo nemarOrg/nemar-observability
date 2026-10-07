@@ -1,0 +1,25 @@
+[Unit]
+Description=Run the NEMAR recorded-hours collector three times a day
+
+[Timer]
+# Three runs a day, six hours apart, all at :50. The collector reads the public
+# catalog, which reads nemar-db, and nemar-cli's hourly nemar-db export locks
+# that database between about :10 and :40 (AGENTS.md), so every slot is after
+# :40; the collector also waits out a locked catalog for about five minutes. :50
+# also stays clear of the egress collector (hourly at :15), the storage
+# collector (08:45 and 14:45), and the Worker's snapshot cron at :47. The
+# indexes change only when a dataset converts and a warm run costs about 13
+# seconds, so three runs are cheap; they matter because a failed run replaces
+# the section with an error status, and three runs shrink the time the
+# explorer stays blank from up to a day to a few hours. The service also
+# restarts itself after a failure (Restart=on-failure), see its unit.
+OnCalendar=*-*-* 06:50:00 UTC
+OnCalendar=*-*-* 12:50:00 UTC
+OnCalendar=*-*-* 18:50:00 UTC
+Persistent=true
+RandomizedDelaySec=2m
+AccuracySec=1m
+Unit=nemar-observability-recordings.service
+
+[Install]
+WantedBy=timers.target

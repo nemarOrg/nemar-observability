@@ -1,0 +1,69 @@
+[Unit]
+Description=Collect recorded hours by channel count from the NEMAR Zarr indexes for observability
+Wants=network-online.target nemar-observability-update.service
+After=network-online.target nemar-observability-update.service
+# Restart=on-failure below retries a failed run; these cap it at three starts in
+# five hours, so a persistently broken run cannot loop. Five hours, not six, so
+# the window has closed again before the next timer slot, six hours later.
+StartLimitIntervalSec=5h
+StartLimitBurst=3
+
+[Service]
+Type=oneshot
+User=yahya
+Group=yahya
+Environment=HOME=/home/yahya
+Environment=PATH=/home/yahya/.local/bin:/home/yahya/.bun/bin:/usr/local/bin:/usr/bin:/bin
+WorkingDirectory=/opt/nemar-observability
+# A failed run is tried again 55 minutes after it failed. The usual failure is
+# the catalog being unreachable, which a run that starts at :50 reports at about
+# :51 to :56 (it waits out up to 5 minutes of lock first), so the retry starts at
+# about :46 to :51, after the :10 to :40 window in which the hourly nemar-db
+# export locks the database the catalog reads (half an hour would land inside
+# it). A failure after T minutes retries at :(45+T), so a run that fails late,
+# after 25 to 55 minutes (a hung or slow read of the indexes), retries inside
+# that window; its catalog fetch then waits out the lock for up to 5 minutes and,
+# if the lock outlasts that, fails fast and uses one of the three starts the
+# limit below allows. The next timer slot is always clear of the window. It exits
+# non-zero only after it has published the error status, so a retry that
+# succeeds replaces it.
+Restart=on-failure
+RestartSec=55min
+# A hard stop for a hung run; the next timer slot starts a fresh one. How long a
+# healthy run takes: a cold run (every index, about 0.5 GB) was 26 to 42 seconds
+# on 2026-10-06 and a warm one 14 seconds. The longest legitimate wait is the
+# catalog's 5 minutes of retries, then reading 0.5 GB at the slowest rate the
+# per-index deadline accepts (the 308 MB index in 15 minutes, about 350 KB/s)
+# takes about 24 minutes, so about 30 minutes in all. 45 minutes is that plus
+# half again. A link too slow to read everything in that time is a failed run,
+# and the journal shows where it was killed.
+TimeoutStartSec=45min
+# Holds the per-dataset summary cache (summaries/). Safe to delete: the next run
+# rebuilds it. systemd creates it owned by the service user and exports its path
+# as STATE_DIRECTORY, which ops/with-collector-secrets.sh passes through.
+StateDirectory=nemar-observability-recordings
+StateDirectoryMode=0700
+# Indexes are streamed: a real run peaked at about 190 to 230 MB resident
+# (measured on macOS), and four streams each carrying one worst-case 16 MiB
+# entry of millions of tiny objects (the most a corrupt index can make it hold)
+# peaked at about 680 MB. MemoryHigh sits just above that, so the kernel reclaims
+# and slows the service before MemoryMax kills it, and a fault here cannot
+# starve the other services on this shared host.
+MemoryHigh=768M
+MemoryMax=1G
+ExecStart=/opt/nemar-observability/ops/with-collector-secrets.sh /opt/nemar-observability/scripts/push-zarr-recordings.ts
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+LockPersonality=true
+RestrictSUIDSGID=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+# It binds no port and needs no privilege: drop every capability, refuse new
+# namespaces, and allow only the host's native system call architecture.
+CapabilityBoundingSet=
+RestrictNamespaces=true
+SystemCallArchitectures=native

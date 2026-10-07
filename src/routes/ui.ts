@@ -114,6 +114,7 @@ const PARTNERS: ChromeLink[] = [
 export const DASHBOARD_SECTIONS = [
   { id: "overview", label: "Overview" },
   { id: "usage", label: "Usage" },
+  { id: "viewer", label: "Signal viewer" },
   { id: "reach", label: "Reach" },
   { id: "datasets", label: "Datasets" },
   { id: "pipelines", label: "Pipelines" },
@@ -285,6 +286,24 @@ export function renderDashboardPage(): string {
         <p id="rolling-window">The 30 days up to the latest hourly snapshot. These do not follow the date range.</p>
       </div>
       <div id="usage-snapshot" class="stack">${GRID_SKELETON}</div>
+    </section>
+
+    <section id="viewer" aria-labelledby="viewer-title">
+      <div class="section-head">
+        <div>
+          <h2 id="viewer-title">How is the signal viewer used?</h2>
+          <p class="section-lede">The viewer opens on nemar.org, and other sites can embed it. The two filters count different things, viewer opens on our own pages and page loads of the embeddable viewer on partner pages, so they are shown separately and never added together.</p>
+        </div>
+        <div class="section-tools">
+          ${RANGE_CHIP}
+          <div class="segmented viewer-filter" role="group" aria-label="Where the viewer was used">
+            <button type="button" data-viewer-filter="first" aria-pressed="true"><span>First-party</span><span class="viewer-filter-note">On nemar.org</span></button>
+            <button type="button" data-viewer-filter="third" aria-pressed="false"><span>Third-party</span><span class="viewer-filter-note">Embedded elsewhere</span></button>
+          </div>
+          ${info("What each filter counts", "First-party counts times the signal viewer opened on a nemar.org page and actions taken inside it, from website analytics, recorded unless the visitor has opted out. Third-party counts page loads of the embeddable viewer on other sites, recorded by NEMAR's servers with no script on the partner's page. A viewer open and an embed page load are different events, so their counts are not comparable and are never summed.")}
+        </div>
+      </div>
+      <div id="viewer-body" aria-busy="true">${GRID_SKELETON}</div>
     </section>
 
     <section id="reach" aria-labelledby="reach-title">

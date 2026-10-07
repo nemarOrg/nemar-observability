@@ -67,7 +67,9 @@ export function parsePoints(output: string, startDate: string, endDate: string):
 
 export function egressSection(points: DailyPoint[], codeStaleSince: string | null = null) {
   const first = points[0];
-  const latest = points[points.length - 1];
+  const today = utcDate(new Date());
+  const closedPoints = points.filter((point) => point.date < today);
+  const latest = closedPoints[closedPoints.length - 1] ?? points[points.length - 1];
   return {
     key: "egress",
     label: "Storage egress",
@@ -75,7 +77,7 @@ export function egressSection(points: DailyPoint[], codeStaleSince: string | nul
     metrics: [
       {
         key: "egress.s3.latest_daily_bytes",
-        label: "Latest reported day of data served",
+        label: "Data served, latest closed day",
         value: latest.value,
         unit: "bytes",
         severity: "info",
@@ -99,7 +101,7 @@ export function egressSection(points: DailyPoint[], codeStaleSince: string | nul
         aggregation: "sum",
         timezone: "UTC",
         coverage_start: first.date,
-        coverage_end: latest.date,
+        coverage_end: points[points.length - 1].date,
         freshness_after_hours: 36,
         points,
       },
@@ -143,17 +145,26 @@ async function main() {
     optionalEnv("EGRESS_LOOKBACK_DAYS"),
   );
 
-  // Both bounds are UTC midnights and the end is exclusive, so only complete
-  // UTC days are requested.
+  // Both bounds are UTC midnights and the end is exclusive. The end is tomorrow,
+  // so today's in-progress day is included; the dashboard draws it dashed and
+  // each hourly run replaces it with a fuller value.
+  const exclusiveEnd = utcDate(new Date(Date.parse(midnight(endDate)) + DAY_MS));
   const query = bucketMetricQuery(
     QUERY_ID,
     "BytesDownloaded",
     { Name: "FilterId", Value: FILTER_ID },
     "Sum",
   );
-  const output = await getMetricData([query], midnight(startDate), midnight(endDate), credentials);
-  const points = parsePoints(output, startDate, endDate);
-  assertFresh(points);
+  const output = await getMetricData(
+    [query],
+    midnight(startDate),
+    midnight(exclusiveEnd),
+    credentials,
+  );
+  const points = parsePoints(output, startDate, exclusiveEnd);
+  // Freshness is judged on closed days: today's open point is always recent and
+  // would hide a missing yesterday.
+  assertFresh(points.filter((point) => point.date < endDate));
   await pushSection(ingestToken, points);
 }
 

@@ -46,6 +46,11 @@ NEMAR_API_BASE = "https://api.nemar.org"
 CF_ACCOUNT_ID = "da8d7a2a8680dab01592bbbc6f67f12c"
 CF_ZONE_ID = "e684135de46029c91fd6c93715ace4ce"
 AE_DATASET = "nemar_access_metrics"
+# Embed loads of the signal viewer on other sites: one point per load, written
+# by the website's edge middleware (website ADR 0024). Read with CF_ANALYTICS_TOKEN.
+EMBED_AE_DATASET = "nemar_website_embeds"
+# The website origin that dataset links on the page point at.
+WEBSITE_BASE_URL = "https://nemar.org"
 # Range-aware audience source for the self-hosted NEMAR Umami website.
 UMAMI_BASE_URL = "https://analytics.nemar.org"
 UMAMI_WEBSITE_ID = "b4b5f61c-56b2-4b8c-9023-6a29ed3904ac"
@@ -65,6 +70,13 @@ name = "nemar-observability-dev"
 workers_dev = true
 routes = []
 
+# The same hourly :47 cron, stated for env.dev instead of relying on inheritance
+# from the top-level [triggers]. On 2026-10-05 the dev Worker ran at :17 (the
+# old schedule) and never at :47 after repeated deploys that printed "schedule:
+# 47 * * * *", so an inherited trigger could not be trusted to reach it.
+[env.dev.triggers]
+crons = ["47 * * * *"]
+
 [[env.dev.d1_databases]]
 binding = "NEMAR_DB"
 database_name = "nemar-db-dev"
@@ -82,6 +94,9 @@ NEMAR_API_BASE = "https://nemar-api-dev.sccn-org.workers.dev"
 CF_ACCOUNT_ID = "da8d7a2a8680dab01592bbbc6f67f12c"
 CF_ZONE_ID = "e684135de46029c91fd6c93715ace4ce"
 AE_DATASET = "nemar_access_metrics_dev"
+# Staging and website previews both write here, so production never sees them.
+EMBED_AE_DATASET = "nemar_website_embeds_dev"
+WEBSITE_BASE_URL = "https://test.nemar.org"
 # Optional dev audience source; keep any API key in a Worker secret:
 # UMAMI_BASE_URL = "https://umami.nemar.org"
 # UMAMI_WEBSITE_ID = "<website-id>"

@@ -24,10 +24,18 @@ export const UMAMI_SILENT_AFTER_MS = 6 * HOUR_MS;
  * a fault in production (a first ingest that is rejected every time never
  * registers a series, and health must not read that as "nothing to check").
  */
-export const EXPECTED_SERIES = [
+export const EXPECTED_SERIES: readonly {
+  section: string;
+  key: string;
+  /** Written by this Worker's own cron, which only runs after a deploy: the row
+   *  is absent until the first run, so a missing row is not a fault, while one
+   *  that stops advancing is. */
+  seededByCron?: boolean;
+}[] = [
   { section: "egress", key: "s3_bytes_downloaded" },
   { section: "website", key: "pageviews" },
-] as const;
+  { section: "cf", key: "requests", seededByCron: true },
+];
 
 /**
  * The first-party pushed sections and the longest each may go without a
@@ -56,7 +64,8 @@ export interface BehindSeries {
 }
 
 /**
- * Expected daily series whose newest day is older than expected. Outside
+ * Expected daily series whose newest closed day is older than expected. A point
+ * for the day in progress is ignored here, so it cannot hide a missing yesterday. Outside
  * production a series that has never been pushed is not a fault (dev has no
  * collectors); in production it is.
  */
@@ -70,16 +79,19 @@ export async function loadSeriesBehind(
     .prepare(
       `SELECT s.section_key AS section, s.series_key AS key,
          (SELECT MAX(p.date) FROM daily_series_points p
-           WHERE p.section_key = s.section_key AND p.series_key = s.series_key) AS latest
+           WHERE p.section_key = s.section_key AND p.series_key = s.series_key
+             AND p.date <= ?) AS latest
        FROM daily_series s`,
     )
+    .bind(expected)
     .all<{ section: string; key: string; latest: string | null }>();
   const found = new Map((rows.results ?? []).map((r) => [`${r.section}/${r.key}`, r.latest]));
   const behind: BehindSeries[] = [];
   for (const want of EXPECTED_SERIES) {
     const id = `${want.section}/${want.key}`;
     if (!found.has(id)) {
-      if (production) behind.push({ section: want.section, key: want.key, latest: null, expected });
+      if (production && !want.seededByCron)
+        behind.push({ section: want.section, key: want.key, latest: null, expected });
       continue;
     }
     const latest = found.get(id) ?? null;

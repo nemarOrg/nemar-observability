@@ -1,6 +1,7 @@
-// Shared plumbing for the nemaring collectors that read AWS/S3 CloudWatch
-// metrics for bucket `nemar` and push one dashboard section each
-// (push-s3-egress.ts, push-s3-storage.ts). Kept dependency-free so the
+// Shared plumbing for the nemaring collectors: the CloudWatch query helpers of
+// the two S3 collectors (push-s3-egress.ts, push-s3-storage.ts), and the section
+// push, code-staleness and failure-status helpers all three collectors share
+// (push-zarr-recordings.ts uses only the latter). Kept dependency-free so the
 // collectors run from a bare checkout without `bun install`.
 
 declare const process: { exit(code: number): never };
@@ -57,7 +58,7 @@ export function codeStaleMetrics(sectionKey: string, since: string | null) {
       label: "Collector code updates",
       value: 1,
       unit: "errors",
-      severity: "error",
+      severity: "error" as const,
       hint: `The collector has not been able to update its code since ${since}. Data is still being collected; repair the checkout on nemaring (see the README).`,
     },
   ];
@@ -101,6 +102,12 @@ export type AwsCredentials = { accessKey: string; secretKey: string };
 export class CollectionError extends Error {}
 /** The ingest POST was sent; its outcome is unknown, so never write again. */
 export class IngestError extends Error {}
+/**
+ * The dashboard answered a push with a definite 4xx. Nothing was stored, so
+ * unlike an IngestError this is a collection problem that may be reported as a
+ * failure status. Only the opt-in retrying push (`PostOptions`) raises it.
+ */
+export class IngestRejectedError extends CollectionError {}
 
 export function fail(message: string): never {
   throw new CollectionError(message);
@@ -349,31 +356,95 @@ async function awsErrorCode(stderr: ReadableStream<Uint8Array>): Promise<string 
   return extractAwsErrorCode(retained);
 }
 
+/**
+ * Opt-in behavior of `postSection` for a collector that must survive a brief
+ * outage of the dashboard and say precisely what happened. Without it
+ * `postSection` is the single attempt egress and storage have always made.
+ */
+export type PostOptions = {
+  /** Further tries after a 5xx, 429 or network failure; default 3. */
+  retries?: number;
+  /** Pause before each further try, in milliseconds; default 5 s, 15 s, 45 s. */
+  backoffMs?: readonly number[];
+};
+
+const DEFAULT_POST_BACKOFF_MS = [5_000, 15_000, 45_000] as const;
+
+async function postOnce(
+  sectionKey: string,
+  token: string,
+  payload: unknown,
+  sectionsUrl: string,
+): Promise<Response> {
+  return fetch(`${sectionsUrl}/${sectionKey}`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(payload),
+    signal: AbortSignal.timeout(30_000),
+  });
+}
+
 export async function postSection(
   sectionKey: string,
   token: string,
   payload: unknown,
   sectionsUrl = DASHBOARD_SECTIONS_URL,
+  options?: PostOptions,
 ) {
-  let response: Response;
-  try {
-    response = await fetch(`${sectionsUrl}/${sectionKey}`, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${token}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(payload),
-      signal: AbortSignal.timeout(30_000),
-    });
-  } catch {
-    throw new IngestError("dashboard ingest request failed; the write outcome is unknown");
+  if (options === undefined) {
+    let response: Response;
+    try {
+      response = await postOnce(sectionKey, token, payload, sectionsUrl);
+    } catch {
+      throw new IngestError("dashboard ingest request failed; the write outcome is unknown");
+    }
+    if (!response.ok) {
+      throw new IngestError(
+        `dashboard returned HTTP ${response.status}; the write outcome may be unknown`,
+      );
+    }
+    return;
   }
-  if (!response.ok) {
-    throw new IngestError(
-      `dashboard returned HTTP ${response.status}; the write outcome may be unknown`,
+
+  // A network failure or a 5xx may come after the Worker committed, so those are
+  // the only outcomes called unknown, and retrying is safe because a push
+  // replaces the section. A 4xx is a definite refusal: nothing was stored, and
+  // the Worker's explanation (a 422 lists the schema issues) is the first thing
+  // anyone debugging it needs, so its first 500 characters are kept.
+  const retries = options.retries ?? DEFAULT_POST_BACKOFF_MS.length;
+  const backoffMs = options.backoffMs ?? DEFAULT_POST_BACKOFF_MS;
+  let unknown = "";
+  for (let attempt = 0; attempt <= retries; attempt += 1) {
+    if (attempt > 0) {
+      const pause = backoffMs[Math.min(attempt - 1, backoffMs.length - 1)] ?? 0;
+      await new Promise<void>((resolve) => setTimeout(resolve, pause));
+    }
+    let response: Response;
+    try {
+      response = await postOnce(sectionKey, token, payload, sectionsUrl);
+    } catch {
+      unknown = "dashboard ingest request failed; the write outcome is unknown";
+      continue;
+    }
+    if (response.ok) return;
+    if (response.status >= 500 || response.status === 429) {
+      unknown = `dashboard returned HTTP ${response.status}; the write outcome may be unknown`;
+      continue;
+    }
+    let body = "";
+    try {
+      body = (await response.text()).slice(0, 500);
+    } catch {
+      body = "(the response body could not be read)";
+    }
+    throw new IngestRejectedError(
+      `dashboard rejected the section with HTTP ${response.status}; nothing was stored: ${body}`,
     );
   }
+  throw new IngestError(`${unknown} (after ${retries + 1} tries)`);
 }
 
 /**

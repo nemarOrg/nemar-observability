@@ -1,0 +1,58 @@
+{
+  "source": "live Analytics Engine answer for nemar_website_embeds_dev, read by the dev Worker itself through a temporary diagnostic route (not merged)",
+  "query": "SELECT blob2 AS host, SUM(_sample_interval) AS loads FROM nemar_website_embeds_dev WHERE blob3 = 'iframe' AND timestamp >= toDateTime('2026-10-05 00:00:00') AND timestamp < toDateTime('2026-10-06 00:00:00') GROUP BY host ORDER BY loads DESC LIMIT 5000",
+  "captured_at": "2026-10-05T14:30:06.021Z",
+  "http_status": 200,
+  "response": {
+    "meta": [
+      {
+        "name": "host",
+        "type": "String"
+      },
+      {
+        "name": "loads",
+        "type": "UInt64"
+      }
+    ],
+    "data": [
+      {
+        "host": "localhost",
+        "loads": "260"
+      },
+      {
+        "host": "127.0.0.1",
+        "loads": "34"
+      },
+      {
+        "host": "",
+        "loads": "4"
+      },
+      {
+        "host": "probe.example",
+        "loads": "2"
+      },
+      {
+        "host": "repeat.example",
+        "loads": "2"
+      },
+      {
+        "host": "miss-then-hit.example",
+        "loads": "2"
+      },
+      {
+        "host": "example.org",
+        "loads": "1"
+      },
+      {
+        "host": "final-head.invalid",
+        "loads": "1"
+      },
+      {
+        "host": "after-review.invalid",
+        "loads": "1"
+      }
+    ],
+    "rows": 9,
+    "rows_before_limit_at_least": 9
+  }
+}
