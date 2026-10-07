@@ -184,6 +184,68 @@ describe("links after the page has loaded", () => {
   });
 });
 
+describe("failures outside a redraw stay in the explorer", () => {
+  // Each path below runs outside updateHours, so it carries its own guard.
+  // happy-dom keeps the page's functions private, so each fault goes into a
+  // node or global the path touches; the trigger is the real event.
+  const injected = () => {
+    throw new Error("injected for this test");
+  };
+  function expectContained(document: Window["document"], errors: string[], logged: string[]) {
+    expect(text(document, "#channel-hours")).toContain("Could not display recorded hours");
+    expect(document.querySelector("#channel-hours [role=tablist]")).toBeNull();
+    expect(logged).toContain("[ui] recorded hours display failed: injected for this test");
+    expect(errors).toEqual([]);
+  }
+
+  test("opening the values table", async () => {
+    const { document, errors, logged } = await openPage(recordingsSection());
+    const body = document.querySelector(".hours-table tbody") as unknown as Record<string, unknown>;
+    body.appendChild = injected;
+    (document.querySelector(".hours-foot summary") as unknown as { click(): void }).click();
+    expectContained(document, errors, logged);
+  });
+
+  test("a change of address", async () => {
+    const { window, document, errors, logged } = await openPage(recordingsSection());
+    const page = window as unknown as Record<string, unknown>;
+    const encode = page.encodeURIComponent;
+    page.encodeURIComponent = injected;
+    try {
+      window.location.hash = "#hours=emg:32";
+      await Bun.sleep(30);
+    } finally {
+      page.encodeURIComponent = encode;
+    }
+    expectContained(document, errors, logged);
+  });
+
+  test("a resize", async () => {
+    const { window, document, errors, logged } = await openPage(recordingsSection(), "", {
+      withoutResizeObserver: true,
+    });
+    const canvas = document.querySelector(".hours-chart .chart-canvas") as unknown as Record<
+      string,
+      unknown
+    >;
+    Object.defineProperty(canvas, "clientWidth", { value: 700 });
+    canvas.appendChild = injected;
+    window.dispatchEvent(new window.Event("resize"));
+    expectContained(document, errors, logged);
+  });
+
+  test("showing a tooltip", async () => {
+    const { document, errors, logged } = await openPage(recordingsSection());
+    const tooltip = document.querySelector(".hours-chart .chart-tooltip") as unknown as Record<
+      string,
+      unknown
+    >;
+    tooltip.appendChild = injected;
+    (document.querySelector(".hours-chart") as unknown as { focus(): void }).focus();
+    expectContained(document, errors, logged);
+  });
+});
+
 describe("payloads the checks refuse", () => {
   test("a malformed payload shows an error in the explorer and the rest of the page still draws", async () => {
     const snap = structuredClone(snapshotFixture.response) as { sections: unknown[] };

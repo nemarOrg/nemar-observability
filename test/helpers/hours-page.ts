@@ -73,6 +73,11 @@ export interface OpenOptions {
    * store would refuse to keep (it drops sections that fail the schema).
    */
   snapshotBody?: unknown;
+  /**
+   * Start the page without ResizeObserver, as an older browser would, so its
+   * charts follow window resize events instead (a path a test can trigger).
+   */
+  withoutResizeObserver?: boolean;
 }
 
 export async function openPage(section: Section | null, hash = "", options: OpenOptions = {}) {
@@ -118,6 +123,10 @@ export async function openPage(section: Section | null, hash = "", options: Open
       headers: { "content-type": response.headers.get("content-type") ?? "application/json" },
     });
   };
+  if (options.withoutResizeObserver) {
+    // biome-ignore lint/performance/noDelete: the page tests "ResizeObserver" in window, so the name must be gone, not undefined.
+    delete (window as unknown as Record<string, unknown>).ResizeObserver;
+  }
   window.document.write(renderDashboardPage());
   const document = window.document;
   await until(

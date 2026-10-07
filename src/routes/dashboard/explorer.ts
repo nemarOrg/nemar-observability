@@ -65,10 +65,11 @@ function scheduleHoursHash() {
   hoursView.hashTimer = setTimeout(writeHoursHash, 250);
 }
 window.addEventListener("hashchange", function () {
-  // The page's own address writes describe the view already shown (and some
-  // environments report them as hash changes).
-  if (!hoursView.nodes || location.hash === currentHoursHash()) return;
+  if (!hoursView.nodes) return;
   try {
+    // The page's own address writes describe the view already shown (and some
+    // environments report them as hash changes).
+    if (location.hash === currentHoursHash()) return;
     const status = applyHoursHash(location.hash);
     if (status === "none") return;
     noteHoursLink(status);
