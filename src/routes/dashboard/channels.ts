@@ -70,28 +70,69 @@ function tableHours(n) {
 // ---------- recorded hours: the payload ----------
 const CHANNEL_MEASURES = ["hours", "recordings", "datasets"];
 const DEFAULT_MIN_CHANNELS = 16;
-// Where the payload is: the section the Zarr indexer pushes (key recordings),
-// or failing that the first section that carries one. The state says what the
-// page can honestly show: missing (nothing indexed yet), no-payload (the
-// section is there but this run reported no hours), invalid, or ok.
-function isCount(value) { return typeof value === "number" && Number.isInteger(value) && value >= 0; }
+// The page checks the payload by the same rules as the server's
+// ChannelHoursSchema (src/lib/schema.ts), so a payload that reached the page by
+// another route cannot hang the axis (a huge channel count), select two tabs at
+// once (EEG and eeg), or print NaN. test/channel-hours.test.ts holds the two to
+// parity: whatever the schema rejects, this rejects too.
+const MODALITY_NAME = /^[A-Za-z][A-Za-z0-9_-]{0,31}$/;
+const MAX_CHANNELS = 100000;
+function isCount(value) { return typeof value === "number" && Number.isSafeInteger(value) && value >= 0; }
 function isAmount(value) { return typeof value === "number" && Number.isFinite(value) && value >= 0; }
-function validChannelHours(payload) {
-  return isObject(payload) && isCount(payload.datasets_scanned) && isCount(payload.datasets_unavailable)
-    && isCount(payload.recordings_unmeasured) && Array.isArray(payload.modalities) && payload.modalities.length > 0
-    && payload.modalities.every(function (m) {
-      return isObject(m) && typeof m.modality === "string" && m.modality.length > 0
-        && isAmount(m.hours) && isCount(m.recordings) && isCount(m.datasets)
-        && Array.isArray(m.bins) && m.bins.length > 0 && Array.isArray(m.dataset_peaks)
-        && m.bins.every(function (b) { return isObject(b) && isCount(b.channels) && b.channels >= 1 && isAmount(b.hours) && isCount(b.recordings); })
-        && m.dataset_peaks.every(function (p) { return isObject(p) && isCount(p.channels) && p.channels >= 1 && isCount(p.datasets); });
-    });
+function isChannels(value) { return typeof value === "number" && Number.isInteger(value) && value >= 1 && value <= MAX_CHANNELS; }
+function onlyKeys(value, keys) { return Object.keys(value).every(function (k) { return keys.indexOf(k) >= 0; }); }
+function ascending(items) {
+  for (let i = 1; i < items.length; i++) if (!(items[i].channels > items[i - 1].channels)) return false;
+  return true;
 }
+function validModality(m, scanned) {
+  if (!isObject(m) || !onlyKeys(m, ["modality", "hours", "recordings", "datasets", "bins", "dataset_peaks"])) return false;
+  if (typeof m.modality !== "string" || !MODALITY_NAME.test(m.modality)) return false;
+  if (!isAmount(m.hours) || !isCount(m.recordings) || !isCount(m.datasets) || m.datasets > scanned) return false;
+  if (!Array.isArray(m.bins) || m.bins.length < 1 || m.bins.length > 1024) return false;
+  if (!Array.isArray(m.dataset_peaks) || m.dataset_peaks.length < 1 || m.dataset_peaks.length > 1024) return false;
+  const binsOk = m.bins.every(function (b) {
+    return isObject(b) && onlyKeys(b, ["channels", "hours", "recordings"]) && isChannels(b.channels) && isAmount(b.hours) && isCount(b.recordings) && b.recordings >= 1;
+  });
+  const peaksOk = m.dataset_peaks.every(function (p) {
+    return isObject(p) && onlyKeys(p, ["channels", "datasets"]) && isChannels(p.channels) && isCount(p.datasets) && p.datasets >= 1;
+  });
+  if (!binsOk || !peaksOk || !ascending(m.bins) || !ascending(m.dataset_peaks)) return false;
+  const binRecordings = Object.create(null);
+  let hours = 0; let recordings = 0; let datasets = 0;
+  m.bins.forEach(function (b) { hours += b.hours; recordings += b.recordings; binRecordings[b.channels] = b.recordings; });
+  for (let i = 0; i < m.dataset_peaks.length; i++) {
+    const peak = m.dataset_peaks[i];
+    const inBin = binRecordings[peak.channels];
+    if (inBin === undefined || peak.datasets > inBin) return false;
+    datasets += peak.datasets;
+  }
+  // Both lists ascend, so their last entries are the largest counts.
+  if (m.bins[m.bins.length - 1].channels !== m.dataset_peaks[m.dataset_peaks.length - 1].channels) return false;
+  return recordings === m.recordings && datasets === m.datasets && Math.abs(hours - m.hours) <= Math.max(1e-6, m.hours * 1e-9);
+}
+function validChannelHours(payload) {
+  if (!isObject(payload) || !onlyKeys(payload, ["datasets_scanned", "datasets_unavailable", "recordings_unmeasured", "modalities"])) return false;
+  if (!isCount(payload.datasets_scanned) || !isCount(payload.datasets_unavailable) || !isCount(payload.recordings_unmeasured)) return false;
+  if (!Array.isArray(payload.modalities) || payload.modalities.length < 1 || payload.modalities.length > 32) return false;
+  const seen = Object.create(null);
+  return payload.modalities.every(function (m) {
+    if (!validModality(m, payload.datasets_scanned)) return false;
+    // Names are unique regardless of case: EEG and eeg are one modality.
+    const key = m.modality.toLowerCase();
+    if (seen[key]) return false;
+    seen[key] = true;
+    return true;
+  });
+}
+// Where the payload is: only the section the Zarr indexer pushes (key
+// recordings), because the explorer names its source; another section that
+// happens to carry channel_hours is not shown. The state says what the page
+// can honestly show: missing (no such section), no-payload (the section has no
+// hours this run), invalid, or ok.
 function findChannelHours(snap) {
   const sections = snap && Array.isArray(snap.sections) ? snap.sections : [];
-  const carrying = sections.filter(function (s) { return isObject(s) && s.channel_hours !== undefined; });
-  const section = carrying.find(function (s) { return s.key === "recordings"; }) || carrying[0]
-    || sections.find(function (s) { return isObject(s) && s.key === "recordings"; });
+  const section = sections.find(function (s) { return isObject(s) && s.key === "recordings"; });
   if (!section) return { state: "missing", section: null, payload: null };
   if (section.channel_hours === undefined) return { state: "no-payload", section: section, payload: null };
   if (!validChannelHours(section.channel_hours)) return { state: "invalid", section: section, payload: null };
@@ -158,11 +199,12 @@ function axisMaxFor(modalities) {
     m.bins.forEach(function (b) { largest = Math.max(largest, b.channels); });
     m.peaks.forEach(function (p) { largest = Math.max(largest, p.channels); });
   });
-  return Math.max(512, Math.pow(2, Math.floor(Math.log2(largest)) + 1));
+  return Math.max(512, Math.pow(2, Math.floor(Math.log2(Math.min(largest, MAX_CHANNELS))) + 1));
 }
+// Capped at 2^20 whatever it is given, so a bad axis can never loop forever.
 function axisPowers(axisMax) {
   const out = [];
-  for (let p = 1; p <= axisMax; p *= 2) out.push(p);
+  for (let p = 1; p <= axisMax && out.length <= 20; p *= 2) out.push(p);
   return out;
 }
 // Where the slider can rest: the powers of two people think in (1 is any

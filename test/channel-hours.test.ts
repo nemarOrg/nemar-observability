@@ -3,6 +3,7 @@
 // here straight from the real fixture, independently of the code under test.
 
 import { describe, expect, test } from "bun:test";
+import { ChannelHoursSchema } from "../src/lib/schema";
 import sample from "./fixtures/channel-hours.sample.json";
 import snapshotFixture from "./fixtures/snapshot-2026-09-28.json";
 import { clientLogic } from "./helpers/client-logic";
@@ -18,6 +19,7 @@ const {
   tableHours,
   hoursTableRows,
   findChannelHours,
+  validChannelHours,
   prepareModalities,
   atLeast,
   channelSeries,
@@ -31,6 +33,7 @@ const {
   parseHoursHash,
   hoursHash,
 } = clientLogic([
+  "validChannelHours",
   "partShare",
   "thresholdText",
   "measureFigure",
@@ -106,8 +109,8 @@ describe("finding the payload", () => {
     expect(findChannelHours(snap).state).toBe("no-payload");
   });
 
-  test("a well-formed payload is found, preferring the recordings section", () => {
-    const other = { ...recordings, key: "qa", channel_hours: { ...sample, datasets_scanned: 1 } };
+  test("only the recordings section feeds the explorer", () => {
+    const other = { ...recordings, key: "qa", channel_hours: sample };
     const snap = {
       ...base,
       sections: [...base.sections, other, { ...recordings, channel_hours: sample }],
@@ -116,6 +119,11 @@ describe("finding the payload", () => {
     expect(found.state).toBe("ok");
     expect(found.section.key).toBe("recordings");
     expect(found.payload.datasets_scanned).toBe(sample.datasets_scanned);
+    // Another section carrying the same payload is not drawn under the
+    // explorer's source line.
+    expect(findChannelHours({ ...base, sections: [...base.sections, other] }).state).toBe(
+      "missing",
+    );
   });
 
   test("a payload this page cannot read is reported, not drawn", () => {
@@ -165,6 +173,171 @@ describe("finding the payload", () => {
         v.datasets_scanned = "64";
       }),
     ).toBe("invalid");
+  });
+});
+
+describe("the page's check matches the server's schema", () => {
+  // Every case is a mutation of the real sample. Whatever ChannelHoursSchema
+  // rejects, the page must reject too; the few it accepts, the page accepts.
+  type Loose = Record<string, unknown> & {
+    modalities: (Record<string, unknown> & {
+      bins: Record<string, unknown>[];
+      dataset_peaks: Record<string, unknown>[];
+    })[];
+  };
+  const eegIndex = sample.modalities.findIndex((m) => m.modality === "EEG");
+  type Path = (string | number)[];
+  type Node = Record<string | number, unknown>;
+  const parent = (v: Loose, path: Path) => {
+    let target = v as unknown as Node;
+    for (const step of path.slice(0, -1)) target = target[step] as Node;
+    return target;
+  };
+  // Sets one field; change() derives the new value from the old one.
+  const set = (path: Path, value: unknown) => (v: Loose) => {
+    parent(v, path)[path[path.length - 1]] = value;
+  };
+  const change = (path: Path, next: (old: number) => unknown) => (v: Loose) => {
+    const target = parent(v, path);
+    const key = path[path.length - 1];
+    target[key] = next(target[key] as number);
+  };
+  const lastBin = sample.modalities[0].bins.length - 1;
+  const cases: [string, (v: Loose) => void][] = [
+    ["channel count 0", set(["modalities", 0, "bins", 0, "channels"], 0)],
+    ["channel count above 100,000", set(["modalities", 0, "bins", 0, "channels"], 100_001)],
+    ["channel count 1e308", set(["modalities", 0, "bins", lastBin, "channels"], 1e308)],
+    ["fractional channel count", set(["modalities", 0, "bins", 0, "channels"], 2.5)],
+    ["a bin with no recordings", set(["modalities", 0, "bins", 0, "recordings"], 0)],
+    ["fractional recordings", set(["modalities", 0, "bins", 0, "recordings"], 1.5)],
+    ["negative hours", set(["modalities", 0, "bins", 0, "hours"], -1)],
+    ["hours not a number", set(["modalities", 0, "bins", 0, "hours"], Number.NaN)],
+    [
+      "bins out of order",
+      (v) => {
+        v.modalities[0].bins.reverse();
+      },
+    ],
+    [
+      "a repeated bin",
+      (v) => {
+        v.modalities[0].bins.splice(1, 0, { ...v.modalities[0].bins[0] });
+      },
+    ],
+    ["no dataset peaks", set(["modalities", 0, "dataset_peaks"], [])],
+    [
+      "peaks out of order",
+      (v) => {
+        v.modalities[0].dataset_peaks.reverse();
+      },
+    ],
+    // EEG's smallest peak sits at 2 channels; at 1 channel there is no bin.
+    ["a peak with no bin", set(["modalities", eegIndex, "dataset_peaks", 0, "channels"], 1)],
+    [
+      "more datasets at a peak than recordings in its bin",
+      (v) => {
+        const m = v.modalities[eegIndex];
+        m.dataset_peaks[0].datasets = 59;
+        m.datasets = (m.datasets as number) + 58;
+      },
+    ],
+    [
+      "the largest peak below the largest bin",
+      (v) => {
+        const m = v.modalities[eegIndex];
+        const last = m.dataset_peaks.pop();
+        m.datasets = (m.datasets as number) - (last?.datasets as number);
+      },
+    ],
+    ["recordings off the sum", change(["modalities", 0, "recordings"], (n) => n + 1)],
+    ["hours off the sum", change(["modalities", 0, "hours"], (n) => n + 1)],
+    ["datasets off the sum", change(["modalities", 0, "datasets"], (n) => n + 1)],
+    ["more datasets than were scanned", set(["datasets_scanned"], 10)],
+    [
+      "EEG and eeg",
+      (v) => {
+        v.modalities.push({ ...structuredClone(v.modalities[0]), modality: "eeg" });
+      },
+    ],
+    ["a markup name", set(["modalities", 0, "modality"], "<img src=x onerror=alert(1)>")],
+    ["a name with a colon", set(["modalities", 0, "modality"], "a:b%#c")],
+    ["a name starting with a digit", set(["modalities", 0, "modality"], "1EEG")],
+    ["an empty name", set(["modalities", 0, "modality"], "")],
+    ["a 33-character name", set(["modalities", 0, "modality"], "E".repeat(33))],
+    ["no modalities", set(["modalities"], [])],
+    [
+      "33 modalities",
+      (v) => {
+        const template = v.modalities.find((m) => m.modality === "EMG");
+        for (let i = 0; v.modalities.length < 33; i++)
+          v.modalities.push({ ...structuredClone(template), modality: `M${i}` } as never);
+      },
+    ],
+    ["an unknown field on the payload", set(["extra"], 1)],
+    ["an unknown field on a modality", set(["modalities", 0, "dataset_id"], "nm000103")],
+    ["an unknown field on a bin", set(["modalities", 0, "bins", 0, "note"], "x")],
+    ["an unknown field on a peak", set(["modalities", 0, "dataset_peaks", 0, "note"], "x")],
+    ["a negative count", set(["datasets_scanned"], -1)],
+    ["a fractional count", set(["datasets_unavailable"], 1.5)],
+    ["a count as text", set(["datasets_scanned"], "64")],
+    ["an unsafe count", set(["recordings_unmeasured"], 2 ** 53)],
+    [
+      "1,025 bins",
+      (v) => {
+        const m = v.modalities[0];
+        m.bins = Array.from({ length: 1025 }, (_, i) => ({
+          channels: i + 1,
+          hours: 1,
+          recordings: 1,
+        }));
+        m.dataset_peaks = [{ channels: 1025, datasets: 1 }];
+        m.hours = 1025;
+        m.recordings = 1025;
+        m.datasets = 1;
+      },
+    ],
+  ];
+  const clone = () => structuredClone(sample) as unknown as Loose;
+
+  test("the real sample passes both", () => {
+    expect(ChannelHoursSchema.safeParse(sample).success).toBe(true);
+    expect(validChannelHours(sample)).toBe(true);
+  });
+
+  for (const [name, mutate] of cases) {
+    test(`rejected by both: ${name}`, () => {
+      const v = clone();
+      mutate(v);
+      expect(ChannelHoursSchema.safeParse(v).success).toBe(false);
+      expect(validChannelHours(v)).toBe(false);
+    });
+  }
+
+  test("what the schema accepts, the page accepts", () => {
+    const accepted: ((v: Loose) => void)[] = [
+      set(["recordings_unmeasured"], 7),
+      set(["datasets_unavailable"], 3),
+      (v) => {
+        // A measured recording can have no duration.
+        const m = v.modalities[0];
+        m.hours = (m.hours as number) - (m.bins[0].hours as number);
+        m.bins[0].hours = 0;
+      },
+    ];
+    for (const mutate of accepted) {
+      const v = clone();
+      mutate(v);
+      expect(ChannelHoursSchema.safeParse(v).success).toBe(true);
+      expect(validChannelHours(v)).toBe(true);
+    }
+  });
+
+  test("the axis cannot run away", () => {
+    // Even if a huge count got past every check, the axis stops at 2^20.
+    expect(axisPowers(Number.POSITIVE_INFINITY)).toHaveLength(21);
+    const huge = prepareModalities(sample);
+    huge[0].bins.push({ channels: 1e308, hours: 1, recordings: 1 });
+    expect(axisMaxFor(huge)).toBe(131_072);
   });
 });
 

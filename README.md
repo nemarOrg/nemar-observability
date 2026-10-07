@@ -113,7 +113,8 @@ The body must conform to `src/lib/metric-snapshot.schema.json` (`$defs/sectionIn
 ### Recorded hours by channel count
 
 A section may also carry a `channel_hours` payload (`$defs/channelHours`): per modality, the exact hours and recordings at each channel count, and each dataset's largest channel count.
-The dashboard draws it under the pipeline cards as an explorer, from the section with key `recordings` (the Zarr indexer's push), or else the first section that carries one.
+The dashboard draws it under the pipeline cards as an explorer, only from the section with key `recordings` (the Zarr indexer's push); the explorer names that source, so a payload on any other section is not shown.
+The page checks the payload by the same rules as `ChannelHoursSchema` before drawing it.
 It has a tab per modality, ordered by hours, and a minimum-channels slider on the chart's doubling channel axis.
 A readout states the hours, recordings, and datasets at that minimum or more, with their share of the modality.
 Datasets are counted from their largest recording, so each counts once.
