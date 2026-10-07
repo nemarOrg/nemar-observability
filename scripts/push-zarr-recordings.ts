@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 
-// Daily "recorded data" collector. For every public NEMAR dataset it reads the
+// "Recorded data" collector, run three times a day. For every public NEMAR dataset it reads the
 // dataset's public Zarr index (https://nemar.s3.us-east-2.amazonaws.com/<id>/zarr/index.json),
 // totals the hours of converted raw recordings per modality and exact channel
 // count, and pushes the result as section `recordings` (source
@@ -10,7 +10,7 @@
 // It runs on nemaring, not in the Worker: one index is over 300 MB, far beyond
 // what a Worker can parse. Indexes are streamed (see lib/json-stream.ts), and
 // each dataset's summary is cached by the index's ETag (lib/zarr-index-source.ts),
-// so after the first run a daily run downloads almost nothing. Needs only the
+// so after the first run a run downloads almost nothing. Needs only the
 // section's ingest token: no AWS credentials, and nothing is read that is not
 // anonymously public.
 //
@@ -25,6 +25,8 @@ import { writeFile } from "node:fs/promises";
 import { argv, env, exit } from "node:process";
 import type { SectionIngest } from "../src/lib/schema";
 import {
+  CollectionError,
+  IngestError,
   codeUpdateProblem,
   postSection,
   requiredSecret,
@@ -44,6 +46,7 @@ import {
   DEFAULT_API_BASE,
   DEFAULT_INDEX_BASE,
   SummaryCache,
+  assertCatalogPlausible,
   listPublicDatasets,
   scanDatasets,
 } from "./lib/zarr-index-source";
@@ -64,10 +67,23 @@ export type CollectOptions = {
   /** Tries per dataset and the pause before the second one (tests shorten these). */
   attempts?: number;
   retryDelayMs?: number;
+  /** Tries per catalog page; the default waits out about five minutes of 5xx. */
+  catalogAttempts?: number;
   headerTimeoutMs?: number;
   idleTimeoutMs?: number;
-  /** Share of unreadable indexes above which the run fails instead of publishing; default 0.1. */
+  /** Longest one index may take, and most bytes it may have; see ReadOptions. */
+  deadlineMs?: number;
+  maxBytes?: number;
+  /**
+   * Share, by dataset count and by last-known hours, of unreadable indexes above
+   * which the run fails instead of publishing; default 0.1.
+   */
   maxUnavailableFraction?: number;
+  /** Where the update service records a stalled checkout; default as in s3-cloudwatch.ts. */
+  codeMarker?: string | URL;
+  /** Pushes: further tries and the pause before each (default 3 tries at 5 s, 15 s, 45 s). */
+  postRetries?: number;
+  postBackoffMs?: readonly number[];
   log?: (line: string) => void;
 };
 
@@ -105,13 +121,15 @@ export async function buildRecordings(
   const log = options.log ?? ((line: string) => console.info(line));
   const tag = RECORDINGS_COLLECTOR.tag;
 
-  const datasets = await listPublicDatasets(options.apiBase ?? DEFAULT_API_BASE, {
-    retryDelayMs: options.retryDelayMs,
-  });
-  log(`[${tag}] ${datasets.length} public datasets in the catalog`);
-
   const stateDir = options.stateDir === undefined ? resolveStateDir(undefined) : options.stateDir;
   const cache = await SummaryCache.open(stateDir === null ? null : `${stateDir}/summaries`);
+  const datasets = await listPublicDatasets(options.apiBase ?? DEFAULT_API_BASE, {
+    retryDelayMs: options.retryDelayMs,
+    attempts: options.catalogAttempts,
+  });
+  log(`[${tag}] ${datasets.length} public datasets in the catalog`);
+  assertCatalogPlausible(datasets, await cache.count());
+
   const outcomes = await scanDatasets(datasets, {
     indexBase: options.indexBase ?? DEFAULT_INDEX_BASE,
     cache,
@@ -120,14 +138,19 @@ export async function buildRecordings(
     retryDelayMs: options.retryDelayMs,
     headerTimeoutMs: options.headerTimeoutMs,
     idleTimeoutMs: options.idleTimeoutMs,
+    deadlineMs: options.deadlineMs,
+    maxBytes: options.maxBytes,
     onUnavailable: (id, reason) => console.warn(`[${tag}] ${id} unavailable: ${reason}`),
+    onNote: (id, message) => console.warn(`[${tag}] ${id}: ${message}`),
   });
-  const pruned = await cache.prune(new Set(datasets.map((dataset) => dataset.id)));
-  if (pruned > 0) log(`[${tag}] removed ${pruned} cache entries for datasets no longer public`);
 
   const aggregate = aggregateOutcomes(datasets.length, outcomes);
   const payload = recordingsSection(aggregate, codeStaleSince);
   assertPublishable(aggregate, payload, options.maxUnavailableFraction);
+  // Housekeeping only after the result is publishable: a catalog that came back
+  // short must not also erase the cache entries that would have exposed it.
+  const pruned = await cache.prune(new Set(datasets.map((dataset) => dataset.id)));
+  if (pruned > 0) log(`[${tag}] removed ${pruned} cache entries for datasets no longer public`);
   return { payload, aggregate, outcomes, elapsedMs: Date.now() - started };
 }
 
@@ -164,21 +187,48 @@ export function formatReport(result: CollectResult): string[] {
   return lines;
 }
 
-/** Collect once and push the section to `sectionsUrl` (production by default). */
+/**
+ * Collect once and push the section to `sectionsUrl` (production by default).
+ *
+ * The report is built before the push and nothing after a successful push can
+ * throw: the runner answers any error with a failure status that replaces the
+ * section, so an error after the write would erase the data it just stored. An
+ * exception that is not one of the collector's own (a bug) is logged with its
+ * name and stack here, since the runner's journal line for it is generic.
+ */
 export async function collectRecordings(options: CollectOptions & { sectionsUrl?: string } = {}) {
-  const ingestToken = requiredSecret(RECORDINGS_COLLECTOR.tokenVariable);
-  const result = await buildRecordings(options, await codeUpdateProblem());
-  await postSection(
-    RECORDINGS_COLLECTOR.sectionKey,
-    ingestToken,
-    result.payload,
-    options.sectionsUrl,
-  );
   const log = options.log ?? ((line: string) => console.info(line));
-  for (const line of formatReport(result)) log(`[${RECORDINGS_COLLECTOR.tag}] ${line}`);
-  log(
-    `[${RECORDINGS_COLLECTOR.tag}] posted ${result.payload.channel_hours?.modalities.length} modalities`,
-  );
+  const tag = RECORDINGS_COLLECTOR.tag;
+  try {
+    const ingestToken = requiredSecret(RECORDINGS_COLLECTOR.tokenVariable);
+    const result = await buildRecordings(
+      options,
+      await codeUpdateProblem(Date.now(), options.codeMarker),
+    );
+    const report = formatReport(result).map((line) => `[${tag}] ${line}`);
+    await postSection(
+      RECORDINGS_COLLECTOR.sectionKey,
+      ingestToken,
+      result.payload,
+      options.sectionsUrl,
+      { retries: options.postRetries, backoffMs: options.postBackoffMs },
+    );
+    try {
+      for (const line of report) log(line);
+      log(`[${tag}] posted ${result.payload.channel_hours?.modalities.length} modalities`);
+    } catch {
+      // The section is stored; a failing logger must not turn that into a failure.
+    }
+  } catch (error) {
+    if (!(error instanceof CollectionError || error instanceof IngestError)) {
+      const name = error instanceof Error ? error.name : typeof error;
+      console.error(
+        `[${tag}] unexpected ${name}: ${error instanceof Error ? error.message : error}`,
+      );
+      if (error instanceof Error && error.stack) console.error(error.stack);
+    }
+    throw error;
+  }
 }
 
 export type CliArguments = CollectOptions & { dryRun: boolean; out?: string };

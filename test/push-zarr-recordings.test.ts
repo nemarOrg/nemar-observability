@@ -82,6 +82,8 @@ const options = () => ({
   indexBase: index.url,
   stateDir,
   retryDelayMs: 0,
+  catalogAttempts: 3,
+  postBackoffMs: [0, 0, 0],
   log: () => undefined,
 });
 
@@ -132,7 +134,7 @@ describe("buildRecordings", () => {
   test("a dataset that cannot be read is counted unavailable and its old summary is not reused", async () => {
     await buildRecordings(options());
     index.state.failures.set("on004457", [500, 500, 500]);
-    // One of eight is above the default 10% limit, so this run raises it.
+    // One of seven is above the default 10% limit, so this run raises it.
     const result = await buildRecordings({ ...options(), maxUnavailableFraction: 0.5 });
     expect(result.aggregate.unavailable).toBe(1);
     expect(result.aggregate.scanned).toBe(6);
@@ -273,11 +275,12 @@ describe("pushing to the Worker", () => {
     expect(catalog.seen).toEqual([]);
   });
 
-  test("an ambiguous write is never followed by a second write", async () => {
+  test("an ambiguous write is retried as the same push and never followed by an error status", async () => {
     process.env[RECORDINGS_COLLECTOR.tokenVariable] = TOKEN;
     respond = () => new Response("upstream timed out", { status: 504 });
     expect(await run()).toBe(1);
-    expect(ingestRequests).toBe(1);
+    // The push and its three retries, all the same section; then nothing more.
+    expect(ingestRequests).toBe(4);
     // The Worker committed the success; no error status overwrote it.
     expect(
       (await stored())?.metrics.find((m) => m.key === "recordings.collector.errors"),
@@ -287,10 +290,12 @@ describe("pushing to the Worker", () => {
     });
   });
 
-  test("a token the Worker does not know is reported once and not retried", async () => {
+  test("a token the Worker does not know is a definite rejection: not retried, and the error status is tried once", async () => {
     process.env[RECORDINGS_COLLECTOR.tokenVariable] = "not-the-recordings-token";
     expect(await run()).toBe(1);
-    expect(ingestRequests).toBe(1);
+    // The section push and the one failure-status push, each refused with 401 and
+    // neither repeated.
+    expect(ingestRequests).toBe(2);
     expect(await stored()).toBeUndefined();
   });
 
