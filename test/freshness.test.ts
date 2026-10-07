@@ -710,6 +710,21 @@ describe("Umami liveness over HTTP", () => {
       });
     });
 
+    test("503 when the recordings collector never delivered", async () => {
+      seedHealthy();
+      seedExpectedSeries(freshDay());
+      seedSection("egress", new Date().toISOString());
+      seedSection("storage", new Date().toISOString());
+      seedWebsite(new Date().toISOString());
+      const res = await call(production());
+      expect(res.status).toBe(503);
+      expect(await res.json()).toMatchObject({
+        ok: false,
+        series_behind: [],
+        pushed_problems: [{ section: "recordings", problem: "missing" }],
+      });
+    });
+
     test("503 when a collector has not succeeded for over a day", async () => {
       seedHealthy();
       seedExpectedSeries(freshDay());
