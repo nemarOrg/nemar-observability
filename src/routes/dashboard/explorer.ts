@@ -68,11 +68,23 @@ window.addEventListener("hashchange", function () {
   // The page's own address writes describe the view already shown (and some
   // environments report them as hash changes).
   if (!hoursView.nodes || location.hash === currentHoursHash()) return;
-  const status = applyHoursHash(location.hash);
-  if (status === "none") return;
-  noteHoursLink(status);
-  updateHours(false, true);
+  try {
+    const status = applyHoursHash(location.hash);
+    if (status === "none") return;
+    noteHoursLink(status);
+    updateHours(false, true);
+  } catch (err) {
+    failHoursExplorer(err);
+  }
 });
+// A failure after the explorer has drawn (a step, a tab, a resize) replaces it
+// with a plain error in its own block; the rest of the page stays as it is.
+function failHoursExplorer(err) {
+  console.error("[ui] recorded hours display failed:", err);
+  hoursView.nodes = null;
+  const root = document.getElementById("channel-hours");
+  if (root) stateMessage(root, "error", "Could not display recorded hours", "Something went wrong while drawing them. The rest of the page is shown.");
+}
 
 function renderRecordedHours(snap) {
   const root = document.getElementById("channel-hours");
@@ -289,7 +301,8 @@ function buildHoursExplorer() {
   const foot = el("div", "hours-foot");
   nodes.details = disclosure("Show exact values", "values");
   nodes.details.addEventListener("toggle", function () {
-    if (nodes.details.open && view.nodes === nodes) fillHoursTable(hoursModality());
+    if (!nodes.details.open || view.nodes !== nodes) return;
+    try { fillHoursTable(hoursModality()); } catch (err) { failHoursExplorer(err); }
   });
   const table = el("table", "data-table hours-table");
   // The datasets column holds dataset peaks, so the caption says how they count.
@@ -352,11 +365,24 @@ function setHoursMin(channels) {
 }
 
 // Everything that follows the view, in one place, so the readout, slider,
-// chart, and table never disagree. announce reads the new answer aloud.
+// chart, and table never disagree. announce reads the new answer aloud. The
+// address is written first, so it names the chosen view even if drawing fails.
 function updateHours(fromUser, announce) {
+  if (!hoursView.nodes) return;
+  if (fromUser) {
+    scheduleHoursHash();
+    // A note about a link that could not be shown lasts until the reader moves on.
+    hoursView.linkNote = "";
+  }
+  try {
+    drawHoursView(announce);
+  } catch (err) {
+    failHoursExplorer(err);
+  }
+}
+function drawHoursView(announce) {
   const view = hoursView;
   const nodes = view.nodes;
-  if (!nodes) return;
   const modality = hoursModality();
   view.key = modality.key;
   nodes.tabs.forEach(function (tab) {
@@ -369,8 +395,6 @@ function updateHours(fromUser, announce) {
     }
   });
   nodes.measures.forEach(function (button) { button.setAttribute("aria-pressed", String(button.dataset.measure === view.measure)); });
-  // A note about a link that could not be shown lasts until the reader moves on.
-  if (fromUser) view.linkNote = "";
   renderHoursNotices();
 
   const part = atLeast(modality, view.min);
@@ -396,7 +420,6 @@ function updateHours(fromUser, announce) {
   nodes.details.querySelector("summary").textContent = "Show exact values (" + plural(hoursTableRows(modality).length, "channel count", "channel counts") + ")";
   if (nodes.details.open) fillHoursTable(modality);
   if (announce) nodes.live.textContent = shown.number + " " + shown.unit + " " + nodes.claim.textContent + ". " + nodes.share.textContent + ".";
-  if (fromUser) scheduleHoursHash();
 }
 
 function renderHoursNotices() {
@@ -544,7 +567,11 @@ function hoursChart() {
       notes: notes
     };
   }
+  // Pointer and key handlers reach the tooltip here, outside updateHours.
   function show(i, announce) {
+    try { showTooltip(i, announce); } catch (err) { failHoursExplorer(err); }
+  }
+  function showTooltip(i, announce) {
     if (!geometry || i < 0 || i >= points.length) return;
     active = i;
     const c = content(i);
@@ -593,7 +620,12 @@ function hoursChart() {
     event.preventDefault();
     show(next, true);
   });
-  observeWidth(frame.canvas, function (w) { if (w !== width) { width = w; draw(); } });
+  // A resize redraws outside updateHours, so it carries its own guard.
+  observeWidth(frame.canvas, function (w) {
+    if (w === width || !hoursView.nodes) return;
+    width = w;
+    try { draw(); } catch (err) { failHoursExplorer(err); }
+  });
   return {
     wrap: frame.wrap,
     update: function () {

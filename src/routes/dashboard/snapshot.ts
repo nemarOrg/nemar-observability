@@ -99,16 +99,13 @@ function renderSnapshot(snap) {
   meta.textContent = "Latest snapshot generated " + formatDateTime(snap.generated_at) + " (" + relativeTime(snap.generated_at) + "). It refreshes every hour."
     + (missing.length ? " Not in this snapshot: " + missing.join(", ") + "." : "");
 }
-// The explorer is the newest and most intricate block on the page; if it cannot
-// be drawn, it says so in its own place and every other figure still shows.
+// A failure drawing the explorer stays in its own block, so every other figure
+// still shows.
 function renderHoursSafely(snap) {
   try {
     renderRecordedHours(snap);
   } catch (err) {
-    console.error("[ui] recorded hours display failed:", err);
-    hoursView.nodes = null;
-    const root = document.getElementById("channel-hours");
-    if (root) stateMessage(root, "error", "Could not display recorded hours", "They loaded, but this page could not show them. The rest of the snapshot is shown.");
+    failHoursExplorer(err);
   }
 }
 // A snapshot that failed to load and one that loaded but could not be drawn

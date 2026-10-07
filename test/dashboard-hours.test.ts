@@ -403,6 +403,27 @@ describe("recorded hours explorer", () => {
     expect(readout(document).claim).toBe("of EEG recorded with 257 or more channels");
   });
 
+  test("a failure while redrawing stays in the explorer, and the address still follows", async () => {
+    const { window, document, errors } = await openPage(recordingsSection());
+    await until(() => document.getElementById("card-recordings") !== null, "the recordings card");
+    // happy-dom keeps the page script's functions private, so the fault goes
+    // into something the redraw touches: the slider's setAttribute, which the
+    // redraw calls after it has already changed the readout. The failure then
+    // travels the real path from a key press.
+    const slider = document.getElementById("hours-min") as unknown as Record<string, unknown>;
+    slider.setAttribute = () => {
+      throw new Error("injected for this test");
+    };
+    key(document, window, "#hours-min", "ArrowRight");
+    expect(text(document, "#channel-hours")).toContain("Could not display recorded hours");
+    expect(document.querySelector("#channel-hours [role=tablist]")).toBeNull();
+    // The rest of the page is untouched, and nothing escaped as an uncaught error.
+    expect(document.getElementById("card-recordings")).not.toBeNull();
+    expect(errors).toEqual([]);
+    // The address was written before the drawing failed.
+    await until(() => window.location.hash === "#hours=eeg:19", "the address to follow the view");
+  });
+
   test("End goes to the largest count the selected modality has", async () => {
     const { window, document } = await openPage(recordingsSection(), "#hours=emg:16");
     key(document, window, "#hours-min", "End");
