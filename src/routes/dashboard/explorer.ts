@@ -353,8 +353,17 @@ function hoursSourceNotes(found) {
 // whole page instead. The strip is positioned, so offsetLeft is measured in it.
 function centerHoursTab(tab) {
   const strip = hoursView.nodes.tablist;
-  if (strip.scrollWidth <= strip.clientWidth) return;
+  if (!syncHoursStrip()) return;
   strip.scrollLeft = Math.max(0, tab.offsetLeft - (strip.clientWidth - tab.offsetWidth) / 2);
+}
+// Marks a strip that scrolls, for its edge shadows; a pixel of slack keeps a
+// strip with a fractional width from counting as scrolling. Returns whether it scrolls.
+function syncHoursStrip() {
+  const strip = hoursView.nodes && hoursView.nodes.tablist;
+  if (!strip) return false;
+  const scrolls = strip.scrollWidth > strip.clientWidth + 1;
+  strip.classList.toggle("is-scrollable", scrolls);
+  return scrolls;
 }
 function selectHoursModality(key) {
   if (hoursView.key === key) return;
@@ -634,11 +643,17 @@ function hoursChart() {
     event.preventDefault();
     show(next, true);
   });
-  // A resize redraws outside updateHours, so it carries its own guard.
+  // A resize redraws outside updateHours, so it carries its own guard. The
+  // card changed width, so the tab strip may have started or stopped scrolling.
   observeWidth(frame.canvas, function (w) {
     if (w === width || !hoursView.nodes) return;
     width = w;
-    try { draw(); } catch (err) { failHoursExplorer(err); }
+    try {
+      draw();
+      syncHoursStrip();
+    } catch (err) {
+      failHoursExplorer(err);
+    }
   });
   return {
     wrap: frame.wrap,

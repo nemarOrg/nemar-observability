@@ -85,6 +85,9 @@ describe("the tab strip on a narrow screen", () => {
   test("the strip is positioned and scrolls on its own", () => {
     expect(STYLES).toMatch(/\.sr-only \{ position: absolute;/);
     expect(STYLES).toMatch(/\.hours-tabs \{\s*position: relative;[^}]*overflow-x: auto;/);
+    // Edge shadows only on a strip the script has found to scroll.
+    expect(STYLES).toMatch(/\.hours-tabs\.is-scrollable \{\s*background:/);
+    expect(EXPLORER_JS).toContain('strip.classList.toggle("is-scrollable", scrolls)');
   });
 });
 

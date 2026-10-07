@@ -512,14 +512,16 @@ main > section { scroll-margin-top: calc(var(--topbar-h) + 16px); padding-top: v
 /* Positioned, so the screen-reader text inside each tab total (absolutely
    positioned) is clipped by the strip's own scrolling instead of widening the
    page. When the strip scrolls, a soft shadow marks each edge with more tabs
-   beyond it: the local covers move with the tabs and hide it at the ends. */
-.hours-tabs {
-  position: relative; display: flex; gap: 2px; min-width: 0; max-width: 100%; overflow-x: auto; scrollbar-width: thin; margin-bottom: -1px;
+   beyond it: the local covers move with the tabs and hide it at the ends.
+   The script marks a strip that scrolls; one that fits paints no shadow at all.
+   The layers stop 2px short of the bottom, so the strip's underline shows. */
+.hours-tabs { position: relative; display: flex; gap: 2px; min-width: 0; max-width: 100%; overflow-x: auto; scrollbar-width: thin; margin-bottom: -1px; }
+.hours-tabs.is-scrollable {
   background:
-    linear-gradient(to right, var(--surface) 50%, transparent) left center / 28px 100% no-repeat local,
-    linear-gradient(to left, var(--surface) 50%, transparent) right center / 28px 100% no-repeat local,
-    radial-gradient(farthest-side at 0 50%, var(--edge-shadow), transparent) left center / 12px 100% no-repeat scroll,
-    radial-gradient(farthest-side at 100% 50%, var(--edge-shadow), transparent) right center / 12px 100% no-repeat scroll;
+    linear-gradient(to right, var(--surface) 50%, transparent) left top / 28px calc(100% - 2px) no-repeat local,
+    linear-gradient(to left, var(--surface) 50%, transparent) right top / 28px calc(100% - 2px) no-repeat local,
+    radial-gradient(farthest-side at 0 50%, var(--edge-shadow), transparent) left -1px top / 12px calc(100% - 2px) no-repeat scroll,
+    radial-gradient(farthest-side at 100% 50%, var(--edge-shadow), transparent) right -1px top / 12px calc(100% - 2px) no-repeat scroll;
 }
 .hours-tab { display: inline-flex; flex: none; flex-direction: column; align-items: flex-start; gap: 1px; min-width: 72px; min-height: 52px; padding: 8px 14px 9px; border: 0; border-bottom: 2px solid transparent; border-radius: var(--radius-md) var(--radius-md) 0 0; background: transparent; color: var(--text-2); cursor: pointer; text-align: left; }
 .hours-tab:hover { color: var(--text); background: var(--surface-2); }
