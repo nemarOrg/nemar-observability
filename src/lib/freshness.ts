@@ -41,9 +41,10 @@ export const EXPECTED_SERIES: readonly {
  * The first-party pushed sections and the longest each may go without a
  * successful collector run. A day and two hours: the collectors run hourly (egress,
  * and website page views from the Umami pusher), three times a day (recordings) or
- * twice a day (storage) and retry by themselves, so only a day with no success at all is a fault, and one failed
- * run never is. It is also long enough that the old once-a-day timer stays green
- * until the new ones are installed.
+ * twice a day (storage) and retry by themselves, so only a day with no success at
+ * all is a fault, and one failed run never is (once the collector has succeeded at
+ * least once). It is also long enough that storage's old once-a-day timer stays
+ * green until the new ones are installed.
  */
 export const EXPECTED_SECTION_MAX_AGE_MS: Record<string, number> = {
   egress: 26 * HOUR_MS,

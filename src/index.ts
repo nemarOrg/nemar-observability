@@ -24,7 +24,7 @@ const app = new Hono<{ Bindings: Bindings }>();
 //   section_errors    a built-in section threw, so tiles are silently MISSING
 //   snapshot_*        the newest snapshot row is corrupt or schema-drifted
 //   series_behind     the S3 egress, website page-view or (once seeded) edge request series is missing a closed UTC day, or never arrived
-//   pushed_problems   a collector section is missing, stale, or reports an error metric
+//   pushed_problems   a collector section is missing, has had no successful run in its window, reports `*.collector.code_stale`, or is unreadable
 //   umami             website analytics unreachable, silent, or misconfigured
 //   checks_failed     a freshness check itself could not run (for example an unmigrated table)
 //   store_unavailable OBS_DB is unreadable, so we cannot judge any of the above

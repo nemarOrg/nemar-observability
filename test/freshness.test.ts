@@ -312,8 +312,8 @@ describe("loadPushedProblems", () => {
     ]);
   });
 
-  // Runs are at 06:50, 12:50 and 18:50 UTC, so the longest normal gap is 12 hours
-  // and one missed run is about 24: inside the window, not a fault.
+  // Runs are at 06:50, 12:50 and 18:50 UTC, so the gaps are 6, 6 and 12 hours: one
+  // missed run is at most 18 hours and two are 24, inside the window; a third is not.
   test("recordings tolerate a missed run: 25 hours is fine, 27 is stale", async () => {
     seedSection("egress", hoursAgo(1));
     seedSection("storage", hoursAgo(1));
