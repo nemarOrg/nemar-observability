@@ -1,9 +1,14 @@
 // Runs the real ops/with-collector-secrets.sh under bash. These cases stop
 // before any secret is read, so they are safe anywhere bash exists.
 //
-// Not covered here: that Infisical injects the shared AWS key, that each child
-// loses the other collectors' ingest tokens (and the recordings child the AWS
-// key), and that the Infisical token stays out of every argv. Those steps need the installed checkout under
+// What each child process's environment holds (its own token, no other
+// collector's token, the AWS key only for the S3 collectors, the state directory
+// only for the recordings collector) is tested in test/collector-env.test.ts,
+// which runs the wrapper's own functions under real bash.
+//
+// Not covered anywhere off the host: that the Infisical CLI really injects the
+// shared secrets, that the Infisical token stays out of every argv, and the
+// token-file checks. Those steps need the installed checkout under
 // /opt/nemar-observability, the real Infisical CLI, and the scoped token file
 // (with GNU stat), which exist only on nemaring; a stand-in CLI would be a stub.
 
