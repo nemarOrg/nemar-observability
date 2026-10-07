@@ -1,5 +1,5 @@
 {
- "summary_version": 2,
+ "summary_version": 3,
  "modalities": {
   "ECG": {
    "hours": 23.6486,

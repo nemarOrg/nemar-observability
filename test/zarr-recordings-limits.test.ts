@@ -12,12 +12,14 @@ import {
   type DatasetSummary,
   IndexFormatError,
   MAX_CHANNELS,
+  MAX_CHANNEL_COUNTS_PER_MODALITY,
   MAX_DURATION_HOURS,
   MAX_MODALITIES_PER_STORE,
   MAX_STORE_ENTRY_BYTES,
   MAX_STORE_ENTRY_DEPTH,
   MISC_DATATYPE_FOLDERS,
   groupModality,
+  parseDatasetSummary,
   summarizeIndex,
   summarizeIndexStream,
 } from "../scripts/lib/zarr-recordings";
@@ -119,6 +121,7 @@ describe("modality attribution under the contract's names", () => {
         unmeasuredStores: 0,
         unmeasured: 0,
         implausible: 0,
+        unusableModalities: [],
         failed: 0,
         pending: 0,
         multiGroupStores: 0,
@@ -159,6 +162,117 @@ describe("modality attribution under the contract's names", () => {
     ]);
     expect(summary.measuredStores).toBe(9);
     expect(summary.multiModalityStores).toBe(0);
+  });
+});
+
+describe("a modality with too many distinct channel counts", () => {
+  /** nm000118 with `count` stores, store i having i + 1 channels (an edited copy of a real index). */
+  const withChannelCounts = (count: number): Index => {
+    const index = copy();
+    const [store] = index.stores;
+    index.stores = Array.from({ length: count }, (_, i) => ({
+      ...structuredClone(store),
+      groups: [{ ...structuredClone(store.groups[0]), n_channels: i + 1 }],
+    }));
+    index.store_count = count;
+    return index;
+  };
+
+  test("512 distinct counts in one dataset are kept and 513 leave the modality out of that dataset", () => {
+    expect(MAX_CHANNEL_COUNTS_PER_MODALITY).toBe(512);
+    const kept = summarize(withChannelCounts(512));
+    expect(kept.modalities[0].bins).toHaveLength(512);
+    expect(kept.unusableModalities).toEqual([]);
+    expect(kept.unmeasured).toBe(0);
+
+    const left = summarize(withChannelCounts(513));
+    expect(left.modalities).toEqual([]);
+    expect(left.unusableModalities).toEqual(["EEG"]);
+    // Its 513 recordings are unmeasured for the breakdown; the stores still have durations.
+    expect(left.unmeasured).toBe(513);
+    expect(left.measuredStores).toBe(513);
+    expect(left.storeSeconds).toBeCloseTo(513 * 853.592, 6);
+  });
+
+  test("only the over-wide modality is left out; another in the same dataset stays", () => {
+    const index = withChannelCounts(513);
+    // Edit a copy: ten stores also carry an EMG group at one channel count.
+    for (const store of index.stores.slice(0, 10)) {
+      store.groups.push({ ...store.groups[0], modality: "EMG", n_channels: 4 });
+    }
+    const summary = summarize(index);
+    expect(summary.modalities.map((m) => m.modality)).toEqual(["EMG"]);
+    expect(summary.unusableModalities).toEqual(["EEG"]);
+    expect(summary.unmeasured).toBe(513);
+  });
+
+  test("a dataset like that cannot fail the run: the section is still valid and says what happened", () => {
+    const wide = summarize(withChannelCounts(513));
+    const fine = summarizeIndex(fixtureObject("nm000105"), "nm000105");
+    const aggregate = aggregateOutcomes(2, [
+      { id: "nm000118", kind: "summary", summary: wide, from: "network" },
+      { id: "nm000105", kind: "summary", summary: fine, from: "network" },
+    ]);
+    const section = recordingsSection(aggregate);
+    expect(SectionIngestSchema.safeParse(section).success).toBe(true);
+    expect(section.channel_hours?.modalities.map((m) => m.modality)).toEqual(["EMG"]);
+    expect(section.channel_hours?.recordings_unmeasured).toBe(513);
+  });
+
+  test("many datasets whose counts add up past 1024 bins leave that modality out of the section", () => {
+    // Three datasets of 400 distinct counts each, none overlapping: 1200 bins in all.
+    const summaryWith = (from: number): DatasetSummary => ({
+      modalities: [
+        {
+          modality: "EEG",
+          bins: Array.from({ length: 400 }, (_, i) => ({
+            channels: from + i,
+            seconds: 3600,
+            recordings: 1,
+          })),
+        },
+      ],
+      stores: 400,
+      excluded: 0,
+      measuredStores: 400,
+      storeSeconds: 3600 * 400,
+      unmeasuredStores: 0,
+      unmeasured: 0,
+      implausible: 0,
+      unusableModalities: [],
+      failed: 0,
+      pending: 0,
+      multiGroupStores: 0,
+      multiModalityStores: 0,
+    });
+    const fine = summarizeIndex(fixtureObject("nm000105"), "nm000105");
+    const aggregate = aggregateOutcomes(4, [
+      { id: "nm000001", kind: "summary", summary: summaryWith(1), from: "network" },
+      { id: "nm000002", kind: "summary", summary: summaryWith(401), from: "network" },
+      { id: "nm000003", kind: "summary", summary: summaryWith(801), from: "network" },
+      { id: "nm000105", kind: "summary", summary: fine, from: "network" },
+    ]);
+    expect(aggregate.modalities.map((m) => m.modality)).toEqual(["EMG"]);
+    expect(aggregate.droppedModalities).toBe(1);
+    expect(aggregate.unmeasuredRecordings).toBe(1200);
+    expect(SectionIngestSchema.safeParse(recordingsSection(aggregate)).success).toBe(true);
+    // 1024 bins in total is still fine.
+    const exactly = aggregateOutcomes(3, [
+      { id: "nm000001", kind: "summary", summary: summaryWith(1), from: "network" },
+      { id: "nm000002", kind: "summary", summary: summaryWith(401), from: "network" },
+      { id: "nm000105", kind: "summary", summary: fine, from: "network" },
+    ]);
+    expect(exactly.modalities.map((m) => m.modality)).toContain("EEG");
+  });
+
+  test("the cached form of a summary carries the list, and a malformed list is refused", () => {
+    const left = summarize(withChannelCounts(513));
+    expect(parseDatasetSummary(JSON.parse(JSON.stringify(left)))).toEqual(left);
+    const bad = JSON.parse(JSON.stringify(left));
+    bad.unusableModalities = ["not a name"];
+    expect(parseDatasetSummary(bad)).toBeNull();
+    Reflect.deleteProperty(bad, "unusableModalities");
+    expect(parseDatasetSummary(bad)).toBeNull();
   });
 });
 

@@ -17,6 +17,7 @@ import {
   listPublicDatasets,
   readDatasetIndex,
   retryPauses,
+  scanDatasets,
 } from "../scripts/lib/zarr-index-source";
 import {
   type DatasetSummary,
@@ -182,6 +183,35 @@ describe("limits on one index read", () => {
     const result = await read("nm000118");
     expect(result.kind === "unavailable" && result.reason).toMatch(/larger than 16777216 bytes/);
     expect(index.requests).toHaveLength(1);
+  });
+
+  test("a dataset with an over-wide modality is read, that modality is left out, and the journal is told which", async () => {
+    // An edited copy of nm000118: 513 stores, store i with i + 1 channels.
+    const wide = fixtureObject("nm000118") as {
+      stores: Record<string, unknown>[];
+      store_count: number;
+    };
+    const [store] = wide.stores;
+    wide.stores = Array.from({ length: 513 }, (_, i) => ({
+      ...structuredClone(store),
+      groups: [
+        { ...structuredClone((store.groups as Record<string, unknown>[])[0]), n_channels: i + 1 },
+      ],
+    }));
+    wide.store_count = 513;
+    index.stop();
+    index = startIndexServer(new Map([["nm000118", served(wide)]]));
+    const notes: string[] = [];
+    const outcomes = await scanDatasets([{ id: "nm000118", valid: true, expectIndex: true }], {
+      indexBase: index.url,
+      cache: await SummaryCache.open(null),
+      retryDelayMs: 0,
+      onNote: (id, message) => notes.push(`${id}: ${message}`),
+    });
+    expect(outcomes[0]).toMatchObject({ kind: "summary", from: "network" });
+    expect(notes).toEqual([
+      "nm000118: modality EEG has more than 512 distinct channel counts and was left out of the breakdown; its recordings count as unmeasured",
+    ]);
   });
 
   test("a truncated copy of a real index that still parses is refused by its own count", async () => {
@@ -362,6 +392,7 @@ describe("the summary cache under change", () => {
     unmeasuredStores: 0,
     unmeasured: 0,
     implausible: 0,
+    unusableModalities: [],
     failed: 0,
     pending: 0,
     multiGroupStores: 0,
@@ -387,7 +418,7 @@ describe("the summary cache under change", () => {
 
   test("a reader never sees a torn or missing entry while a large one is rewritten", async () => {
     const cache = await SummaryCache.open(cacheDir);
-    const big = summaryOf(1_000); // about 60 KB per entry
+    const big = summaryOf(500); // about 30 KB per entry, as many bins as one dataset may have
     await cache.write("nm000118", '"e0"', big);
     let writing = true;
     const writer = (async () => {
@@ -402,7 +433,7 @@ describe("the summary cache under change", () => {
         reads += 1;
         // null would mean a torn or half-renamed file was read
         expect(entry).not.toBeNull();
-        expect(entry?.summary.modalities[0].bins).toHaveLength(1_000);
+        expect(entry?.summary.modalities[0].bins).toHaveLength(500);
         seen.add(entry?.etag ?? "");
       }
     })();

@@ -24,6 +24,7 @@ import type { DatasetOutcome } from "./zarr-aggregate";
 import {
   type DatasetSummary,
   IndexFormatError,
+  MAX_CHANNEL_COUNTS_PER_MODALITY,
   MAX_DURATION_HOURS,
   SUMMARY_VERSION,
   parseDatasetSummary,
@@ -632,6 +633,14 @@ export async function scanDatasets(
       return dataset.expectIndex
         ? unavailable("the Zarr index is missing for a dataset marked ready")
         : { id, kind: "absent" };
+    }
+    if (read.from === "network") {
+      for (const modality of read.summary.unusableModalities) {
+        options.onNote?.(
+          id,
+          `modality ${modality} has more than ${MAX_CHANNEL_COUNTS_PER_MODALITY} distinct channel counts and was left out of the breakdown; its recordings count as unmeasured`,
+        );
+      }
     }
     if (read.from === "network" && read.summary.implausible > 0) {
       options.onNote?.(

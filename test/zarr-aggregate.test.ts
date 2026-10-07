@@ -67,6 +67,8 @@ function summaryOf(
     storeSeconds: seconds,
     unmeasuredStores: 0,
     unmeasured: 0,
+    implausible: 0,
+    unusableModalities: [],
     failed: 0,
     pending: 0,
     multiGroupStores: 0,

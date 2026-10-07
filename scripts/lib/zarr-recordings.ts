@@ -14,8 +14,11 @@ import { JsonShapeError, scanRootObject } from "./json-stream";
  *   2: modality names follow the contract's plain-name rule, case variants in a
  *      store are one modality, durations over MAX_DURATION_HOURS are unmeasured
  *      (and counted in `implausible`), and the summary carries `implausible`.
+ *   3: a modality with more than MAX_CHANNEL_COUNTS_PER_MODALITY distinct channel
+ *      counts in one dataset is unusable for that dataset (its recordings count as
+ *      unmeasured), and the summary lists such modalities in `unusableModalities`.
  */
-export const SUMMARY_VERSION = 2;
+export const SUMMARY_VERSION = 3;
 
 const INDEX_FORMAT = "nemar-zarr-index";
 /** The only index format version this collector reads (nemar-cli's generate_zarr.py v3). */
@@ -33,6 +36,14 @@ export const MAX_CHANNELS = 100_000;
 export const MODALITY_NAME = /^[A-Za-z][A-Za-z0-9_-]{0,31}$/;
 /** The contract allows 32 modalities per section; a store naming more is not credible. */
 export const MAX_MODALITIES_PER_STORE = 32;
+/**
+ * The contract allows 1024 channel-count bins per modality in a section, and the
+ * real maxima are 183 (EEG) and 238 (iEEG) across the whole catalog. One dataset
+ * with more than this many distinct counts in a modality is not a montage but a
+ * malformed index (one OpenNeuro index could otherwise push a modality past 1024
+ * and fail every run), so that modality is left out for that dataset.
+ */
+export const MAX_CHANNEL_COUNTS_PER_MODALITY = 512;
 /**
  * A recording longer than this is a corrupt value, not data (the longest real
  * store is about 158 hours), and is treated as unmeasured instead of adding
@@ -91,6 +102,14 @@ export type DatasetSummary = {
   unmeasured: number;
   /** Groups whose duration was over MAX_DURATION_HOURS, treated as missing (a corrupt value). */
   implausible: number;
+  /**
+   * Modalities with more than MAX_CHANNEL_COUNTS_PER_MODALITY distinct channel
+   * counts here. They are left out of `modalities`, their recordings are counted
+   * in `unmeasured`, and their stores still count in `measuredStores` and
+   * `storeSeconds` (the headline compares with nemar-db, which has no channel
+   * counts).
+   */
+  unusableModalities: string[];
   /** Recordings listed in `failures[]`. */
   failed: number;
   /** Recordings listed in `pending[]`. */
@@ -302,13 +321,21 @@ export class DatasetAccumulator {
     pendingSeen: number;
   }): DatasetSummary {
     const modalities: ModalitySummary[] = [];
+    const unusableModalities: string[] = [];
+    let leftOut = 0;
     for (const [modality, byChannels] of this.bins) {
       const bins = [...byChannels.entries()]
         .sort(([left], [right]) => left - right)
         .map(([channels, { seconds, recordings }]) => ({ channels, seconds, recordings }));
+      if (bins.length > MAX_CHANNEL_COUNTS_PER_MODALITY) {
+        unusableModalities.push(modality);
+        leftOut += bins.reduce((total, bin) => total + bin.recordings, 0);
+        continue;
+      }
       modalities.push({ modality, bins });
     }
     modalities.sort((left, right) => left.modality.localeCompare(right.modality));
+    unusableModalities.sort();
     return {
       modalities,
       stores: this.stores,
@@ -316,8 +343,9 @@ export class DatasetAccumulator {
       measuredStores: this.measuredStores,
       storeSeconds: this.storeSeconds,
       unmeasuredStores: this.unmeasuredStores,
-      unmeasured: this.unmeasured,
+      unmeasured: this.unmeasured + leftOut,
       implausible: this.implausible,
+      unusableModalities,
       failed: declaredCount(counts.failureCount) ?? counts.failuresSeen,
       pending: declaredCount(counts.pendingCount) ?? counts.pendingSeen,
       multiGroupStores: this.multiGroupStores,
@@ -470,8 +498,14 @@ export function parseDatasetSummary(value: unknown): DatasetSummary | null {
       previous = channels;
       bins.push({ channels, seconds, recordings });
     }
-    if (bins.length === 0) return null;
+    if (bins.length === 0 || bins.length > MAX_CHANNEL_COUNTS_PER_MODALITY) return null;
     modalities.push({ modality, bins });
+  }
+  if (!Array.isArray(value.unusableModalities)) return null;
+  const unusableModalities: string[] = [];
+  for (const name of value.unusableModalities) {
+    if (normalizeModality(name) !== name) return null;
+    unusableModalities.push(name as string);
   }
   const storeSeconds = validSeconds(value.storeSeconds);
   if (storeSeconds === null) return null;
@@ -484,6 +518,7 @@ export function parseDatasetSummary(value: unknown): DatasetSummary | null {
     unmeasuredStores: value.unmeasuredStores as number,
     unmeasured: value.unmeasured as number,
     implausible: value.implausible as number,
+    unusableModalities,
     failed: value.failed as number,
     pending: value.pending as number,
     multiGroupStores: value.multiGroupStores as number,

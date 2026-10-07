@@ -197,6 +197,19 @@ export function aggregateOutcomes(
   aggregate.modalities.sort(
     (left, right) => right.hours - left.hours || left.modality.localeCompare(right.modality),
   );
+  // The contract carries at most 1024 channel-count bins per modality. Datasets
+  // are individually held to 512, but many datasets with different counts could
+  // still add up past 1024; such a modality is not shown and its recordings
+  // count as unmeasured (the same treatment as too many modalities, below).
+  const tooWide = aggregate.modalities.filter((modality) => modality.bins.length > MAX_BINS);
+  if (tooWide.length > 0) {
+    aggregate.modalities = aggregate.modalities.filter((modality) => !tooWide.includes(modality));
+    for (const wide of tooWide) {
+      aggregate.droppedModalities += 1;
+      aggregate.unmeasuredRecordings += wide.recordings;
+      aggregate.modalityRecordings -= wide.recordings;
+    }
+  }
   // The contract carries at most 32 modalities. A corrupt or hostile index can
   // invent names, so the smallest beyond 32 are not shown and their recordings
   // are counted as unmeasured; that must never fail the whole run.
