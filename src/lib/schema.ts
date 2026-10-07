@@ -178,13 +178,17 @@ export const ChannelHoursModalitySchema = z
         );
       }
     });
-    const topBin = Math.max(...m.bins.map((b) => b.channels));
-    const topPeak = Math.max(...m.dataset_peaks.map((p) => p.channels));
-    if (topPeak !== topBin) {
-      issue(
-        ["dataset_peaks"],
-        `The largest peak (${topPeak} channels) must match the largest bin (${topBin})`,
-      );
+    // Only meaningful when both lists are non-empty; an empty list already has its
+    // own issue, and Math.max of nothing is -Infinity.
+    if (m.bins.length > 0 && m.dataset_peaks.length > 0) {
+      const topBin = Math.max(...m.bins.map((b) => b.channels));
+      const topPeak = Math.max(...m.dataset_peaks.map((p) => p.channels));
+      if (topPeak !== topBin) {
+        issue(
+          ["dataset_peaks"],
+          `The largest peak (${topPeak} channels) must match the largest bin (${topBin})`,
+        );
+      }
     }
 
     if (recordings !== m.recordings) {
