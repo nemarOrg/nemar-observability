@@ -1,4 +1,4 @@
-// Number, byte, and date formatting for the client script, with no DOM
+// Number, byte, hour, and date formatting for the client script, with no DOM
 // access, so the tests can run this exact code.
 //
 // Part of the inlined client script (see client.ts): a String.raw template, so
@@ -19,7 +19,43 @@ function compact(n) {
   if (!Number.isFinite(n)) return "Unknown";
   return Math.abs(n) < 10000 ? Math.round(n).toLocaleString("en-US") : compactFormatter.format(n);
 }
+// Three significant figures with a k or M suffix, so 31,234 reads 31.2k and
+// 143,000 reads 143k; 999,999 rounds up to 1M rather than reading 1000k.
+function shortScaled(n) {
+  const millions = Number((n / 1e6).toPrecision(3));
+  if (millions >= 1) return String(millions) + "M";
+  return String(Number((n / 1e3).toPrecision(3))) + "k";
+}
+// The number part of a spelled-out hours figure: one decimal under 10, whole
+// hours with commas above, and a small nonzero amount never reads as zero.
+function hoursNumber(n) {
+  if (n === 0) return "0";
+  if (n < 0.05) return "less than 0.1";
+  if (n < 10) return (Math.round(n * 10) / 10).toLocaleString("en-US", { maximumFractionDigits: 1 });
+  return Math.round(n).toLocaleString("en-US");
+}
+// Recorded time as a short label: 0.4 h, 7.1 h, 1,234 h, 31.2k h, 143k h, 1.23M h.
+function humanHours(n) {
+  if (typeof n !== "number" || !Number.isFinite(n) || n < 0) return "Unknown";
+  if (n === 0) return "0 h";
+  if (n < 0.05) return "<0.1 h";
+  return (n < 10000 ? hoursNumber(n) : shortScaled(n)) + " h";
+}
+// Hours in words, for sentences and screen readers: 7.1 hours, 2,445 hours.
+function exactHours(n) {
+  if (typeof n !== "number" || !Number.isFinite(n) || n < 0) return "an unknown number of hours";
+  const text = hoursNumber(n);
+  return text + (text === "1" ? " hour" : " hours");
+}
+// How an amount in a unit reads in a list, beside a total, or as a tile value:
+// bytes and hours carry their unit, anything else is a plain count.
+function unitFormatter(unit) {
+  if (unit === "bytes") return humanBytes;
+  if (unit === "hours") return humanHours;
+  return num;
+}
 function fmt(metric) {
+  if (metric.unit === "hours") return humanHours(metric.value);
   if (metric.unit === "bytes") return humanBytes(metric.value);
   if (metric.unit === "percent") return num(metric.value) + "%";
   return num(metric.value);
@@ -62,12 +98,13 @@ const SOURCE_LABELS = {
   access: "NEMAR access logs",
   cloudflare: "network edge analytics",
   "aws-s3-cloudwatch": "storage metrics",
-  umami: "website analytics"
+  umami: "website analytics",
+  "nemar-zarr-index": "the Zarr copies of public datasets"
 };
 const SECTION_LABELS = {
   datasets: "Datasets", sizes: "Dataset sizes", archive: "Archives", zarr: "Zarr conversion",
   imports: "OpenNeuro import", publication: "Publication", access: "Access", cf: "Edge traffic",
-  users: "Users", egress: "Storage egress", pushed: "Pipeline sections"
+  users: "Users", egress: "Storage egress", recordings: "Recorded hours", pushed: "Pipeline sections"
 };
 function readableId(id) {
   const words = String(id == null ? "" : id).replace(/[_-]+/g, " ").trim();

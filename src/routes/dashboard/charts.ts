@@ -386,7 +386,7 @@ function breakdownLabel(metric, label) {
 // carries that; absent, the bars share the tile's unit.
 function hbars(metric, items, options) {
   const unit = metric.breakdown_unit || metric.unit;
-  const fmtVal = unit === "bytes" ? humanBytes : num;
+  const fmtVal = unitFormatter(unit);
   const max = items.reduce(function (m, it) { return Math.max(m, it.value); }, 0) || 1;
   const share = options && options.shareOf ? options.shareOf : 0;
   const visible = options && options.visible ? options.visible : BREAKDOWN_VISIBLE;
@@ -428,7 +428,7 @@ function hbars(metric, items, options) {
 // dominant entry would flatten the rest into identical stubs.
 function rankedList(metric, items) {
   const unit = metric.breakdown_unit || metric.unit;
-  const fmtVal = unit === "bytes" ? humanBytes : num;
+  const fmtVal = unitFormatter(unit);
   const list = el("ol", "ranked");
   items.slice(0, BREAKDOWN_MAX).forEach(function (it, index) {
     const row = el("li", "ranked-row");

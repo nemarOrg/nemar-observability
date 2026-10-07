@@ -100,7 +100,7 @@ The body must conform to `src/lib/metric-snapshot.schema.json` (`$defs/sectionIn
 | `key` | stable namespaced id, e.g. `archive.missing` |
 | `value` | the headline number |
 | `total` | optional denominator → the UI shows `value/total` as a percent |
-| `unit` | `datasets` \| `bytes` \| `percent` \| `count` \| ... |
+| `unit` | `datasets` \| `bytes` \| `hours` \| `percent` \| `count` \| ... |
 | `severity` | `ok` \| `warn` \| `error` \| `info` → tile color |
 | `drilldown` | optional key the admin drill-down endpoint resolves to a list |
 | `breakdown` | optional `[{label, value}]` (e.g. by-license, by-modality, top-accessed) |
