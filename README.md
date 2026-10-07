@@ -17,6 +17,17 @@ Usage is grouped by reporting source: anonymous browser page views and action ev
 
 The range-aware audience panel reports Umami visitors as anonymous unique-session estimates, not identified people. Umami visits use a separate visit identifier; sessions can be assigned to more than one country during a range. Cloudflare country counts are zone-wide HTTP requests, not visitors or completed downloads. Summary values use the selected UTC range; website country breakdowns are limited to a single completed UTC day, so for a longer range the website map shows the newest completed day inside it and says which day. The day/week/month selector applies only to additive daily time series.
 
+### The Signal viewer entry
+
+A section of its own with a First-party and a Third-party filter.
+First-party is viewer opens and interactions on nemar.org, from website analytics events, recorded unless the visitor has opted out.
+Third-party is page loads of the embeddable viewer on other sites, counted by NEMAR's own servers: loads per day split into embedded, opened directly and other requests, counts of embedding sites, and the top embedded datasets.
+The two measure different things, viewer mounts on our pages and embed page loads on partner pages, and are never added together.
+Embedding sites are counted, never named on the page: the site that framed the viewer comes from the visitor's browser, which can claim any name.
+The page shows loads from unknown or local hosts, loads from other sites, and how many distinct other sites there were.
+Administrators read the full host list, with loads by kind, through the bearer drill-down `embed-sites` (see the API table).
+Only datasets that are public now are named (ADR 0002).
+
 ## How it works
 
 One Cloudflare Worker (Hono) does the UI, a JSON API, and an hourly cron. It is a **reader**:
@@ -33,13 +44,15 @@ src/
 ├── index.ts            worker entry: { fetch, scheduled } + route mounting
 ├── cron.ts             hourly snapshot recompute
 ├── routes/
-│   ├── api.ts          /api/snapshot, /snapshot/history, /timeseries, /drilldown/:key, /sections/:key
+│   ├── api.ts          /api/snapshot, /snapshot/history, /timeseries, /audience, /embeds, /drilldown/:key, /sections/:key
 │   └── ui.ts           the server-rendered dashboard page
 ├── lib/
 │   ├── schema.ts       the MetricSnapshot standard (Zod = source of truth)
 │   ├── metric-snapshot.schema.json   JSON Schema mirror for non-TS consumers
 │   ├── metrics.ts      built-in sections (datasets, archive, zarr, imports, publication, users) + buildSnapshot
-│   ├── access.ts       Analytics Engine access section
+│   ├── access.ts       Analytics Engine access section, and the shared Analytics Engine SQL client
+│   ├── embeds.ts       signal viewer embed loads: edge queries and the public naming rules
+│   ├── embed-store.ts  daily embed loads kept in own D1 (embed_daily_loads)
 │   ├── drilldown.ts    admin drill-down queries
 │   ├── store.ts        own-DB reads/writes (snapshot history, pushed sections)
 │   ├── auth.ts         admin check via /users/me delegation
@@ -116,13 +129,24 @@ The body must conform to `src/lib/metric-snapshot.schema.json` (`$defs/sectionIn
 |---|---|---|
 | `GET /observability/api/snapshot` | public | latest snapshot with aggregate headlines and bounded public-dataset breakdowns |
 | `GET /observability/api/snapshot/history?metric=KEY` | public | trend points for a metric |
-| `GET /observability/api/drilldown/:key` | **admin** Bearer | the list behind a tile |
+| `GET /observability/api/drilldown/:key` | **admin** Bearer | the list behind a tile; `embed-sites` (optional `start` and `end`, default the last 30 UTC days) lists every embedding host with loads by kind, hosts as claimed by `Referer`, `no-store`; a missing, bad or non-admin token is 401, and 503 means nemar-cli could not answer the admin check (an outage, a timeout or an unknown response shape), so retry |
 | `POST /observability/api/sections/:key` | ingest Bearer | push a pipeline section |
 | `GET /observability/api/timeseries?start=YYYY-MM-DD&end=YYYY-MM-DD` | public | daily points and metadata, inclusive UTC range (maximum 3660 days) |
 | `GET /observability/api/audience?start=YYYY-MM-DD&end=YYYY-MM-DD` | public | selected-range Umami session/page-view summary and Cloudflare request totals; Umami country values for one completed day and Cloudflare country values across completed days |
+| `GET /observability/api/embeds?start=YYYY-MM-DD&end=YYYY-MM-DD` | public | embed loads of the signal viewer for the range: `loads` (daily totals by kind from the Worker's own store), `sites` (counts only, never hostnames) and `datasets` (public datasets only). Inclusive UTC dates, maximum 3660 days (3661 is a 400). `Cache-Control: private, max-age=30` (only the requesting browser may keep it, 30 seconds; no shared cache); the Worker reuses a window for 60 seconds; `no-store` when a block is `unavailable`. There is no edge cache in front of Worker responses. See below |
 | `GET /observability/health` | public | liveness |
 
 The **public snapshot and time-series API contain aggregate measures**; built-in snapshot sections may include bounded breakdowns labeled with public dataset IDs. Pushed sections are also public, and schema validation does not check their labels against dataset visibility. Pipeline producers must keep private identifiers and credentials out of all pushed fields. The page is zero-auth and zero-write. Daily usage controls support 7/30/90/365-day presets, custom UTC dates, and day/week/month grouping. Chart gaps mean missing or out-of-coverage observations.
+
+### Embed loads (`/embeds`)
+
+The answer has three blocks, each with its own `status` (`available`, `partial`, `unconfigured` or `unavailable`) and optional `note`, so one can fail while the others still answer.
+
+- `loads`: `days` (one record per stored UTC day with `embedded`, `direct` and `other`), `totals` (the sums; **`null` means unknown, never zero**), `days_recorded` of `days_in_range`, `coverage`, `counting_began` (the first day any load was recorded; earlier days are unknown), `empty_reason` (`future`, `before_counting` or `none_yet` when there is no day to show), and `last_synced_at`, the newest successful sync. A deploy whose first sync has not succeeded is `unavailable`, and a sync that has not succeeded for about three hours downgrades the block to `partial` with "Last updated <time>".
+- `sites`: `summary` has `unknown_or_local`, `sites_loads`, `distinct_sites` (as claimed by the browsers' `Referer`) and `total`. No hostname and no threshold is in the answer.
+- `datasets`: `summary.rows` are public datasets only, each with `label`, `value` and an `href` on the website of the same environment; `summary.other` is every other embedded load, unnamed.
+
+`sites` and `datasets` cover the part of the range the edge still holds (about three months); `window` says which days. A range wholly in the future has `reason: "future"`, and one wholly older than the edge keeps has `reason: "expired"`. The full host list is the admin drill-down above, never this answer.
 
 ### Audience and country reporting
 
@@ -132,7 +156,7 @@ The production Worker uses `UMAMI_BASE_URL` and `UMAMI_WEBSITE_ID` for the self-
 
 For a configured range, the Worker reads Umami `/api/websites/{id}/daterange` first and intersects the requested timestamps with Umami's reported data bounds. It reads `/stats` for visitors, visits, and page views; it queries `/metrics?type=country` only for a single completed UTC day. “Visitors” counts distinct anonymous sessions; Umami rotates the session hash monthly, so this is not an identified-person count. “Visits” is a separate distinct visit identifier. Country values may not sum to visitors because the same session can appear under different countries, and Umami omits sessions without a reported country.
 
-The Umami card also reports the fixed consent-gated events `citation_click`, `viewer_open`, `viewer_interaction`, `upload_started`, and `upload_completed`. The Worker queries `/events/stats` separately for each event over the intersection of the selected range, Umami's available dates, and verified event coverage. It returns event counts and distinct anonymous sessions associated with each event. The `event_metrics` object has its own status and measured coverage so partial ranges remain visible. Set the non-secret `UMAMI_EVENTS_COVERAGE_START` Worker variable to the first complete UTC day verified for production instrumentation; without it, event values remain unknown rather than appearing as zero. Event counts describe browser interactions, not completed data delivery or bytes.
+The Umami card also reports the fixed events `citation_click`, `viewer_open`, `viewer_interaction`, `upload_started`, and `upload_completed`. The Worker queries `/events/stats` separately for each event over the intersection of the selected range, Umami's available dates, and verified event coverage. It returns event counts and distinct anonymous sessions associated with each event. The `event_metrics` object has its own status and measured coverage so partial ranges remain visible. Set the non-secret `UMAMI_EVENTS_COVERAGE_START` Worker variable to the first complete UTC day verified for production instrumentation; without it, event values remain unknown rather than appearing as zero. Event counts describe browser interactions, not completed data delivery or bytes.
 
 Cloudflare uses daily `httpRequests1dGroups` country rows over the selected range's overlap with the latest 30 UTC dates. The country map and `country_requests` cover completed days only; the separate `requests` total can include the in-progress UTC day and is marked partial because those counts can still change. These are HTTP request counts, not unique visitors. Cloudflare country rows can cover multiple selected completed days: values below 10 are suppressed separately for each day before reportable country values are added. Umami country values remain available only for one fully covered, completed UTC day; distinct sessions are never summed across days. Future dates have no observations yet. Empty or unreported country labels are omitted without estimating their counts. Small daily rows are grouped as `Other / withheld` only when their combined value reaches 10; otherwise that day's small values are omitted and `suppressed_small_countries` is true. Day/week/month grouping applies to additive time series only; audience values are source-native selected-range totals.
 

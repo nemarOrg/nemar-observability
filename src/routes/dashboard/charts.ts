@@ -426,21 +426,36 @@ function hbars(metric, items, options) {
 }
 // A ranked list prints its value; a bar there would restate it, and one
 // dominant entry would flatten the rest into identical stubs.
+const RANKED_VISIBLE = 10;
 function rankedList(metric, items) {
   const unit = metric.breakdown_unit || metric.unit;
   const fmtVal = unit === "bytes" ? humanBytes : num;
-  const list = el("ol", "ranked");
-  items.slice(0, BREAKDOWN_MAX).forEach(function (it, index) {
-    const row = el("li", "ranked-row");
-    row.appendChild(el("span", "ranked-rank", index + 1));
-    row.appendChild(el("span", "ranked-label", breakdownLabel(metric, it.label)));
-    const value = el("span", "ranked-value", fmtVal(it.value));
-    const p = metric.total ? pct(it.value, metric.total) : null;
-    if (p != null) value.appendChild(el("span", "hbar-share", p.toFixed(1) + "%"));
-    row.appendChild(value);
-    list.appendChild(row);
-  });
-  return list;
+  const wrap = el("div", "ranked-wrap");
+  const rows = function (list, from, to) {
+    items.slice(from, to).forEach(function (it, offset) {
+      const row = el("li", "ranked-row");
+      row.appendChild(el("span", "ranked-rank", from + offset + 1));
+      row.appendChild(el("span", "ranked-label", breakdownLabel(metric, it.label)));
+      const value = el("span", "ranked-value", fmtVal(it.value));
+      const p = metric.total ? pct(it.value, metric.total) : null;
+      if (p != null) value.appendChild(el("span", "hbar-share", p.toFixed(1) + "%"));
+      row.appendChild(value);
+      list.appendChild(row);
+    });
+  };
+  const head = el("ol", "ranked");
+  rows(head, 0, RANKED_VISIBLE);
+  wrap.appendChild(head);
+  const shown = Math.min(items.length, BREAKDOWN_MAX);
+  if (shown > RANKED_VISIBLE) {
+    const more = disclosure("Show top " + shown);
+    const rest = el("ol", "ranked");
+    rest.start = RANKED_VISIBLE + 1;
+    rows(rest, RANKED_VISIBLE, shown);
+    more.appendChild(rest);
+    wrap.appendChild(more);
+  }
+  return wrap;
 }
 
 `;

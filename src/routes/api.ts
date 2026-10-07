@@ -4,6 +4,7 @@
 //   GET    /snapshot/history    public  trend points for one metric key
 //   GET    /timeseries          public  bounded daily series and metadata
 //   GET    /audience            public  selected-range Umami and Cloudflare aggregates
+//   GET    /embeds              public  selected-range embed loads of the signal viewer
 //   GET    /drilldown/:key      admin   list of items behind a tile (READ-ONLY)
 //   POST   /sections/:key       token   push a pipeline section (push mode)
 //
@@ -25,6 +26,14 @@ import {
 import { resolveAdmin } from "../lib/auth";
 import { fetchZoneCountryRange } from "../lib/cf-analytics";
 import { isKnownDrilldown, runDrilldown } from "../lib/drilldown";
+import {
+  EMBED_SITES_DRILLDOWN,
+  beforeCountingLists,
+  loadEmbedLists,
+  loadEmbedSitesAdmin,
+  readEmbedLoads,
+} from "../lib/embed-lists";
+import type { EmbedsResponse } from "../lib/embeds";
 import { buildSnapshot } from "../lib/metrics";
 import { BUILTIN_SECTION_KEYS, SectionIngestSchema } from "../lib/schema";
 import {
@@ -325,13 +334,87 @@ apiRoutes.get("/audience", async (c) => {
   return c.json(response, 200, { "Cache-Control": PUBLIC_CACHE });
 });
 
+// Selected-range embed loads of the signal viewer on other sites: daily totals
+// by kind from this Worker's own store, and the top embedded datasets and counts
+// of embedding sites from the edge's records. Shaped for a public page here:
+// datasets are named only when public now, and embedding sites are never named,
+// only counted (the hosts are for admins, through the drill-down below).
+//
+// Only the requesting browser may keep the answer, and for 30 seconds
+// (`private, max-age=30`): no shared proxy or cache may hold it. The Worker reuses
+// an answer for at most 60 seconds counted from when it was COMPUTED (its memo and
+// the shared preset row both count from compute, not from read, so they do not
+// stack), so a dataset made private stays named for at most 60 seconds on the
+// server plus the browser's 30: at most 90 seconds in all. No edge cache sits in
+// front of Worker responses on this route (no cf-cache-status or age header), so
+// the real bounds on the cost of a request are the Worker's memo, the shared
+// preset answers and the D1 query budget (ADR 0002). An answer with a block that
+// could not be read is `no-store`.
+const EMBEDS_CACHE = "private, max-age=30";
+apiRoutes.get("/embeds", async (c) => {
+  const start = c.req.query("start");
+  const end = c.req.query("end");
+  if (!validDate(start) || !validDate(end) || start > end) {
+    return c.json({ error: "Valid start and end dates are required" }, 400);
+  }
+  const days =
+    (Date.parse(`${end}T00:00:00.000Z`) - Date.parse(`${start}T00:00:00.000Z`)) / 86_400_000 + 1;
+  if (days > 3660) return c.json({ error: "Date range cannot exceed 3660 days" }, 400);
+
+  const now = new Date();
+  // The loads card knows when counting began. For a range wholly before it the
+  // lists say the same ("before counting began"), and the edge is not asked.
+  const loads = await readEmbedLoads(c.env, start, end, now);
+  const lists =
+    loads.empty_reason === "before_counting"
+      ? beforeCountingLists(loads.note ?? "")
+      : await loadEmbedLists(c.env, start, end, now);
+  const response: EmbedsResponse = {
+    start,
+    end,
+    observed_at: now.toISOString(),
+    loads,
+    ...lists,
+  };
+  const unreadable = [loads.status, lists.sites.status, lists.datasets.status].includes(
+    "unavailable",
+  );
+  return c.json(response, 200, { "Cache-Control": unreadable ? "no-store" : EMBEDS_CACHE });
+});
+
 // Admin drill-down: the list behind a tile. Bearer admin only (delegated to
-// nemar-cli /users/me). Never cached — it can contain private dataset ids.
+// nemar-cli /users/me). Never cached; it can contain private dataset ids. A bad
+// or non-admin token is 401; an identity service that could not answer is 503,
+// so a client or monitor can tell a permissions problem from an outage.
 apiRoutes.get("/drilldown/:key", async (c) => {
   const noStore = { "Cache-Control": "no-store" };
-  const admin = await resolveAdmin(c.env, c.req.header("Authorization") ?? null);
-  if (!admin) return c.json({ error: "Admin authentication required" }, 401, noStore);
+  const check = await resolveAdmin(c.env, c.req.header("Authorization") ?? null);
+  if (check.status === "unavailable") {
+    return c.json({ error: "Admin check is currently unavailable" }, 503, noStore);
+  }
+  if (check.status !== "admin") {
+    return c.json({ error: "Admin authentication required" }, 401, noStore);
+  }
   const key = c.req.param("key");
+  // The embedding site list is read from the edge, not nemar-db, and takes a
+  // date range (default: the last 30 UTC days including today). It is the one
+  // place embedding hostnames leave this Worker; the public page never has them.
+  if (key === EMBED_SITES_DRILLDOWN) {
+    const now = new Date();
+    const end = c.req.query("end") ?? now.toISOString().slice(0, 10);
+    const start =
+      c.req.query("start") ??
+      new Date(Date.parse(`${end}T00:00:00Z`) - 29 * 86_400_000).toISOString().slice(0, 10);
+    if (!validDate(start) || !validDate(end) || start > end) {
+      return c.json({ error: "Valid start and end dates are required" }, 400, noStore);
+    }
+    try {
+      return c.json(await loadEmbedSitesAdmin(c.env, start, end, now), 200, noStore);
+    } catch (err) {
+      console.error("[api] embed sites drill-down failed:", err);
+      return c.json({ error: "Embed sites are currently unavailable" }, 503, noStore);
+    }
+  }
   if (!isKnownDrilldown(key)) return c.json({ error: "Unknown drill-down key" }, 404, noStore);
   const result = await runDrilldown(c.env.NEMAR_DB, key);
   if (!result) return c.json({ error: "Unknown drill-down key" }, 404, noStore);

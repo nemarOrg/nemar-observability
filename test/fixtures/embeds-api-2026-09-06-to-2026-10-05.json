@@ -1,0 +1,62 @@
+{
+  "source": "live GET /observability/api/embeds?start=2026-09-06&end=2026-10-05 on nemar-observability-dev (round 3 build: reserved .invalid and .example names are unknown or local, private cache header), captured 2026-10-05T19:30Z after the cron sync; dev nemar-db has no public managed datasets (xx099901 is a public sandbox dataset, on007753 and nm000292 are not in the dev catalog)",
+  "response": {
+    "start": "2026-09-06",
+    "end": "2026-10-05",
+    "observed_at": "2026-10-05T19:27:36.180Z",
+    "loads": {
+      "coverage": {
+        "start": "2026-10-05",
+        "end": "2026-10-05"
+      },
+      "days": [
+        {
+          "date": "2026-10-05",
+          "embedded": 316,
+          "direct": 23,
+          "other": 25
+        }
+      ],
+      "totals": {
+        "embedded": 316,
+        "direct": 23,
+        "other": 25
+      },
+      "days_recorded": 1,
+      "days_in_range": 30,
+      "counting_began": "2026-10-05",
+      "last_synced_at": "2026-10-05T19:17:08.175Z",
+      "status": "partial",
+      "empty_reason": null,
+      "note": "Recorded for 1 of 30 days; days before counting began or not yet collected are unknown, not zero. The current UTC day is still in progress, so its totals may be incomplete."
+    },
+    "sites": {
+      "status": "partial",
+      "window": {
+        "start": "2026-09-06",
+        "end": "2026-10-05"
+      },
+      "note": "The current UTC day is still in progress.",
+      "summary": {
+        "unknown_or_local": 315,
+        "sites_loads": 1,
+        "distinct_sites": 1,
+        "total": 316,
+        "capped": false
+      }
+    },
+    "datasets": {
+      "status": "partial",
+      "window": {
+        "start": "2026-09-06",
+        "end": "2026-10-05"
+      },
+      "note": "The current UTC day is still in progress.",
+      "summary": {
+        "rows": [],
+        "other": 316,
+        "total": 316
+      }
+    }
+  }
+}

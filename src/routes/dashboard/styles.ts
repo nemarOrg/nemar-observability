@@ -372,18 +372,21 @@ main > section { scroll-margin-top: calc(var(--topbar-h) + 16px); padding-top: v
 .audience-events { border-top: 1px solid var(--border); padding-top: var(--space-3); }
 .howto-inline { margin-top: var(--space-3); }
 .tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: var(--space-3); align-items: stretch; }
+.split-main { min-width: 0; }
 .tile-lists { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 340px), 1fr)); gap: var(--space-3); align-items: start; }
-.tiles + .tile-lists { margin-top: var(--space-3); }
+.tiles + .tile-lists, .split-main > * + * { margin-top: var(--space-3); }
 @media (min-width: 1000px) {
   .card-split .section-body { display: grid; grid-template-columns: minmax(0, 1fr) minmax(340px, 40%); gap: var(--space-3); align-items: start; }
-  .card-split .tiles + .tile-lists { margin-top: 0; }
+  .card-split .split-main + .tile-lists { margin-top: 0; }
 }
+.split-main + .tile-lists { margin-top: var(--space-3); }
 .tile { display: flex; flex-direction: column; gap: 4px; min-width: 0; padding: 14px; border-radius: var(--radius-md); background: var(--surface-2); border: 1px solid var(--border); }
 .tile-head { display: flex; align-items: flex-start; gap: 6px; }
 .tile-label { color: var(--text-2); font-size: var(--fs-sm); flex: 1; min-width: 0; }
 .tile-value { display: flex; flex-wrap: wrap; align-items: center; gap: 4px var(--space-2); }
 .tile-value .v { font-size: var(--fs-xl); font-weight: 600; letter-spacing: -0.02em; line-height: 1.25; }
 .tile-list .tile-value .v { font-size: var(--fs-md); letter-spacing: -0.01em; }
+.tile-caption { color: var(--text-2); font-size: var(--fs-sm); font-weight: 600; }
 .tile-pct { color: var(--text-3); font-size: var(--fs-xs); font-variant-numeric: tabular-nums; }
 .tile .portal-cta { margin-top: var(--space-2); }
 .tile .hbars-wrap { margin-top: var(--space-2); }
@@ -402,6 +405,22 @@ main > section { scroll-margin-top: calc(var(--topbar-h) + 16px); padding-top: v
 .ranked-rank { color: var(--text-3); font-size: var(--fs-xs); font-variant-numeric: tabular-nums; text-align: right; }
 .ranked-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ranked-value { font-variant-numeric: tabular-nums; font-weight: 500; white-space: nowrap; text-align: right; }
+
+/* ---------- signal viewer ---------- */
+.viewer-filter button { display: inline-flex; flex-direction: column; align-items: flex-start; gap: 0; padding: 5px 12px; line-height: 1.25; }
+.viewer-filter-note { color: var(--text-3); font-size: 12px; font-weight: 400; }
+.viewer-measure { margin-top: 0; }
+.viewer-grid { display: grid; gap: var(--space-4); }
+.viewer-lists { display: grid; gap: var(--space-4); grid-template-columns: repeat(auto-fit, minmax(min(100%, 340px), 1fr)); align-items: start; }
+.viewer-loads .measure-total-label { margin-top: 0; }
+.viewer-loads .measure-total.is-muted { color: var(--text-3); font-weight: 500; font-size: var(--fs-lg); }
+.viewer-split { margin-top: var(--space-3); }
+.viewer-loads .fine { margin-top: var(--space-3); }
+.viewer-loads .chart { margin-top: var(--space-4); }
+.viewer-card .ranked-label a { color: var(--accent-text); }
+.ranked-aggregate { color: var(--text-3); }
+.ranked-aggregate .ranked-value { font-weight: 400; }
+.viewer-card > .ranked + .fine { margin-top: var(--space-3); }
 
 /* ---------- reach ---------- */
 .geo-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-3); margin-bottom: var(--space-4); }
@@ -467,7 +486,8 @@ main > section { scroll-margin-top: calc(var(--topbar-h) + 16px); padding-top: v
 
 /* ---------- pipelines ---------- */
 .health-meta { margin: calc(-1 * var(--space-3)) 0 var(--space-4); color: var(--text-3); font-size: var(--fs-xs); }
-.health-grid { display: grid; gap: var(--space-4); grid-template-columns: repeat(auto-fill, minmax(min(100%, max(320px, calc((100% - 32px) / 3))), 1fr)); align-items: start; }
+.health-grid { display: grid; gap: var(--space-4); grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); align-items: start; }
+.health-col { display: flex; flex-direction: column; gap: var(--space-4); min-width: 0; }
 .health-card { display: flex; flex-direction: column; }
 .coverage { display: flex; align-items: center; gap: var(--space-4); padding: var(--space-3); margin-bottom: var(--space-2); border-radius: var(--radius-md); background: var(--surface-2); }
 .ring { position: relative; width: 64px; height: 64px; flex: none; }

@@ -52,3 +52,33 @@ export async function counts<K extends string>(
   }
   return row;
 }
+
+/** D1 allows at most 100 bound parameters per statement; stay well under it. */
+const ID_CHUNK = 90;
+
+/**
+ * Of these dataset ids, the ones that are public right now (the PUBLIC_MANAGED
+ * predicate: active, public, not folded, not sandbox). A caller that is about
+ * to show an id on a public page must pass it through here first, because an id
+ * seen in a log or an event stream can belong to a private or unpublished
+ * dataset. Throws when nemar-db cannot answer, so a failure is never read as
+ * "none are public" and never as "all are".
+ */
+export async function publicDatasetIds(
+  db: D1Database,
+  ids: readonly string[],
+): Promise<Set<string>> {
+  const unique = [...new Set(ids)];
+  const found = new Set<string>();
+  for (let offset = 0; offset < unique.length; offset += ID_CHUNK) {
+    const chunk = unique.slice(offset, offset + ID_CHUNK);
+    const rows = await db
+      .prepare(
+        `SELECT dataset_id FROM datasets WHERE dataset_id IN (${chunk.map(() => "?").join(",")}) AND ${PUBLIC_MANAGED}`,
+      )
+      .bind(...chunk)
+      .all<{ dataset_id: string }>();
+    for (const row of rows.results ?? []) found.add(row.dataset_id);
+  }
+  return found;
+}

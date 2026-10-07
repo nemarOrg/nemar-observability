@@ -22,6 +22,7 @@ function compact(n) {
 function fmt(metric) {
   if (metric.unit === "bytes") return humanBytes(metric.value);
   if (metric.unit === "percent") return num(metric.value) + "%";
+  if (metric.unit === "status") return metric.severity === "ok" ? "Healthy" : metric.severity === "warn" ? "Warning" : "Failing";
   return num(metric.value);
 }
 function pct(value, total) {

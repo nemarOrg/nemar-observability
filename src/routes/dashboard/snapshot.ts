@@ -22,7 +22,8 @@ function tile(metric) {
   if (metric.hint) heading.appendChild(infoDisclosure("About " + metric.label, metric.hint));
   t.appendChild(heading);
   const valRow = el("div", "tile-value");
-  valRow.appendChild(el("span", "v", fmt(metric)));
+  const listCount = hasBreakdown && metric.breakdown_unit && metric.breakdown_unit !== metric.unit;
+  valRow.appendChild(el("span", listCount ? "tile-caption" : "v", listCount ? "Top " + Math.min(metric.breakdown.length, 10) + (metric.value > 10 ? " of " + num(metric.value) : "") + " listed" : fmt(metric)));
   const p = pct(metric.value, metric.total);
   if (p != null) valRow.appendChild(el("span", "tile-pct", p + "% of " + (metric.unit === "bytes" ? humanBytes(metric.total) : num(metric.total))));
   t.appendChild(valRow);
@@ -63,10 +64,23 @@ function sectionCard(section, headingTag) {
   const scalars = el("div", "tiles");
   const lists = el("div", "tile-lists");
   section.metrics.forEach(function (m) { (m.breakdown && m.breakdown.length ? lists : scalars).appendChild(tile(m)); });
-  if (scalars.childNodes.length) body.appendChild(scalars);
-  if (lists.childNodes.length) body.appendChild(lists);
-  // One list beside the stat tiles reads better than a lone full-width list.
-  if (scalars.childNodes.length && lists.childNodes.length === 1) card.classList.add("card-split");
+  // With stat tiles and several lists, the last (tallest) list takes the right
+  // column and everything else stacks in the left, so the two sides balance.
+  const split = scalars.childNodes.length && lists.childNodes.length >= 1;
+  if (split) {
+    const main = el("div", "split-main");
+    main.appendChild(scalars);
+    const tall = lists.lastChild;
+    if (lists.childNodes.length > 1) { lists.removeChild(tall); main.appendChild(lists); }
+    const side = el("div", "tile-lists");
+    side.appendChild(tall);
+    body.appendChild(main);
+    body.appendChild(side);
+    card.classList.add("card-split");
+  } else {
+    if (scalars.childNodes.length) body.appendChild(scalars);
+    if (lists.childNodes.length) body.appendChild(lists);
+  }
   card.appendChild(body);
   return card;
 }
@@ -209,7 +223,30 @@ function renderHealth(sections) {
     stateMessage(root, "info", "No pipeline sections in this snapshot", "Their current state is unknown until a pipeline reports.");
     return;
   }
-  sections.forEach(function (section) { root.appendChild(healthCard(section)); });
+  const cards = sections.map(healthCard);
+  const place = function () { packCards(root, cards); };
+  place();
+  if (!root.dataset.packed) {
+    root.dataset.packed = "1";
+    let timer = null;
+    window.addEventListener("resize", function () { clearTimeout(timer); timer = setTimeout(place, 150); });
+  }
+}
+// Cards go into plain stacked columns, each to the shortest one so far, so short
+// cards leave no holes. (CSS multi-column was tried and could leave the page unpainted.)
+function packCards(root, cards) {
+  const width = root.clientWidth || 0;
+  const count = Math.max(1, Math.min(3, Math.floor((width + 24) / 344)));
+  root.textContent = "";
+  const columns = [];
+  for (let i = 0; i < count; i++) { const col = el("div", "health-col"); root.appendChild(col); columns.push(col); }
+  const heights = columns.map(function () { return 0; });
+  cards.forEach(function (card) {
+    let shortest = 0;
+    heights.forEach(function (h, i) { if (h < heights[shortest]) shortest = i; });
+    columns[shortest].appendChild(card);
+    heights[shortest] += card.offsetHeight + 24;
+  });
 }
 function renderUsageSnapshot(sections) {
   const root = document.getElementById("usage-snapshot");

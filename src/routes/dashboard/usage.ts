@@ -24,7 +24,7 @@ function audienceMeasure(parent, label, value) {
   card.appendChild(el("strong", "measure-value" + (typeof value === "number" ? "" : " is-muted"), audienceNumber(value)));
   parent.appendChild(card);
 }
-function audienceSourceCard(title, source, definitions, metrics) {
+function audienceSourceCard(title, source, definitions, metrics, quiet) {
   const card = el("article", "card audience-source");
   const heading = el("div", "card-head");
   const titles = el("div", "card-titles");
@@ -33,7 +33,7 @@ function audienceSourceCard(title, source, definitions, metrics) {
   titleRow.appendChild(infoDisclosure("About " + title, definitions));
   titles.appendChild(titleRow);
   heading.appendChild(titles);
-  heading.appendChild(audienceBadge(source.status));
+  if (!quiet || source.status !== "partial") heading.appendChild(audienceBadge(source.status));
   card.appendChild(heading);
   const measures = el("div", "measures");
   metrics.forEach(function (metric) { audienceMeasure(measures, metric.label, source[metric.key]); });
@@ -50,7 +50,7 @@ function audienceSourceCard(title, source, definitions, metrics) {
 function audienceEvents(parent, report) {
   const status = report && typeof report.status === "string" ? report.status : "unavailable";
   const section = disclosure("Website interactions: " + audienceStatus(status).toLowerCase(), "audience-events");
-  section.appendChild(el("p", "fine", "Events are recorded only after consent. Event-associated visitors are anonymous distinct sessions, not identified people."));
+  section.appendChild(el("p", "fine", "Events are recorded unless the visitor has opted out. Event-associated visitors are anonymous distinct sessions, not identified people."));
   const coverage = report && report.coverage && report.coverage.start && report.coverage.end
     ? "Verified event coverage: " + rangeText(report.coverage.start, report.coverage.end) + " (UTC)"
     : "Verified event coverage: unavailable";
@@ -97,8 +97,8 @@ function renderAudience(payload) {
     payload.umami,
     "Website analytics estimate anonymous unique sessions, not identified people. Visits use a separate visit identifier. Country estimates are not an exclusive partition; unreported countries are omitted.",
     [
-      { key: "visitors", label: "Sessions (anonymous, unique)" },
-      { key: "visits", label: "Visits" },
+      { key: "visitors", label: "Unique browsers (anonymous)" },
+      { key: "visits", label: "Visits (browsing sessions)" },
       { key: "pageviews", label: "Page views" }
     ]
   );
@@ -108,7 +108,8 @@ function renderAudience(payload) {
     "Requests to NEMAR",
     payload.cloudflare,
     "The network edge counts one request for each page, file, image, or API call. One page view can create many requests, and bots or repeat clients also count. This is not a count of people, sessions, page views, or completed downloads. Some requests have no reported country.",
-    [{ key: "requests", label: "Requests" }]
+    [{ key: "requests", label: "Requests" }],
+    true
   ));
   root.appendChild(grid);
   const details = disclosure("How these totals work", "howto-inline");
@@ -136,6 +137,7 @@ function showAudienceFailure(title, detail, geoTitle, geoDetail) {
   state.audience = null; state.audienceLoading = false; state.audienceFailed = true;
   renderKpis();
   renderHeadline();
+  renderViewer();
   stateMessage(document.getElementById("audience"), "error", title, detail, loadAudience);
   stateMessage(document.getElementById("geography"), "error", geoTitle, geoDetail, loadAudience);
   announceFailure();
@@ -152,12 +154,14 @@ function loadAudience() {
     state.audience = null; state.audienceLoading = false; state.audienceFailed = false; state.audienceInvalid = true;
     renderKpis();
     renderHeadline();
+    renderViewer();
     stateMessage(root, "info", "Choose a valid UTC date range.", "The start date must be a real day on or before the end date, and a range can span up to 3,660 days.");
     stateMessage(geography, "info", "Choose a valid UTC date range to view country activity.");
     return;
   }
   state.audienceLoading = true; state.audienceInvalid = false; state.audienceFailed = false;
   renderKpis();
+  renderViewer();
   markRefreshing(root, gridSkeleton);
   markRefreshing(geography, geoSkeleton);
   fetchAudience(start, end).then(function (payload) {
@@ -186,6 +190,7 @@ function loadAudience() {
     loadPriorAudience(start, end, payload, token);
     renderKpis();
     renderHeadline();
+    renderViewer();
     announceRange();
   }, function (err) {
     if (!audienceGuard.isCurrent(token)) return;
@@ -409,7 +414,7 @@ function renderSeries(payload, start, end) {
       if (buckets.some(function (b) { return b.partial && b.value !== null; })) {
         const item = el("span", "legend-item");
         item.appendChild(el("span", "legend-key key-dashed"));
-        item.appendChild(el("span", null, "Dashed: partial calendar period"));
+        item.appendChild(el("span", null, grouping === "day" ? "Partial day" : "Partial period"));
         legend.appendChild(item);
       }
       if (gap) {
@@ -443,7 +448,10 @@ function seriesPlane(series) {
   return { key: "other:" + section, label: "Additional source: " + sectionLabel(section), description: "This source (" + sourceLabel(series.source) + ") reports its own additive daily measures. Measures remain separate; missing observations are unknown, not zero." };
 }
 function seriesDisplayLabel(series) {
-  return String(series.section || "").toLowerCase() === "egress" ? "Data served (storage egress)" : series.label;
+  const key = String(series.section || "").toLowerCase();
+  if (key === "egress") return "Data served (storage egress)";
+  if (key === "website" && /pageviews/i.test(String(series.key || series.label))) return "Page views";
+  return series.label;
 }
 function valuesTable(series, buckets) {
   const details = disclosure("Show exact values (" + buckets.length + " periods)", "values");
