@@ -250,52 +250,68 @@ It answers "how many hours of data exist, per modality, at each exact channel co
 
 **What it reads.**
 The public catalog, `GET https://api.nemar.org/datasets?limit=200&offset=N`, called anonymously.
-For an anonymous caller that endpoint lists only active, public datasets and hides sandbox ones; the collector filters again (active, public, managed), so a private dataset can never reach the totals.
+For an anonymous caller that endpoint lists only active, public datasets and hides sandbox datasets other than flagged exemplars (there are none today); the collector filters again (active, public, managed), so a private dataset can never reach the totals.
+The catalog is not trusted to be complete.
+Paging runs to an empty page, and the run fails unless the number of distinct datasets listed equals the `total_count` the catalog reports (nemar-cli reports a total as short as one page when its count query fails).
+A degraded response (`fallback` or `warning` in the body) is refused, and so is a catalog far smaller than the cache directory.
+The catalog reads `nemar-db`, which nemar-cli's hourly export locks between about :10 and :40, so a failing page is retried with capped backoff for about five minutes (pauses of 2, 4, 8, 16 and 32 seconds, then 60 seconds four times).
 For each dataset it then reads the public Zarr index `https://nemar.s3.us-east-2.amazonaws.com/<id>/zarr/index.json` (format `nemar-zarr-index`, readable without credentials).
 The collector needs only its own ingest token: no AWS key, and nothing that is not anonymously public.
 It runs on nemaring because one index (nm000229) is over 300 MB, far more than a Worker can parse.
-Indexes are streamed (`scripts/lib/json-stream.ts`): each `stores[]` entry is parsed on its own and dropped, so memory stays at a few megabytes whatever the file size.
+Indexes are streamed (`scripts/lib/json-stream.ts`): each `stores[]` entry is parsed on its own and dropped, so memory per index stays at the largest single entry whatever the file size.
+An entry is capped at 16 MiB (the largest real one is 5.4 MB, in nm000229) and nesting inside it at 64 levels, a repeated root key is refused, and the read of one index is limited to 15 minutes and 1 GiB however slowly its bytes arrive.
+A whole run peaked at about 190 to 230 MB resident when measured, and four streams each carrying one worst-case entry (millions of tiny objects) at about 680 MB.
+An index must be `format_version` 3, and its own `store_count` must match the stores it lists, since a file that was cut short can still parse.
 
 **What counts.**
 
 - Only raw recordings: a store flagged `derived`, or from a source tree other than `raw`, is skipped.
 - Each group is attributed to its own modality (`EEG`, `MEG`, `iEEG`, `EMG`, and so on; `IEEG` is shown as `iEEG`).
-  A group named `MISC` takes the uppercased BIDS datatype folder of the recording's path when that folder is a signal datatype (`ecg/` gives `ECG`); in any other folder, such as `eye_tracker/`, it stays `MISC`.
-  The index is untrusted input and the name is published, so only plain names (letters, digits, and a few joining characters, at most 32 long) are accepted; any other value cannot be attributed and counts as unmeasured.
+  A group named `MISC` takes the uppercased datatype folder of the recording's path when that folder is one of `ecg`, `eeg`, `emg`, `eog`, `ieeg`, `meg`, `nirs` or `motion` (`ecg/` gives `ECG`); in any other folder, such as `eye_tracker/` or `mov/`, it stays `MISC`.
+  The index is untrusted input and the name is published, so only the contract's plain names are accepted (a letter, then letters, digits, hyphens or underscores, at most 32 long); any other value cannot be attributed and counts as unmeasured.
+  Names that differ only in case are one modality.
 - Within one store and one modality the duration is the longest group's and the channel count the largest group's, never a sum, because the groups of a store are concurrent streams of one recording (the same rule as nemar-cli's `aggregateRecordingStats`).
   A store with two modalities is counted once under each, and once in the headline.
 - A recording with no usable duration or channel count is **unmeasured**: it is counted in `channel_hours.recordings_unmeasured` and left out of every bin.
   Unknown is never zero.
+  A channel count must be a whole number from 1 to 100,000, and a duration over 10,000 hours (the longest real store is about 158) is treated as a corrupt value, counted as unmeasured, and noted in the journal.
+  A store naming more than 32 distinct modalities is one unmeasured recording, and when a section would have more than 32 modalities the smallest are not shown and their recordings count as unmeasured; neither fails the run.
 - Recordings that failed or are still pending carry no duration and are not part of the hours; they only enter the total of the recordings tile.
 - Datasets with no Zarr index at all (a conversion that never produced one) are not scanned and not counted as unavailable, unless the catalog says their conversion is complete (`zarr_status` `ready`), in which case a missing index is a fault.
 
 | metric | unit | value |
 |---|---|---|
-| `recordings.hours` | `hours` | each converted raw recording once (its longest measured modality), so it compares with the dataset-level durations in `nemar-db`; `breakdown` gives hours per modality, which can add up to more than the headline when a recording carries two signal types |
+| `recordings.hours` | `hours` | each converted raw recording once (its longest measured modality), so it compares with the dataset-level durations in `nemar-db`; `breakdown` gives hours per modality, which can add up to more than the headline when a recording carries two signal types; severity `warn`, with a plain-words hint, when an index could not be read |
 | `recordings.recordings` | `count` | measured recordings, each store once; `total` adds unmeasured and failed or pending recordings listed by the indexes read, and is omitted when any dataset could not be read |
 | `recordings.datasets` | `datasets` | public datasets with at least one measured recording; `total` is every public dataset, and the tile warns when an index could not be read |
 | `recordings.collector.errors` | `errors` | `0` after a successful run; a failed run replaces the section with this metric alone, at `1` and severity `error`, with a generic hint |
-| `recordings.collector.code_stale` | `errors` | present only while the checkout on nemaring has been unable to update for a day, as for the other collectors |
+| `recordings.collector.code_stale` | `errors` | present only while the checkout on nemaring has been unable to update for a day; it shows on the tile and in the journal only, because `recordings` is not judged by `/health` |
 
 `channel_hours` carries, per modality, the exact channel-count bins (`hours` and `recordings` at each count) and `dataset_peaks` (datasets whose largest recording in that modality has exactly that many channels).
 It holds no dataset identifiers, and the whole section is tens of kilobytes.
-The collector checks the payload against the section contract before it posts (it cannot load zod on a bare checkout, so `assertChannelHours` repeats the contract's cross-field rules; the tests check the same payloads with the real schema).
+The collector checks the payload against the section contract before it posts.
+It cannot load zod on a bare checkout, so `assertChannelHours` repeats every rule of the contract, and a table of eighty payloads, each changing one thing, is run through both it and the real `SectionIngestSchema` to keep them the same strictness.
 
 **Cache.**
-Each dataset's summary is cached under `<state dir>/summaries/<id>.json`, keyed by the index's ETag.
+Each dataset's summary is cached under `<state dir>/summaries/<id>.json`, keyed by the index's ETag and the summary rules' version.
 A later run sends `If-None-Match`; on `304` (or a `200` with the same ETag) the cached summary is used and no body is downloaded.
 A cached summary is reused only when that ETag check itself succeeded.
-If the check fails (HTTP error, timeout, malformed or truncated JSON, an index that belongs to another dataset), the dataset is counted in `datasets_unavailable` for that run and its old summary is not shown as fresh; the entry stays on disk for the next successful check.
-Transient failures are retried three times.
+If the check fails (an HTTP error, a timeout, malformed or truncated JSON, an index that belongs to another dataset, a limit broken), the dataset is counted in `datasets_unavailable` for that run and its old summary is not shown as fresh; the entry stays on disk for the next successful check.
+An index that was readable on an earlier run and is missing now (S3 answers 403 or 404) is unavailable too, a regression, and not "no Zarr copy".
+Only a network failure, a timeout, a 5xx or 429, or a download that ends early is retried: each index is tried up to three times, with a 2 s and then a 4 s pause.
+A bad document, a broken size or time limit, and an unexpected error are final for the run (a retry would download up to 300 MB again); an unexpected error is logged with its name and stack.
 The cache is only an optimization.
 Deleting it, or any file in it, costs one re-download.
-Files are written under a unique temporary name and renamed into place, so a partial write or a concurrent run never leaves a half-written entry, and a corrupt or outdated entry is ignored.
+Files are written under a unique temporary name and renamed into place, so a partial write or a concurrent run never leaves a half-written entry, and a corrupt, outdated or foreign entry is ignored.
+Entries for datasets that are no longer public are deleted, but only after a run has produced a publishable result: a run that fails, or sees a catalog far smaller than the cache, prunes nothing.
 Under systemd the state directory is `/var/lib/nemar-observability-recordings` (`StateDirectory=`); by hand it is `RECORDINGS_STATE_DIR`, else `~/.cache/nemar-observability/recordings`, or `--state-dir`.
 
 **Failure behavior.**
-A run fails, and publishes the generic error status the same way the other collectors do, when the catalog cannot be read in full, when no index could be read, when more than a tenth of the indexes could not be read, or when nothing was measured.
-A smaller number of unreadable indexes still publishes: they are counted in `datasets_unavailable`, the datasets tile turns to `warn`, and the recordings total is withheld.
-An ambiguous ingest response is never followed by a second write.
+A run fails, and publishes the generic error status the same way the other collectors do, when the catalog cannot be read in full or looks incomplete, when no index could be read, when more than a tenth of the indexes could not be read, when the unreadable indexes held more than a tenth of the hours the cache last knew for them (one dataset can hold most of the hours, so the count alone is not enough; a first run has no cache and is judged by count only), or when nothing was measured.
+A smaller number of unreadable indexes still publishes: they are counted in `datasets_unavailable`, the hours and datasets tiles turn to `warn`, and the recordings total is withheld.
+The push itself is tried up to four times (pauses of 5, 15 and 45 seconds) after a network failure, a 5xx or a 429, and only those outcomes are called "the write outcome may be unknown", so a run that ends that way publishes no error status that could overwrite a stored section.
+A 4xx is a definite refusal: nothing was stored, the first 500 characters of the response are logged (a 422 lists the schema issues), and the failure status is tried.
+The report is built before the push and nothing after a successful push can throw, so an error can no longer replace a section that was just stored.
 
 **Trying it.**
 `--dry-run` computes everything, prints a summary (including the five datasets with the most hours in each modality), and writes the payload to the path given by `--out`.
@@ -305,16 +321,21 @@ It never reads the ingest token, never posts, and never publishes a failure stat
 bun scripts/push-zarr-recordings.ts --dry-run --out /tmp/recordings.json
 ```
 
-The first run reads every index (about 0.5 GB); on 2026-10-06 that took about 40 seconds on a laptop with a peak resident set of about 220 MB, and a run against a warm cache took about 14 seconds and 50 MB.
+The first run reads every index (about 0.5 GB); on 2026-10-06 that took 26 to 42 seconds on a laptop, and a run against a warm cache about 14 to 18 seconds.
 
-`recordings` is not yet one of the sections `/observability/health` judges.
-Adding it to the 26-hour first-party rule is a follow-up for after the first successful production run.
+**Schedule and health.**
+The timer fires three times a day, at 06:50, 12:50 and 18:50 UTC, all after the :40 end of the hourly `nemar-db` export, and the service restarts itself 55 minutes after a failed run (limited to three starts in five hours).
+A failed run replaces the section with the error status, so one run a day would leave the explorer blank for up to a day; three runs and a retry make that a matter of hours.
+`recordings` is not judged by `/observability/health` or the health monitor, so a failed run, or `recordings.collector.code_stale`, shows only on the dashboard tile and in the journal (`journalctl -u nemar-observability-recordings`).
+Adding `recordings` to `EXPECTED_SECTION_MAX_AGE_MS` in `src/lib/freshness.ts` is the follow-up, once it has run successfully in production.
+With successful runs every 6 to 12 hours, the 26-hour allowance the other collectors have tolerates a missed run or two (about 24 hours without a success) and goes red on a third.
 
 ## Installing the collectors on nemaring
 
 The egress and storage collectors run through `ops/with-collector-secrets.sh`, which injects the existing read-only Infisical path `prod:/observability/egress` using the existing token file `$HOME/.config/infisical/nemar-observability-egress.token`.
 The storage collector reuses that path's `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, and `AWS_REGION`; no new AWS key or IAM change is needed.
 The wrapper removes the other collectors' ingest tokens from each child's environment.
+Which collector may see which secret is one table, `ops/collector-profiles.sh`, which the wrapper sources and `test/collector-env.test.ts` runs under real bash.
 The recordings collector runs through the same wrapper; it needs no AWS key and the wrapper removes it from that child as well (see "Installing the recordings collector" below).
 
 A human must first create one new secret, in two places, with a fresh random value (for example `openssl rand -hex 32`):
@@ -324,7 +345,8 @@ A human must first create one new secret, in two places, with a fresh random val
 
 Then, on nemaring, install the units once.
 Never run `git` as root in the checkout: the services pull as `yahya`, and root-owned objects make that pull fail.
-`ops/install-units.sh` repairs the ownership, installs both units, and enables both timers:
+`ops/install-units.sh` repairs the ownership, installs every collector's units, and enables every timer, the recordings timer included.
+On a fresh host, create the recordings token first (steps 2 and 3 of "Installing the recordings collector" below), or its first runs fail in the journal with a missing-token error and publish nothing.
 
 ```bash
 # Fresh host only: /opt is root-owned, so create the directory for yahya first.
@@ -347,7 +369,8 @@ After this, collector code updates itself: every collector run first starts `nem
 It resets rather than pulls, so a dirty tree, a stray local commit, or another branch cannot block it.
 The update service is the only unit that can write to the checkout and it holds no secrets; the collectors, which hold the AWS key and the ingest tokens, cannot write to it.
 A failed update does not block the collection.
-It records when the failures began in `/var/lib/nemar-observability/update-failed-since` (the update service's systemd `StateDirectory`, outside the checkout), and once that is a day old each collector publishes an error metric (`egress.collector.code_stale`, `storage.collector.code_stale`), which turns `/observability/health` red and opens a health-alert issue.
+It records when the failures began in `/var/lib/nemar-observability/update-failed-since` (the update service's systemd `StateDirectory`, outside the checkout), and once that is a day old each collector publishes an error metric (`egress.collector.code_stale`, `storage.collector.code_stale`, `recordings.collector.code_stale`).
+For egress and storage that turns `/observability/health` red and opens a health-alert issue; `recordings` is not judged by health, so its metric shows only on the dashboard tile and in the journal.
 The next successful update clears it.
 Only a change under `ops/systemd/` needs `sudo /opt/nemar-observability/ops/install-units.sh` again.
 The update trusts `main` with the collectors' secrets exactly as the Worker deploy does, so keep branch protection (green CI) on `main`.
@@ -359,17 +382,29 @@ It is not hourly because S3 publishes a day's size some time during the next UTC
 
 ### Installing the recordings collector
 
-Merging does not start anything: the units below exist only in the repository until a person installs them, and the collector posts only once it has its token.
-Do these in order.
+Merging this change does not start the new collector: its service and timer exist only in the repository until a person installs them on nemaring, and the collector posts only once it has its token.
+Two other things do go live on merge.
+`ops/with-collector-secrets.sh` and the new `ops/collector-profiles.sh` are shared with the egress and storage collectors, which update themselves to `origin/main` before every run, so the new wrapper starts running them at their next run after the merge (egress at :15, storage at 08:45 or 14:45).
+Egress and storage should see exactly the environment they saw before, which is tested under bash 3.2 and 5, but step 6 below is to check that on the host.
+And the Worker deploy runs for any merge to `main`.
 
-1. **Create the ingest token and store it in Infisical.**
+Do these in order.
+Until steps 2 and 3 are done, the recordings timer must not be enabled, so do not run `install-units.sh` before them: it enables every timer, and a recordings run without its token fails in the journal and publishes nothing.
+
+1. **Make sure the Worker that knows `channel_hours` is deployed first.**
+   That is the Worker with the contract from #108.
+   An older Worker's section schema is not strict about that field, so it answers 200 and silently drops the payload.
+   Merge #108 and wait for its deploy job (it ends by checking `/health`) before the first push.
+2. **Create the ingest token and store it in Infisical.**
    Generate a fresh value (for example `openssl rand -hex 32`).
    In Infisical project `nemar` (ID `817f7473-a318-4e99-9cf4-a89db057f5fc`), environment `prod`, path `/observability/egress`, add `OBS_RECORDINGS_INGEST_TOKEN`.
    The same read-only token file as the other collectors reads it; no new token file, AWS key, or IAM change is needed.
-2. **Add the same value under key `recordings` in the production Worker secret `OBS_INGEST_TOKENS_JSON`.**
-   The secret is one JSON object, `wrangler secret put` replaces it whole, and Cloudflare cannot read the old value back, so rebuild it from every token Infisical holds, with a distinct value per key.
-   The four first-party keys are `egress`, `storage`, and `recordings` (path `/observability/egress`) and `website` (path `/observability/website`); add any other key that is in use.
-   This builds the object without printing a token and sends it only if all four are present; `wrangler secret put` deploys a new Worker version immediately.
+3. **Add the same value under key `recordings` in the production Worker secret `OBS_INGEST_TOKENS_JSON`.**
+   The secret is one JSON object, `wrangler secret put` replaces it whole, and Cloudflare cannot read the old value back, so the command below rebuilds it from the tokens Infisical holds.
+   It writes exactly four keys, `egress`, `storage`, `recordings` and `website`, and removes any other key the secret has now; if you know of another pusher with a token in it, add it to the command first.
+   The values must be distinct: with a duplicate the Worker answers 503 to every pusher, so the command refuses to send duplicates or a missing token.
+   Run it from the root of this repository (it reads `wrangler.toml`), and with an Infisical login that can read `/observability/website` as well as `/observability/egress`: the scoped token file on nemaring covers only the egress path, so run this on your own machine.
+   It never prints a token, and `wrangler secret put` deploys a new Worker version immediately.
 
    ```bash
    set -o pipefail
@@ -382,14 +417,14 @@ Do these in order.
        --projectId 817f7473-a318-4e99-9cf4-a89db057f5fc --env prod \
        --path /observability/website --silent -- \
        sh -c 'printf "%s\n" "$OBS_WEBSITE_INGEST_TOKEN"'
-   } | bun -e 'const [egress, storage, recordings, website] = (await Bun.stdin.text()).trim().split("\n"); if (![egress, storage, recordings, website].every(Boolean)) throw new Error("a token is missing"); process.stdout.write(JSON.stringify({ egress, storage, recordings, website }))')" \
+   } | bun -e 'const [egress, storage, recordings, website] = (await Bun.stdin.text()).trim().split("\n"); const tokens = [egress, storage, recordings, website]; if (!tokens.every(Boolean)) throw new Error("a token is missing"); if (new Set(tokens).size !== tokens.length) throw new Error("two tokens are the same"); process.stdout.write(JSON.stringify({ egress, storage, recordings, website }))')" \
      && printf '%s' "$TOKENS_JSON" |
        env -u CLOUDFLARE_API_TOKEN npx cfman wrangler --account sccn \
          secret put OBS_INGEST_TOKENS_JSON -c wrangler.toml
    unset TOKENS_JSON
    ```
 
-3. **Install the units on nemaring**, once this change is on `main`.
+4. **Install the units on nemaring**, once this change is on `main` and steps 1 to 3 are done.
    The checkout updates itself at the next collector run, or pull it now; never run `git` as root there.
    `ops/install-units.sh` installs the recordings service and timer next to the others and enables the timer; it leaves a timer you disabled on purpose disabled.
 
@@ -398,7 +433,7 @@ Do these in order.
    sudo /opt/nemar-observability/ops/install-units.sh
    ```
 
-4. **Optional check without any secret.**
+5. **Optional check without any secret.**
    A dry run reads the public catalog and indexes and prints the totals; it posts nothing.
    It fills its own cache under `~/.cache/nemar-observability/recordings`, not the service's.
 
@@ -409,22 +444,25 @@ Do these in order.
      --dry-run --out /tmp/recordings.json
    ```
 
-5. **Start the first run** (it reads every index once, about a minute) and read the journal.
+6. **Start the first run** (it reads every index once, about 25 to 40 seconds with a good connection) and read the journal.
    A good run ends with `posted N modalities`.
+   Then read the journals of the egress and storage services: their next runs after the merge use the new wrapper, and each must still end with its usual `posted` line.
 
    ```bash
    sudo systemctl start nemar-observability-recordings.service
    journalctl -u nemar-observability-recordings.service -n 80 --no-pager
+   journalctl -u nemar-observability-egress.service -u nemar-observability-storage.service -n 40 --no-pager
    ```
 
-6. **Confirm the section.**
+7. **Confirm the section.**
    The snapshot picks up a push at the next hourly cron (:47).
    Look for section `recordings` with a `channel_hours` payload in `GET /observability/api/snapshot?cb=$(date +%s)`.
 
-The timer runs once a day at 06:20 UTC with up to 2 minutes of randomized delay, clear of the egress collector (hourly at :15), the storage collector (08:45 and 14:45), and the snapshot cron (:47).
-It does not retry a failed run; start the service by hand after fixing the cause.
-If a run keeps failing, `sudo systemctl disable --now nemar-observability-recordings.timer` stops it until then.
+The timer runs three times a day, at 06:50, 12:50 and 18:50 UTC with up to 2 minutes of randomized delay, clear of the egress collector (hourly at :15), the storage collector (08:45 and 14:45), and the snapshot cron (:47), and after the hourly `nemar-db` export.
+A failed run is tried again 55 minutes later, at most three starts in five hours.
+If a run keeps failing, `sudo systemctl disable --now nemar-observability-recordings.timer` stops it until the cause is fixed.
 Code updates need no further step: every run first starts the update service, like the other collectors, and publishes `recordings.collector.code_stale` once the checkout has been unable to update for a day.
+That metric, and a failed run, show only on the dashboard tile and in the journal: `recordings` is not judged by `/health`, so nothing opens a health-alert issue for it.
 Only a change under `ops/systemd/` needs `install-units.sh` again.
 
 ## Development

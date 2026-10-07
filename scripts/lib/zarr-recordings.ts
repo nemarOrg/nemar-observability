@@ -142,7 +142,7 @@ export const MISC_DATATYPE_FOLDERS = new Set([
 
 /**
  * The modality a group is attributed to: its own normalized `modality`, except
- * that "MISC" is replaced by the uppercased BIDS datatype folder of the store's
+ * that "MISC" is replaced by the uppercased datatype folder of the store's
  * `path` (the directory just before the file name) when that folder is a
  * recognized datatype.
  */

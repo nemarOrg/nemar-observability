@@ -88,7 +88,7 @@ describe("normalizeModality", () => {
 });
 
 describe("groupModality", () => {
-  test("a MISC group takes its BIDS datatype folder as the modality", () => {
+  test("a MISC group takes its datatype folder as the modality", () => {
     const misc = { modality: "MISC" };
     expect(groupModality(misc, "sub-01/ses-1/ecg/sub-01_ses-1_ecg.edf")).toBe("ECG");
     expect(groupModality(misc, "sub-01/emg/sub-01_emg.edf")).toBe("EMG");
