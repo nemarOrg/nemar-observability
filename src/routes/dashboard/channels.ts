@@ -50,6 +50,22 @@ function hoursFacts(measure, part) {
   facts.push({ label: "Channel-hours", value: channelHoursText(part.channelHours) });
   return facts;
 }
+// Notices shown above the readout when the data should not be read at face
+// value: it is more than three days old, or some datasets could not be read in
+// the run that produced it. now is for tests; the page passes nothing.
+const STALE_AFTER_HOURS = 72;
+function hoursDataNotices(section, payload, now) {
+  const notes = [];
+  const nowMs = typeof now === "number" ? now : Date.now();
+  const updated = section ? Date.parse(section.updated_at) : Number.NaN;
+  if (Number.isFinite(updated) && nowMs - updated > STALE_AFTER_HOURS * 3600000) {
+    notes.push("This was last updated " + relativeTime(section.updated_at, nowMs) + ".");
+  }
+  if (payload && payload.datasets_unavailable > 0) {
+    notes.push(plural(payload.datasets_unavailable, "dataset", "datasets") + " could not be read in the last run, so these totals are incomplete.");
+  }
+  return notes;
+}
 // Hours in the exact-values table, where the column names the unit.
 function tableHours(n) {
   if (n > 0 && n < 0.05) return "<0.1";

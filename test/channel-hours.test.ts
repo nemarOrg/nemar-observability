@@ -10,6 +10,7 @@ import { clientLogic } from "./helpers/client-logic";
 
 const {
   partShare,
+  hoursDataNotices,
   thresholdText,
   measureFigure,
   hoursClaim,
@@ -36,6 +37,7 @@ const {
 } = clientLogic([
   "validChannelHours",
   "partShare",
+  "hoursDataNotices",
   "thresholdText",
   "measureFigure",
   "hoursClaim",
@@ -78,6 +80,35 @@ function reference(m: RawModality, min: number) {
 }
 const modalities = prepareModalities(sample);
 const byKey = (key: string) => modalities.find((m: { key: string }) => m.key === key);
+
+describe("notices about the data", () => {
+  const now = Date.parse("2026-10-06T12:00:00Z");
+  const section = (hoursAgo: number) => ({
+    updated_at: new Date(now - hoursAgo * 3_600_000).toISOString(),
+  });
+
+  test("data older than 72 hours says when it was last updated", () => {
+    expect(hoursDataNotices(section(72), sample, now)).toEqual([]);
+    expect(hoursDataNotices(section(73), sample, now)).toEqual([
+      "This was last updated 3 days ago.",
+    ]);
+    expect(hoursDataNotices(section(240), sample, now)).toEqual([
+      "This was last updated 10 days ago.",
+    ]);
+    // No time, no judgment.
+    expect(hoursDataNotices({ updated_at: "" }, sample, now)).toEqual([]);
+  });
+
+  test("unread datasets make the totals incomplete", () => {
+    expect(hoursDataNotices(section(1), { ...sample, datasets_unavailable: 1 }, now)).toEqual([
+      "1 dataset could not be read in the last run, so these totals are incomplete.",
+    ]);
+    expect(hoursDataNotices(section(100), { ...sample, datasets_unavailable: 40 }, now)).toEqual([
+      "This was last updated 4 days ago.",
+      "40 datasets could not be read in the last run, so these totals are incomplete.",
+    ]);
+  });
+});
 
 describe("shares", () => {
   test("shares never show 0% for a sliver or 100% short of the whole", () => {

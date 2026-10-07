@@ -31,12 +31,15 @@ afterEach(async () => {
 const totalHours = sample.modalities.reduce((s, m) => s + m.hours, 0);
 // The section the Zarr indexer pushes: headline metrics derived from the same
 // fixture, and the fixture itself as the channel_hours payload.
-function recordingsSection(withHours = true): Section {
+function recordingsSection(
+  withHours = true,
+  options: { updatedAt?: string; payload?: typeof sample } = {},
+): Section {
   return {
     key: "recordings",
     label: "Recorded hours",
     source: "nemar-zarr-index",
-    updated_at: new Date().toISOString(),
+    updated_at: options.updatedAt ?? new Date().toISOString(),
     metrics: [
       {
         key: "recordings.hours",
@@ -54,7 +57,7 @@ function recordingsSection(withHours = true): Section {
         severity: "info",
       },
     ],
-    ...(withHours ? { channel_hours: sample } : {}),
+    ...(withHours ? { channel_hours: options.payload ?? sample } : {}),
   };
 }
 
@@ -165,23 +168,51 @@ function expectThumbAt(doc: Doc, min: number) {
 }
 
 describe("recorded hours before the collector reports", () => {
-  test("no section at all is a quiet not-measured state, and the page is otherwise intact", async () => {
+  test("no section at all says plainly that no data is available, and the page is otherwise intact", async () => {
     const { document, errors } = await openPage(null);
-    expect(text(document, "#channel-hours")).toContain("Recorded hours are not measured yet");
+    expect(text(document, "#channel-hours")).toContain(
+      "No recorded-hours data is available right now",
+    );
     expect(text(document, "#channel-hours")).toContain("not the same as zero");
+    // No promise about when it will appear.
+    expect(text(document, "#channel-hours")).not.toMatch(/once|soon|appear/i);
     expect(document.querySelector("[role=tablist]")).toBeNull();
     expect(errors).toEqual([]);
   });
 
-  test("a section without hours this run says they are not in the snapshot", async () => {
+  test("a section without hours this run says the same, without guessing why", async () => {
     const { document, errors } = await openPage(recordingsSection(false));
     expect(text(document, "#channel-hours")).toContain(
-      "Recorded hours are not in the latest snapshot",
+      "No recorded-hours data is available right now",
     );
     // Its pipeline card still shows, and offers no link to an explorer that is not there.
     await until(() => document.getElementById("card-recordings") !== null, "the recordings card");
     expect(text(document, "#card-recordings")).not.toContain("Explore hours by channel count");
     expect(errors).toEqual([]);
+  });
+});
+
+describe("data that should not be read at face value", () => {
+  test("data more than three days old says when it was last updated", async () => {
+    const tenDaysAgo = new Date(Date.now() - 10 * 86_400_000).toISOString();
+    const { document } = await openPage(recordingsSection(true, { updatedAt: tenDaysAgo }));
+    expect(text(document, ".hours-notices")).toBe("This was last updated 10 days ago.");
+    // The answer is still shown, under the notice.
+    expect(readout(document).claim).toBe("of EEG recorded with 16 or more channels");
+  });
+
+  test("fresh, complete data shows no notice", async () => {
+    const twoDaysAgo = new Date(Date.now() - 2 * 86_400_000).toISOString();
+    const { document } = await openPage(recordingsSection(true, { updatedAt: twoDaysAgo }));
+    expect(text(document, ".hours-notices")).toBe("");
+  });
+
+  test("datasets that could not be read make the totals incomplete, and it says so", async () => {
+    const partial = { ...structuredClone(sample), datasets_unavailable: 3 };
+    const { document } = await openPage(recordingsSection(true, { payload: partial }));
+    expect(text(document, ".hours-notices")).toBe(
+      "3 datasets could not be read in the last run, so these totals are incomplete.",
+    );
   });
 });
 

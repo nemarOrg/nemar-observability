@@ -91,12 +91,11 @@ function renderRecordedHours(snap) {
   if (!root) return;
   const found = findChannelHours(snap);
   hoursView.nodes = null;
-  if (found.state === "missing") {
-    stateMessage(root, "info", "Recorded hours are not measured yet", "They appear here once the Zarr copies of public datasets have been indexed. Until then the hours are unknown, which is not the same as zero.");
-    return;
-  }
-  if (found.state === "no-payload") {
-    stateMessage(root, "info", "Recorded hours are not in the latest snapshot", "The latest indexing run did not report them, so they are unknown right now, which is not the same as zero.");
+  // No section, or one without hours: the page cannot tell why (not collected
+  // yet, a failed run, or a push the server set aside), so it says only what
+  // is true and promises nothing about when.
+  if (found.state === "missing" || found.state === "no-payload") {
+    stateMessage(root, "info", "No recorded-hours data is available right now", "These hours are unknown, which is not the same as zero.");
     return;
   }
   if (found.state === "invalid") {
@@ -336,7 +335,6 @@ function hoursSourceNotes(found) {
   const notes = [];
   const updated = found.section && found.section.updated_at ? ", updated " + relativeTime(found.section.updated_at) : "";
   notes.push("From the Zarr copies of " + plural(payload.datasets_scanned, "public dataset", "public datasets") + updated + ".");
-  if (payload.datasets_unavailable) notes.push(plural(payload.datasets_unavailable, "dataset", "datasets") + " with a Zarr copy could not be read in the latest run and " + (payload.datasets_unavailable === 1 ? "is" : "are") + " not counted.");
   if (payload.recordings_unmeasured) notes.push(plural(payload.recordings_unmeasured, "recording", "recordings") + " without a known duration or channel count " + (payload.recordings_unmeasured === 1 ? "is" : "are") + " left out.");
   return notes;
 }
@@ -424,7 +422,8 @@ function drawHoursView(announce) {
 
 function renderHoursNotices() {
   const box = hoursView.nodes.notices;
-  const notes = hoursView.linkNote ? [hoursView.linkNote] : [];
+  const found = hoursView.found;
+  const notes = hoursDataNotices(found.section, found.payload).concat(hoursView.linkNote ? [hoursView.linkNote] : []);
   box.textContent = "";
   box.hidden = notes.length === 0;
   notes.forEach(function (text) {
