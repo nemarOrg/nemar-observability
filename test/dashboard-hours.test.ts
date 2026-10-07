@@ -25,6 +25,7 @@ import {
   until,
   whole,
 } from "./helpers/hours-page";
+import { JARGON } from "./helpers/public-copy";
 
 afterEach(closePages);
 
@@ -431,12 +432,9 @@ describe("recorded hours explorer", () => {
     );
   });
 
-  // The words a neuroscientist reads, checked for pipeline jargon. JARGON is a
-  // local copy of the pattern in test/public-copy.test.ts (vendor names, file
-  // names, issue numbers, em dashes); that file is being changed elsewhere and
-  // the two will be unified. The explorer adds its own storage terms.
-  const JARGON =
-    /Cloudflare|\bS3\b|CloudWatch|presigned|index\.json|nemar approve|archive-sweep|#\d{3}|source='|\b\d+d\b|—/;
+  // The words a neuroscientist reads, checked for pipeline jargon. JARGON is the
+  // shared pattern from test/helpers/public-copy.ts (vendor names, file names,
+  // issue numbers, em dashes). The explorer adds its own storage terms.
   // Readers see "recording type"; "modality" is the payload's word, not theirs.
   const EXPLORER_JARGON = /\bZarr\b|\bindex(?:ed|ing)?\b|\bmodalit(?:y|ies)\b|signal types?/i;
 
