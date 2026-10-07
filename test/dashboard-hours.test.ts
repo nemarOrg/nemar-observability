@@ -1,175 +1,32 @@
-// The recorded-hours explorer in the real page: the page's own script in a real
-// DOM (happy-dom), the real Worker and snapshot API in process, and a real
-// SQLite store holding the pushed "recordings" section built around the real
-// channel-hours fixture. Expected numbers are summed here from the fixture.
+// The recorded-hours explorer in the real page (see test/helpers/hours-page.ts
+// for how the page is opened). Expected numbers are summed here from the
+// fixture, independently of the page's code.
 
-import { Database } from "bun:sqlite";
 import { afterEach, describe, expect, test } from "bun:test";
-import { Window } from "happy-dom";
-import worker from "../src/index";
-import type { Section } from "../src/lib/schema";
-import { savePushedSection } from "../src/lib/store";
 import { CHANNELS_JS } from "../src/routes/dashboard/channels";
 import { EXPLORER_JS } from "../src/routes/dashboard/explorer";
 import { STYLES } from "../src/routes/dashboard/styles";
-import { renderDashboardPage } from "../src/routes/ui";
-import type { Bindings } from "../src/types";
 import sample from "./fixtures/channel-hours.sample.json";
-import { asD1 } from "./helpers/d1";
-import { MIGRATIONS } from "./helpers/migrations";
+import {
+  all,
+  at,
+  closePages,
+  eeg,
+  expectThumbAt,
+  key,
+  oneDecimal,
+  openPage,
+  openTable,
+  q,
+  range,
+  readout,
+  recordingsSection,
+  text,
+  until,
+  whole,
+} from "./helpers/hours-page";
 
-const ctx = { waitUntil() {}, passThroughOnException() {} } as unknown as ExecutionContext;
-const ORIGIN = "https://dashboard.nemar.org";
-type Doc = Window["document"];
-
-const open: { window: Window; engine: Database }[] = [];
-afterEach(async () => {
-  for (const page of open.splice(0)) {
-    await page.window.happyDOM.close();
-    page.engine.close();
-  }
-});
-
-// The section the Zarr indexer pushes: metrics derived from the same fixture,
-// and the fixture itself as the channel_hours payload. Hours are listed per
-// recording type only: a recording with two types counts under each, so the
-// sum over types is not a total and no metric here presents it as one.
-function recordingsSection(
-  withHours = true,
-  options: { updatedAt?: string; payload?: typeof sample } = {},
-): Section {
-  return {
-    key: "recordings",
-    label: "Recorded hours",
-    source: "nemar-zarr-index",
-    updated_at: options.updatedAt ?? new Date().toISOString(),
-    metrics: [
-      {
-        key: "recordings.types",
-        label: "Recording types",
-        value: sample.modalities.length,
-        unit: "count",
-        severity: "info",
-        breakdown_unit: "hours",
-        breakdown: sample.modalities.map((m) => ({ label: m.modality, value: m.hours })),
-      },
-      {
-        key: "recordings.datasets",
-        label: "Datasets read",
-        value: sample.datasets_scanned,
-        unit: "datasets",
-        severity: "info",
-      },
-    ],
-    ...(withHours ? { channel_hours: options.payload ?? sample } : {}),
-  };
-}
-
-// failSnapshotOnce answers the first /snapshot request with a 503, to exercise
-// the error state and Try again; everything else reaches the real Worker.
-async function openPage(section: Section | null, hash = "", failSnapshotOnce = false) {
-  const engine = new Database(":memory:");
-  for (const migration of MIGRATIONS) engine.run(migration);
-  const db = asD1(engine);
-  if (section) await savePushedSection(db, section);
-  // No NEMAR_DB: the built-in sections fail for real, and the pushed section
-  // still reaches the snapshot, as it would on a deploy with a database outage.
-  const env = { OBS_DB: db } as unknown as Bindings;
-  const window = new Window({
-    url: `${ORIGIN}/observability${hash}`,
-    settings: { enableJavaScriptEvaluation: true } as never,
-  });
-  open.push({ window, engine });
-  const errors: string[] = [];
-  window.addEventListener("error", (event) =>
-    errors.push(String((event as unknown as { error?: unknown }).error)),
-  );
-  window.addEventListener("unhandledrejection", (event) =>
-    errors.push(`unhandled: ${String((event as unknown as { reason?: unknown }).reason)}`),
-  );
-  let failures = failSnapshotOnce ? 1 : 0;
-  (window as unknown as { fetch: unknown }).fetch = async (input: unknown) => {
-    const url = new URL(String(input), ORIGIN);
-    const response =
-      url.pathname.endsWith("/snapshot") && failures-- > 0
-        ? new Response(JSON.stringify({ error: "Service unavailable" }), { status: 503 })
-        : await worker.fetch(new Request(url.href), env, ctx);
-    return new window.Response(await response.text(), {
-      status: response.status,
-      headers: { "content-type": response.headers.get("content-type") ?? "application/json" },
-    });
-  };
-  window.document.write(renderDashboardPage());
-  const document = window.document;
-  await until(
-    () => document.getElementById("channel-hours")?.getAttribute("aria-busy") !== "true",
-    "the explorer to settle",
-  );
-  return { window, document, errors };
-}
-
-async function until(check: () => boolean, what: string, ms = 4000) {
-  const start = Date.now();
-  while (!check()) {
-    if (Date.now() - start > ms) throw new Error(`timed out waiting for ${what}`);
-    await Bun.sleep(20);
-  }
-}
-
-type Node = { textContent: string | null; getAttribute(name: string): string | null };
-const q = (doc: Doc, selector: string) =>
-  doc.querySelector(selector) as unknown as Node & { focus(): void; click(): void; id: string };
-const all = (doc: Doc, selector: string) =>
-  Array.from(doc.querySelectorAll(selector)) as unknown as (Node & { id: string })[];
-const text = (doc: Doc, selector: string) => q(doc, selector)?.textContent ?? "";
-const readout = (doc: Doc) => ({
-  value: text(doc, ".hours-value"),
-  claim: text(doc, ".hours-claim"),
-  share: text(doc, ".hours-share"),
-  facts: all(doc, ".hours-fact").map((f) => f.textContent),
-  slider: q(doc, "#hours-min").getAttribute("aria-valuetext"),
-});
-function key(doc: Doc, window: Window, selector: string, name: string) {
-  const target = doc.querySelector(selector) as unknown as { dispatchEvent(e: unknown): void };
-  target.dispatchEvent(
-    new window.KeyboardEvent("keydown", { key: name, bubbles: true, cancelable: true }),
-  );
-}
-// Opens Show exact values the way a reader does, by clicking its summary.
-function openTable(doc: Doc) {
-  (doc.querySelector(".hours-foot summary") as unknown as { click(): void }).click();
-}
-const sum = (list: number[]) => list.reduce((s, v) => s + v, 0);
-const eeg = sample.modalities[0];
-const at = (m: (typeof sample.modalities)[number], min: number) => ({
-  hours: sum(m.bins.filter((b) => b.channels >= min).map((b) => b.hours)),
-  recordings: sum(m.bins.filter((b) => b.channels >= min).map((b) => b.recordings)),
-  datasets: sum(m.dataset_peaks.filter((p) => p.channels >= min).map((p) => p.datasets)),
-});
-const whole = (n: number) => Math.round(n).toLocaleString("en-US");
-const oneDecimal = (part: number, total: number) =>
-  `${(Math.round((part / total) * 1000) / 10).toLocaleString("en-US")}%`;
-type Range = {
-  value: string;
-  style: { width: string; getPropertyValue(name: string): string };
-  dispatchEvent(e: unknown): void;
-};
-const range = (doc: Doc) => doc.getElementById("hours-min") as unknown as Range;
-// Where the thumb sits on the doubling axis from 1 to 512 channels, as a
-// fraction of its travel: the slider's own value, and the colored track's cut.
-function thumb(doc: Doc) {
-  const r = range(doc);
-  const width = Number.parseFloat(r.style.width);
-  return {
-    value: Number(r.value),
-    cut: (Number.parseFloat(r.style.getPropertyValue("--cut")) - 12) / (width - 24),
-  };
-}
-function expectThumbAt(doc: Doc, min: number) {
-  const t = thumb(doc);
-  expect(t.value).toBe(Math.round(1000 * Math.log2(min)));
-  expect(t.cut).toBeCloseTo(Math.log2(min) / 9, 6);
-}
+afterEach(closePages);
 
 describe("recorded hours before the collector reports", () => {
   test("no section at all says plainly that no data is available, and the page is otherwise intact", async () => {
@@ -509,7 +366,9 @@ describe("recorded hours explorer", () => {
   });
 
   test("a failed snapshot offers Try again, which draws one explorer", async () => {
-    const { document, errors } = await openPage(recordingsSection(), "", true);
+    const { document, errors } = await openPage(recordingsSection(), "", {
+      failSnapshotOnce: true,
+    });
     expect(text(document, "#channel-hours")).toContain("Could not load recorded hours");
     expect(text(document, "#channel-hours")).toContain("Service unavailable.");
     (document.querySelector("#channel-hours .button") as unknown as { click(): void }).click();
@@ -567,6 +426,7 @@ describe("recorded hours explorer", () => {
     const prose = literals.filter((s) => / /.test(s) && !/^\[ui\]/.test(s) && !/[{}();=]/.test(s));
     expect(prose.length).toBeGreaterThan(20);
     expect(prose.filter((s) => JARGON.test(s) || EXPLORER_JARGON.test(s))).toEqual([]);
+    // No em dash anywhere on the page, its scripts included.
     expect(window.document.body.textContent ?? "").not.toContain("—");
   });
 });
