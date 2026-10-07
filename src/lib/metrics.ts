@@ -285,22 +285,57 @@ export async function archiveSection(db: D1Database, now: string): Promise<Secti
   );
 }
 
-/** D1 stores timestamps as `datetime('now')` text, which compares as a string. */
-function d1Timestamp(ms: number): string {
-  return new Date(ms).toISOString().slice(0, 19).replace("T", " ");
+const STALE_PENDING_DAYS = 7;
+
+/** "1 recording", "2 recordings": the hints print counts, so they must agree in number. */
+function countOf(n: number, one: string, many: string): string {
+  return `${n.toLocaleString("en-US")} ${n === 1 ? one : many}`;
 }
 
-const STALE_PENDING_DAYS = 7;
+/** Reader-facing text for the partly-converted tile. Public copy: plain words. */
+export function partialHint(datasets: number, recordings: number): string {
+  return datasets > 0
+    ? `Ready, but ${countOf(recordings, "recording", "recordings")} across these datasets did not convert yet`
+    : "Datasets that are ready but missing some recordings";
+}
+
+/** Reader-facing text for the processing tile. Public copy: plain words. */
+export function pendingHint(stale: number): string {
+  const base = "Dispatched, conversion not yet confirmed";
+  return stale > 0
+    ? `${base}. ${stale === 1 ? "1 of these was" : `${stale.toLocaleString("en-US")} of these were`} last converted more than ${STALE_PENDING_DAYS} days ago, or never`
+    : base;
+}
+
+/**
+ * Per-dataset recording facts, with the converter's summary pulled out of
+ * `zarr_data_failures` (nemar-cli keeps `pending` and `discovered` counts there
+ * as additive keys; an older row holds a bare array, which has neither key).
+ * `CAST` keeps a stray non-numeric value from comparing as text.
+ */
+const ZARR_FACTS = `
+  SELECT zarr_status AS st,
+         recording_count AS rc,
+         COALESCE(zarr_store_count, 0) AS stores,
+         COALESCE(zarr_errors, 0) AS errs,
+         zarr_converted_at AS converted_at,
+         CAST(COALESCE(CASE WHEN json_valid(zarr_data_failures) THEN json_extract(zarr_data_failures, '$.pending') END, 0) AS INTEGER) AS jp,
+         CAST(COALESCE(CASE WHEN json_valid(zarr_data_failures) THEN json_extract(zarr_data_failures, '$.discovered') END, 0) AS INTEGER) AS jd
+  FROM datasets WHERE ${PUBLIC_MANAGED}`;
 
 /**
  * Zarr conversion health. "Ready" is a dataset-level status: a dataset stays
- * ready after a run in which some recordings failed (`zarr_errors > 0`), so it
+ * ready after a run in which some recordings failed or are still pending, so it
  * overstates coverage and flatlines once every dataset has a copy. The
- * recording-level tiles are the ones that keep moving while conversion work
- * continues, and `zarr.complete` is the strict dataset-level count.
+ * recording-level tile keeps moving while conversion work continues, and
+ * `zarr.complete` is the strict dataset-level count (ready with nothing failed
+ * or pending).
  */
 export async function zarrSection(db: D1Database, now: string): Promise<Section> {
-  const staleBefore = d1Timestamp(Date.parse(now) - STALE_PENDING_DAYS * 86_400_000);
+  const staleBefore = new Date(Date.parse(now) - STALE_PENDING_DAYS * 86_400_000)
+    .toISOString()
+    .slice(0, 19)
+    .replace("T", " ");
   const c = await counts<
     | "universe"
     | "ready"
@@ -316,33 +351,56 @@ export async function zarrSection(db: D1Database, now: string): Promise<Section>
   >(
     db,
     `SELECT
-       (SELECT COUNT(*) FROM datasets WHERE ${PUBLIC_MANAGED}) as universe,
-       (SELECT COUNT(*) FROM datasets WHERE ${PUBLIC_MANAGED} AND zarr_status = 'ready') as ready,
-       (SELECT COUNT(*) FROM datasets WHERE ${PUBLIC_MANAGED} AND zarr_status = 'ready' AND COALESCE(zarr_errors, 0) = 0) as complete,
-       (SELECT COUNT(*) FROM datasets WHERE ${PUBLIC_MANAGED} AND zarr_status = 'ready' AND zarr_errors > 0) as partial,
-       (SELECT COALESCE(SUM(zarr_errors), 0) FROM datasets WHERE ${PUBLIC_MANAGED} AND zarr_status = 'ready' AND zarr_errors > 0) as partial_recordings,
-       (SELECT COUNT(*) FROM datasets WHERE ${PUBLIC_MANAGED} AND zarr_status = 'pending') as pending,
-       (SELECT COUNT(*) FROM datasets WHERE ${PUBLIC_MANAGED} AND zarr_status = 'pending' AND (zarr_converted_at IS NULL OR zarr_converted_at < ?1)) as pending_stale,
-       (SELECT COUNT(*) FROM datasets WHERE ${PUBLIC_MANAGED} AND zarr_status = 'failed') as failed,
-       (SELECT COALESCE(SUM(zarr_store_count), 0) FROM datasets WHERE ${PUBLIC_MANAGED} AND zarr_status = 'ready') as stores,
-       (SELECT COALESCE(SUM(zarr_store_count), 0) FROM datasets WHERE ${PUBLIC_MANAGED}) as converted,
+       COUNT(*) AS universe,
+       COALESCE(SUM(st = 'ready'), 0) AS ready,
+       COALESCE(SUM(st = 'ready' AND errs = 0 AND jp = 0), 0) AS complete,
+       COALESCE(SUM(st = 'ready' AND (errs > 0 OR jp > 0)), 0) AS partial,
+       COALESCE(SUM(CASE WHEN st = 'ready' AND (errs > 0 OR jp > 0) THEN errs + jp ELSE 0 END), 0) AS partial_recordings,
+       COALESCE(SUM(st = 'pending'), 0) AS pending,
+       COALESCE(SUM(st = 'pending' AND (converted_at IS NULL OR datetime(converted_at) < ?1)), 0) AS pending_stale,
+       COALESCE(SUM(st = 'failed'), 0) AS failed,
+       COALESCE(SUM(CASE WHEN st = 'ready' THEN stores ELSE 0 END), 0) AS stores,
+       COALESCE(SUM(stores), 0) AS converted,
        -- Recordings found per dataset: the last index sweep's count, or what the
        -- conversion callback reported when that is larger (a sweep can lag a
-       -- rebuild). A dataset that failed outright has no sweep and no stores, so
-       -- its failed recordings are its count.
-       (SELECT COALESCE(SUM(MAX(COALESCE(recording_count, 0), COALESCE(zarr_store_count, 0) + COALESCE(zarr_errors, 0))), 0) FROM datasets WHERE ${PUBLIC_MANAGED}) as discovered`,
+       -- rebuild). A failed dataset keeps its last good stores and reports this
+       -- run's errors, which can overlap them, so take the larger rather than the
+       -- sum. A dataset that failed outright has no sweep and no stores, so its
+       -- failed recordings are its count.
+       COALESCE(SUM(CASE WHEN st = 'failed'
+         THEN MAX(COALESCE(rc, 0), stores, errs, jd)
+         ELSE MAX(COALESCE(rc, 0), stores + errs + jp, jd) END), 0) AS discovered
+     FROM (${ZARR_FACTS})`,
     staleBefore,
   );
   const universe = c.universe ?? 0;
   const partial = c.partial ?? 0;
   const pending = c.pending ?? 0;
-  const pendingStale = c.pending_stale ?? 0;
   const failed = c.failed ?? 0;
   return section(
     "zarr",
     "Zarr conversion",
     "nemar-cli",
     [
+      // First so the card's headline ring shows recording-level coverage, the
+      // number that keeps moving; dataset-level readiness has plateaued.
+      metric({
+        key: "zarr.recordings",
+        label: "Recordings converted",
+        value: c.converted ?? 0,
+        total: c.discovered ?? 0,
+        unit: "count",
+        severity: "ok",
+        hint: "Recordings with a Zarr copy, of all recordings found in public datasets. This keeps moving while conversion continues, even when the dataset counts do not. It includes datasets that are being rebuilt, unlike Zarr stores below",
+      }),
+      metric({
+        key: "zarr.complete",
+        label: "Fully converted",
+        value: c.complete ?? 0,
+        total: universe,
+        severity: "ok",
+        hint: "Public datasets where every recording has a Zarr copy, with none failed or waiting",
+      }),
       metric({
         key: "zarr.ready",
         label: "Zarr ready",
@@ -352,31 +410,11 @@ export async function zarrSection(db: D1Database, now: string): Promise<Section>
         hint: "Public datasets with a Zarr serving copy, including datasets where a few recordings did not convert",
       }),
       metric({
-        key: "zarr.complete",
-        label: "Fully converted",
-        value: c.complete ?? 0,
-        total: universe,
-        severity: "ok",
-        hint: "Public datasets where every recording has a Zarr copy",
-      }),
-      metric({
-        key: "zarr.recordings",
-        label: "Recordings converted",
-        value: c.converted ?? 0,
-        total: c.discovered ?? 0,
-        unit: "count",
-        severity: "ok",
-        hint: "Recordings with a Zarr copy, of all recordings found in public datasets. This keeps moving while conversion continues, even when the dataset counts do not",
-      }),
-      metric({
         key: "zarr.partial",
         label: "Partly converted",
         value: partial,
         severity: pendingSeverity(partial),
-        hint:
-          partial > 0
-            ? `Ready, but ${(c.partial_recordings ?? 0).toLocaleString("en-US")} recordings across these datasets did not convert`
-            : "Datasets that are ready but missing some recordings",
+        hint: partialHint(partial, c.partial_recordings ?? 0),
       }),
       metric({
         key: "zarr.pending",
@@ -384,10 +422,7 @@ export async function zarrSection(db: D1Database, now: string): Promise<Section>
         value: pending,
         severity: pendingSeverity(pending),
         drilldown: "zarr.pending",
-        hint:
-          pendingStale > 0
-            ? `Dispatched, conversion not yet confirmed. ${pendingStale} of these have had no confirmed conversion in the last ${STALE_PENDING_DAYS} days`
-            : "Dispatched, conversion not yet confirmed",
+        hint: pendingHint(c.pending_stale ?? 0),
       }),
       metric({
         key: "zarr.failed",
