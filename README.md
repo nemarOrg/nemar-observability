@@ -118,7 +118,7 @@ The page checks the payload by the same rules as `ChannelHoursSchema` before dra
 
 What the numbers cover, as the page also says:
 - Only public datasets converted for in-browser viewing (Zarr) so far, not the whole archive; the page states how many.
-- A recording with two signal types is counted once under each type, so totals across tabs overlap and must not be added.
+- A recording of two types at once (EEG and EMG, say) is counted under each type, so totals across tabs overlap and must not be added.
 - Datasets are counted once, at the channel count of their largest recording; hours and recordings are counted at each recording's own channel count.
 
 How it reads:

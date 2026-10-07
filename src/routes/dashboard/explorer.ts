@@ -113,7 +113,7 @@ function drawRecordedHours(root, found) {
   hoursView.found = found;
   // The title area says how much of the archive these hours cover.
   const scope = document.getElementById("recorded-hours-scope");
-  if (scope) scope.textContent = "Counts only the public datasets converted for in-browser viewing so far (" + num(found.payload.datasets_scanned) + " of them), not the whole archive. A recording with two signal types is counted once under each type, so totals across tabs overlap.";
+  if (scope) scope.textContent = "Counts only the public datasets converted for in-browser viewing so far (" + num(found.payload.datasets_scanned) + " of them), not the whole archive. A recording of two types at once is counted under each type, so totals across tabs overlap.";
   hoursView.modalities = prepareModalities(found.payload);
   hoursView.axisMax = axisMaxFor(hoursView.modalities);
   const linked = applyHoursHash(location.hash);
@@ -254,7 +254,7 @@ function buildHoursExplorer() {
   head.appendChild(infoDisclosure("How to read this chart", [
     "Each bar is one exact channel count, and each step along the axis doubles the channels, so the common montages at 32, 64, and 128 channels sit evenly apart.",
     "Bars at and above the minimum are drawn in color on a shaded band; bars below it are gray. Hours are summed recording time.",
-    "A dataset counts toward a minimum when its largest recording in this modality reaches it, so each dataset is counted once."
+    "A dataset counts toward a minimum when its largest recording of this type reaches it, so each dataset is counted once."
   ]));
   plot.appendChild(head);
   nodes.chart = hoursChart();

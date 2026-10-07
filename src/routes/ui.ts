@@ -326,7 +326,7 @@ export function renderDashboardPage(): string {
         <div class="subsection-head">
           <h3>Recorded hours by channel count</h3>
           <p>Recording time by recording type and number of channels.</p>
-          <p id="recorded-hours-scope" class="hours-scope">Counts only the public datasets converted for in-browser viewing so far, not the whole archive. A recording with two signal types is counted once under each type, so totals across tabs overlap.</p>
+          <p id="recorded-hours-scope" class="hours-scope">Counts only the public datasets converted for in-browser viewing so far, not the whole archive. A recording of two types at once is counted under each type, so totals across tabs overlap.</p>
         </div>
         <div id="channel-hours" aria-busy="true">${CHART_SKELETON}</div>
       </div>

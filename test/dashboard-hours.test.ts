@@ -400,7 +400,7 @@ describe("recorded hours explorer", () => {
   test("the title area says what the hours cover", async () => {
     const { document } = await openPage(recordingsSection());
     expect(text(document, "#recorded-hours-scope")).toBe(
-      `Counts only the public datasets converted for in-browser viewing so far (${sample.datasets_scanned} of them), not the whole archive. A recording with two signal types is counted once under each type, so totals across tabs overlap.`,
+      `Counts only the public datasets converted for in-browser viewing so far (${sample.datasets_scanned} of them), not the whole archive. A recording of two types at once is counted under each type, so totals across tabs overlap.`,
     );
   });
 
@@ -410,7 +410,8 @@ describe("recorded hours explorer", () => {
   // the two will be unified. The explorer adds its own storage terms.
   const JARGON =
     /Cloudflare|\bS3\b|CloudWatch|presigned|index\.json|nemar approve|archive-sweep|#\d{3}|source='|\b\d+d\b|—/;
-  const EXPLORER_JARGON = /\bZarr\b|\bindex(?:ed|ing)?\b/i;
+  // Readers see "recording type"; "modality" is the payload's word, not theirs.
+  const EXPLORER_JARGON = /\bZarr\b|\bindex(?:ed|ing)?\b|\bmodalit(?:y|ies)\b|signal types?/i;
 
   test("the explorer's words are plain", async () => {
     const { window, document } = await openPage(recordingsSection());
@@ -428,7 +429,9 @@ describe("recorded hours explorer", () => {
     );
     // Words with spaces; not log lines, and not code caught between two
     // string literals on one line.
-    const prose = literals.filter((s) => / /.test(s) && !/^\[ui\]/.test(s) && !/[{}();=]/.test(s));
+    const prose = literals.filter(
+      (s) => / /.test(s) && !/^\[ui\]/.test(s) && !/[{}();=]|^ \+ | \+ $/.test(s),
+    );
     expect(prose.length).toBeGreaterThan(20);
     expect(prose.filter((s) => JARGON.test(s) || EXPLORER_JARGON.test(s))).toEqual([]);
     // No em dash anywhere on the page, its scripts included.
