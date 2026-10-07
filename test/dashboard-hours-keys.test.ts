@@ -170,17 +170,19 @@ describe("links after the page has loaded", () => {
     expect(selectedTab(document)).toBe("EMG");
     expect(readout(document).claim).toBe("of EMG recorded with 32 or more channels");
     expect(text(document, ".hours-notices")).toBe("");
+    // Far past the largest EEG count in the sample (257): the largest is shown.
     await go("#hours=eeg:999999");
-    expect(readout(document).claim).toBe("of EEG recorded with 512 or more channels");
+    expect(readout(document).claim).toBe("of EEG recorded with 257 or more channels");
     expect(text(document, ".hours-notices")).toBe(
-      "This link's view is not available. Showing EEG, 512 or more channels.",
+      "This link's view is not available. Showing EEG, 257 or more channels.",
     );
+    expect(window.location.hash).toBe("#hours=eeg:257");
     for (const bad of ["#hours=eeg:0", "#hours=eeg:16:bytes"]) {
       await go(bad);
       expect(text(document, ".hours-notices")).toBe(
-        "This link's view is not available. Showing EEG, 512 or more channels.",
+        "This link's view is not available. Showing EEG, 257 or more channels.",
       );
-      expect(window.location.hash).toBe("#hours=eeg:512");
+      expect(window.location.hash).toBe("#hours=eeg:257");
     }
   });
 });

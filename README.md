@@ -125,7 +125,7 @@ How it reads:
 - A tab per modality, ordered by hours, and a minimum-channels slider on the chart's channel axis. End goes to the largest count the modality has; arrow keys step through the powers of two and every count that occurs.
 - A readout states the selected measure (hours, recordings, or datasets) at that minimum or more and its share of that measure for the modality, with the other two measures and channel-hours below.
 - The chart shows the selected measure at each exact channel count, colored at and above the minimum. The axis doubles at each step and counts stay exact because montages cluster just around powers of two (60, 63, 64, 65 and 127, 128, 129 channels), which bins such as 32-63 would split, and one scale has to hold 2-channel sleep EEG and 415-channel MEG.
-- The view is kept in the address as `#hours=eeg:16` (optionally `:recordings` or `:datasets`, any case) so it can be shared; a link the snapshot cannot show says so and the address is set to the view shown. Nothing is stored in the browser.
+- The view is kept in the address as `#hours=eeg:16` (optionally `:recordings` or `:datasets`, any case) so it can be shared; a link the snapshot cannot show says so and the address is set to the view shown (a minimum above the largest count of that type shows the largest count). Nothing is stored in the browser.
 - Data more than three days old, or from a run that could not read some datasets, carries a notice above the readout. Without a payload the explorer says no recorded-hours data is available right now.
 
 ## API

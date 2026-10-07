@@ -291,13 +291,26 @@ describe("recorded hours explorer", () => {
     );
   });
 
-  test("a link past the largest count keeps its minimum until stepped down", async () => {
+  test("a link past the largest count shows the largest count, and says so", async () => {
     const { window, document } = await openPage(recordingsSection(), "#hours=eeg:400");
-    expect(readout(document).slider).toBe("400 or more channels: 0 hours");
-    expectThumbAt(document, 400);
+    // EEG in the sample tops out at 257 channels.
+    expect(readout(document).slider).toBe("257 or more channels: 3.6 hours");
+    expect(text(document, ".hours-notices")).toBe(
+      "This link's view is not available. Showing EEG, 257 or more channels.",
+    );
+    expect(window.location.hash).toBe("#hours=eeg:257");
+  });
+
+  test("a minimum carried over from another tab steps down, never up", async () => {
+    // MEG reaches 415 channels; the minimum is kept when the tab changes, so
+    // EEG then shows 415 or more, beyond its last stop.
+    const { window, document } = await openPage(recordingsSection(), "#hours=meg:415");
+    q(document, "#hours-tab-0").click();
+    expect(readout(document).slider).toBe("415 or more channels: 0 hours");
+    expectThumbAt(document, 415);
     for (const name of ["ArrowRight", "PageUp"]) {
       key(document, window, "#hours-min", name);
-      expect(readout(document).claim).toBe("of EEG recorded with 400 or more channels");
+      expect(readout(document).claim).toBe("of EEG recorded with 415 or more channels");
     }
     key(document, window, "#hours-min", "ArrowLeft");
     expect(readout(document).claim).toBe("of EEG recorded with 257 or more channels");
@@ -358,13 +371,14 @@ describe("recorded hours explorer", () => {
     }
   });
 
-  test("a link asking for more channels than the axis holds states the minimum shown", async () => {
-    const { window, document } = await openPage(recordingsSection(), "#hours=eeg:100000");
-    expect(readout(document).claim).toBe("of EEG recorded with 512 or more channels");
+  test("a link asking for far more channels than exist states the minimum shown", async () => {
+    const { window, document } = await openPage(recordingsSection(), "#hours=emg:100000");
+    // EMG in the sample tops out at 32 channels.
+    expect(readout(document).claim).toBe("of EMG recorded with 32 or more channels");
     expect(text(document, ".hours-notices")).toBe(
-      "This link's view is not available. Showing EEG, 512 or more channels.",
+      "This link's view is not available. Showing EMG, 32 or more channels.",
     );
-    expect(window.location.hash).toBe("#hours=eeg:512");
+    expect(window.location.hash).toBe("#hours=emg:32");
     // The note lasts until the reader moves on.
     key(document, window, "#hours-min", "ArrowLeft");
     expect(text(document, ".hours-notices")).toBe("");

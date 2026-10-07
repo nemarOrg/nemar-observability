@@ -31,16 +31,20 @@ function hoursStops() { return channelStops(hoursModality(), hoursView.axisMax);
 function hoursPosition(channels) { return Math.round(1000 * Math.log2(Math.max(1, channels))); }
 // Applies a #hours= link to the view. "none": the address is not an explorer
 // link. "applied": shown as asked. "unavailable": the link names no modality
-// in this snapshot, does not parse, or asks for more channels than the axis
-// holds; the view shown instead is stated, and the address is set to it.
+// in this snapshot, does not parse, or asks for more channels than any
+// recording of that type has; the view shown instead is stated, and the
+// address is set to it.
 function applyHoursHash(hash) {
   const parsed = parseHoursHash(hash);
   if (!parsed) return "none";
   if (!parsed.valid || !hoursView.modalities.some(function (m) { return m.key === parsed.modality; })) return "unavailable";
   hoursView.key = parsed.modality;
   hoursView.measure = parsed.measure;
-  if (parsed.min > hoursView.axisMax) {
-    hoursView.min = hoursView.axisMax;
+  // More channels than any recording of this type has: show the largest count
+  // that occurs instead of an empty view, and say so.
+  const largest = largestCount(hoursModality());
+  if (parsed.min > largest) {
+    hoursView.min = largest;
     return "unavailable";
   }
   hoursView.min = parsed.min;
