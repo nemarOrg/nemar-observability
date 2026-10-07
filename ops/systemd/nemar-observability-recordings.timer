@@ -1,0 +1,17 @@
+[Unit]
+Description=Run the NEMAR recorded-hours collector daily
+
+[Timer]
+# Once a day. The indexes change only when a dataset converts, and an unchanged
+# index costs one conditional request, so a daily run is plenty. 06:20 UTC stays
+# clear of the egress collector (hourly at :15) and the storage collector
+# (08:45 and 14:45), and of the Worker's snapshot cron at :47. A failed run is
+# not retried by the timer; start the service by hand (see the README).
+OnCalendar=*-*-* 06:20:00 UTC
+Persistent=true
+RandomizedDelaySec=2m
+AccuracySec=1m
+Unit=nemar-observability-recordings.service
+
+[Install]
+WantedBy=timers.target

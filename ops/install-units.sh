@@ -2,7 +2,7 @@
 set -euo pipefail
 
 # Installs or refreshes the collector systemd units from the checkout and makes
-# sure both timers are enabled. Idempotent; run as root on nemaring:
+# sure every timer is enabled. Idempotent; run as root on nemaring:
 #
 #   sudo /opt/nemar-observability/ops/install-units.sh
 #
@@ -19,6 +19,8 @@ UNITS=(
   nemar-observability-egress.timer
   nemar-observability-storage.service
   nemar-observability-storage.timer
+  nemar-observability-recordings.service
+  nemar-observability-recordings.timer
 )
 
 [ "$(id -u)" = 0 ] || { echo "run as root: sudo $0" >&2; exit 2; }
@@ -37,7 +39,11 @@ sudo -u "$OWNER" env HOME="$(getent passwd "$OWNER" | cut -d: -f6)" GIT_TERMINAL
 (cd "$REPO/ops/systemd" && systemd-analyze verify "${UNITS[@]}") \
   || echo "WARNING: systemd-analyze verify reported the problems above" >&2
 
-TIMERS=(nemar-observability-egress.timer nemar-observability-storage.timer)
+TIMERS=(
+  nemar-observability-egress.timer
+  nemar-observability-storage.timer
+  nemar-observability-recordings.timer
+)
 
 # Read each timer's state before installing over it: a timer someone disabled on
 # purpose (the README's way to stop a collector that is known to fail) stays off.

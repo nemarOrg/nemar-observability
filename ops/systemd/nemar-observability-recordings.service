@@ -1,0 +1,34 @@
+[Unit]
+Description=Collect recorded hours by channel count from the NEMAR Zarr indexes for observability
+Wants=network-online.target nemar-observability-update.service
+After=network-online.target nemar-observability-update.service
+
+[Service]
+Type=oneshot
+User=yahya
+Group=yahya
+Environment=HOME=/home/yahya
+Environment=PATH=/home/yahya/.local/bin:/home/yahya/.bun/bin:/usr/local/bin:/usr/bin:/bin
+WorkingDirectory=/opt/nemar-observability
+# The first run reads every index (about 0.5 GB); later runs only revalidate
+# them. A hard stop for a hung run; the next timer activation starts a fresh one.
+TimeoutStartSec=45min
+# Holds the per-dataset summary cache (summaries/). Safe to delete: the next run
+# rebuilds it. systemd creates it owned by the service user and exports its path
+# as STATE_DIRECTORY, which ops/with-collector-secrets.sh passes through.
+StateDirectory=nemar-observability-recordings
+StateDirectoryMode=0700
+# Indexes are streamed, so memory stays far below this; the cap keeps a fault
+# here from starving the other services on this shared host.
+MemoryMax=1G
+ExecStart=/opt/nemar-observability/ops/with-collector-secrets.sh /opt/nemar-observability/scripts/push-zarr-recordings.ts
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+LockPersonality=true
+RestrictSUIDSGID=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
