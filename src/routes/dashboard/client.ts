@@ -14,6 +14,7 @@ import { CHARTS_JS } from "./charts";
 import { CORE_JS } from "./core";
 import { EXPLORER_JS } from "./explorer";
 import { FORMAT_JS } from "./format";
+import { MODALITY_JS } from "./modality";
 import { MODEL_JS } from "./model";
 import { OVERVIEW_JS } from "./overview";
 import { RANGE_JS } from "./range";
@@ -55,6 +56,7 @@ export const CLIENT_JS = [
   USAGE_JS,
   VIEWER_JS,
   REACH_JS,
+  MODALITY_JS,
   EXPLORER_JS,
   SNAPSHOT_JS,
   OVERVIEW_JS,

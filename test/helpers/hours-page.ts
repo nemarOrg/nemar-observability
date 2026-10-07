@@ -65,6 +65,18 @@ export function recordingsSection(
   };
 }
 
+// The sample has no ECG or MISC; these copy EMG's recordings under those names
+// (each stays a valid type: names are unique, datasets within what was read).
+export function payloadWithExtraTypes(): Payload {
+  const payload = structuredClone(sample);
+  const emg = payload.modalities.find((m) => m.modality === "EMG");
+  if (!emg) throw new Error("the sample has no EMG");
+  for (const name of ["ECG", "MISC"]) {
+    payload.modalities.push({ ...structuredClone(emg), modality: name });
+  }
+  return payload;
+}
+
 export interface OpenOptions {
   /** Answer the first /snapshot request with a 503, for the error state and Try again. */
   failSnapshotOnce?: boolean;
@@ -78,6 +90,11 @@ export interface OpenOptions {
    * charts follow window resize events instead (a path a test can trigger).
    */
   withoutResizeObserver?: boolean;
+  /**
+   * Runs on the new window before the page's script does, to stand in for a
+   * browser feature happy-dom does not have (layout, scrolling).
+   */
+  beforeWrite?: (window: Window) => void;
 }
 
 export async function openPage(section: Section | null, hash = "", options: OpenOptions = {}) {
@@ -127,6 +144,7 @@ export async function openPage(section: Section | null, hash = "", options: Open
     // biome-ignore lint/performance/noDelete: the page tests "ResizeObserver" in window, so the name must be gone, not undefined.
     delete (window as unknown as Record<string, unknown>).ResizeObserver;
   }
+  options.beforeWrite?.(window);
   window.document.write(renderDashboardPage());
   const document = window.document;
   await until(
