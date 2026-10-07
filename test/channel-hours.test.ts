@@ -242,6 +242,21 @@ describe("the page's check matches the server's schema", () => {
     ["channel count 1e308", set(["modalities", 0, "bins", lastBin, "channels"], 1e308)],
     ["fractional channel count", set(["modalities", 0, "bins", 0, "channels"], 2.5)],
     ["a bin with no recordings", set(["modalities", 0, "bins", 0, "recordings"], 0)],
+    // The next two keep every sum and the order intact, so only the "at least
+    // one" rules can catch them: EEG has bins at 3 and 5 channels, none at 4,
+    // and a bin at 3 channels but no dataset peak there.
+    [
+      "an empty bin that changes no sum",
+      (v) => {
+        v.modalities[eegIndex].bins.splice(2, 0, { channels: 4, hours: 0, recordings: 0 });
+      },
+    ],
+    [
+      "an empty peak that changes no sum",
+      (v) => {
+        v.modalities[eegIndex].dataset_peaks.splice(1, 0, { channels: 3, datasets: 0 });
+      },
+    ],
     ["fractional recordings", set(["modalities", 0, "bins", 0, "recordings"], 1.5)],
     ["negative hours", set(["modalities", 0, "bins", 0, "hours"], -1)],
     ["hours not a number", set(["modalities", 0, "bins", 0, "hours"], Number.NaN)],
