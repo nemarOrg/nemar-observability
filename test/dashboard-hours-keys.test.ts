@@ -282,12 +282,33 @@ describe("edge cases in the data", () => {
 });
 
 describe("pure pieces", () => {
-  const { axisMaxFor, channelStops, prepareModalities, measureFigure } = clientLogic([
+  const {
+    axisMaxFor,
+    channelStops,
+    prepareModalities,
+    measureFigure,
+    centeredScroll,
+    stripScrolls,
+  } = clientLogic([
     "axisMaxFor",
     "channelStops",
     "prepareModalities",
     "measureFigure",
+    "centeredScroll",
+    "stripScrolls",
   ]);
+
+  test("a tab is scrolled to the middle of its strip, within the strip's range", () => {
+    // A 300 px strip holding 900 px of 80 px tabs.
+    expect(centeredScroll(0, 80, 300, 900)).toBe(0); // at the left edge: stays at 0
+    expect(centeredScroll(400, 80, 300, 900)).toBe(290); // in the middle: 400 - (300 - 80) / 2
+    expect(centeredScroll(820, 80, 300, 900)).toBe(600); // at the right edge: the most it can scroll
+    // A strip that fits does not scroll, a fractional pixel of difference included.
+    expect(centeredScroll(100, 80, 300, 300)).toBeNull();
+    expect(centeredScroll(100, 80, 300.4, 301)).toBeNull();
+    expect(stripScrolls(300.4, 301)).toBe(false);
+    expect(stripScrolls(300, 302)).toBe(true);
+  });
 
   test("the axis never shrinks below 512, and 256 channels fits inside it", () => {
     const emgOnly = {

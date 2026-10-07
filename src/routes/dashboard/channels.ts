@@ -274,6 +274,19 @@ function nearestStop(stops, channels) {
   return best;
 }
 
+// ---------- recorded hours: the tab strip ----------
+// Whether a strip scrolls: a pixel of slack keeps a strip with a fractional
+// width from counting as scrolling.
+function stripScrolls(visibleWidth, contentWidth) { return contentWidth > visibleWidth + 1; }
+// Where to scroll a strip so a tab sits in its middle, kept within the strip's
+// range. tabLeft and tabWidth are the tab's offset and width inside the strip.
+// null when the strip fits and needs no scrolling.
+function centeredScroll(tabLeft, tabWidth, visibleWidth, contentWidth) {
+  if (!stripScrolls(visibleWidth, contentWidth)) return null;
+  const wanted = tabLeft - (visibleWidth - tabWidth) / 2;
+  return Math.max(0, Math.min(contentWidth - visibleWidth, wanted));
+}
+
 // ---------- recorded hours: shareable view ----------
 // #hours=eeg:16 or #hours=ieeg:64:datasets, matched without regard to case.
 // null means the address is not an explorer link at all; { valid: false } means

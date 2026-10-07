@@ -353,17 +353,15 @@ function hoursSourceNotes(found) {
 // whole page instead. The strip is positioned, so offsetLeft is measured in it.
 function centerHoursTab(tab) {
   const strip = hoursView.nodes.tablist;
-  if (!syncHoursStrip()) return;
-  strip.scrollLeft = Math.max(0, tab.offsetLeft - (strip.clientWidth - tab.offsetWidth) / 2);
+  syncHoursStrip();
+  const left = centeredScroll(tab.offsetLeft, tab.offsetWidth, strip.clientWidth, strip.scrollWidth);
+  if (left !== null) strip.scrollLeft = left;
 }
-// Marks a strip that scrolls, for its edge shadows; a pixel of slack keeps a
-// strip with a fractional width from counting as scrolling. Returns whether it scrolls.
+// Marks a strip that scrolls, for its edge shadows.
 function syncHoursStrip() {
   const strip = hoursView.nodes && hoursView.nodes.tablist;
-  if (!strip) return false;
-  const scrolls = strip.scrollWidth > strip.clientWidth + 1;
-  strip.classList.toggle("is-scrollable", scrolls);
-  return scrolls;
+  if (!strip) return;
+  strip.classList.toggle("is-scrollable", stripScrolls(strip.clientWidth, strip.scrollWidth));
 }
 function selectHoursModality(key) {
   if (hoursView.key === key) return;
