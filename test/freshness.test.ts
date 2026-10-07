@@ -95,6 +95,15 @@ function seedSection(
 }
 
 /**
+ * The recordings collector's section, as nemaring pushes it three times a day.
+ * Same shape as the S3 collectors (an `errors` metric the collector sets on a
+ * failed run), so it takes the same options.
+ */
+function seedRecordings(receivedAt: string, opts: Parameters<typeof seedSection>[2] = {}): void {
+  seedSection("recordings", receivedAt, { source: "nemar-zarr-index", ...opts });
+}
+
+/**
  * The Umami pusher's section. Its only metric is `collector_health`, a display
  * level ("warn" when a week had no page views or the tracker asset is down), not
  * a `*.collector.errors` failure flag, so a delivery always counts as a success.
@@ -257,10 +266,11 @@ describe("loadSeriesBehind", () => {
 });
 
 describe("loadPushedProblems", () => {
-  test("nothing is wrong when all three collectors succeeded recently", async () => {
+  test("nothing is wrong when all four collectors succeeded recently", async () => {
     seedSection("egress", hoursAgo(1));
     seedSection("storage", hoursAgo(10));
     seedWebsite(hoursAgo(1));
+    seedRecordings(hoursAgo(1));
     expect(await loadPushedProblems(asD1(engine), NOW, true)).toEqual([]);
   });
 
@@ -270,6 +280,7 @@ describe("loadPushedProblems", () => {
       "egress:missing",
       "storage:missing",
       "website:missing",
+      "recordings:missing",
     ]);
   });
 
@@ -281,6 +292,7 @@ describe("loadPushedProblems", () => {
     seedSection("egress", hoursAgo(1), { lastOk: hoursAgo(25) });
     seedSection("storage", hoursAgo(1), { lastOk: hoursAgo(27) });
     seedWebsite(hoursAgo(1));
+    seedRecordings(hoursAgo(1));
     expect(await loadPushedProblems(asD1(engine), NOW, true)).toEqual([
       { section: "storage", problem: "stale", detail: "last success 27h ago" },
     ]);
@@ -290,6 +302,7 @@ describe("loadPushedProblems", () => {
     seedSection("egress", hoursAgo(1));
     seedSection("storage", hoursAgo(1));
     seedWebsite(hoursAgo(1), { lastOk: hoursAgo(25) });
+    seedRecordings(hoursAgo(1));
     expect(await loadPushedProblems(asD1(engine), NOW, true)).toEqual([]);
 
     engine.run("DELETE FROM ingested_sections WHERE key = 'website'");
@@ -299,6 +312,52 @@ describe("loadPushedProblems", () => {
     ]);
   });
 
+  // Runs are at 06:50, 12:50 and 18:50 UTC, so the longest normal gap is 12 hours
+  // and one missed run is about 24: inside the window, not a fault.
+  test("recordings tolerate a missed run: 25 hours is fine, 27 is stale", async () => {
+    seedSection("egress", hoursAgo(1));
+    seedSection("storage", hoursAgo(1));
+    seedWebsite(hoursAgo(1));
+    seedRecordings(hoursAgo(1), { lastOk: hoursAgo(25) });
+    expect(await loadPushedProblems(asD1(engine), NOW, true)).toEqual([]);
+
+    engine.run("DELETE FROM ingested_sections WHERE key = 'recordings'");
+    seedRecordings(hoursAgo(1), { lastOk: hoursAgo(27) });
+    expect(await loadPushedProblems(asD1(engine), NOW, true)).toEqual([
+      { section: "recordings", problem: "stale", detail: "last success 27h ago" },
+    ]);
+  });
+
+  test("a recordings collector whose code has stopped updating is reported by its metric key", async () => {
+    seedSection("egress", hoursAgo(1));
+    seedSection("storage", hoursAgo(1));
+    seedWebsite(hoursAgo(1));
+    seedRecordings(hoursAgo(1), {
+      extraMetric: {
+        key: "recordings.collector.code_stale",
+        label: "Collector code updates",
+        value: 1,
+        unit: "errors",
+        severity: "error",
+      },
+    });
+    expect(await loadPushedProblems(asD1(engine), NOW, true)).toEqual([
+      {
+        section: "recordings",
+        problem: "code_stale",
+        detail: "recordings.collector.code_stale",
+      },
+    ]);
+  });
+
+  test("a recordings run that failed after an earlier success is not a problem", async () => {
+    seedSection("egress", hoursAgo(1));
+    seedSection("storage", hoursAgo(1));
+    seedWebsite(hoursAgo(1));
+    seedRecordings(hoursAgo(0.1), { failedRun: true, lastOk: hoursAgo(7) });
+    expect(await loadPushedProblems(asD1(engine), NOW, true)).toEqual([]);
+  });
+
   // collector_health is the pusher's display level (no page views for a week, or
   // the tracker asset down), not a failed run; Umami's own liveness covers the
   // former, and a warning must not read as a collector that stopped.
@@ -306,6 +365,7 @@ describe("loadPushedProblems", () => {
     seedSection("egress", hoursAgo(1));
     seedSection("storage", hoursAgo(1));
     seedWebsite(hoursAgo(1), { severity: "warn" });
+    seedRecordings(hoursAgo(1));
     expect(await loadPushedProblems(asD1(engine), NOW, true)).toEqual([]);
   });
 
@@ -313,6 +373,7 @@ describe("loadPushedProblems", () => {
     seedSection("egress", hoursAgo(24));
     seedSection("storage", hoursAgo(19));
     seedWebsite(hoursAgo(1));
+    seedRecordings(hoursAgo(1));
     expect(await loadPushedProblems(asD1(engine), NOW, true)).toEqual([]);
   });
 
@@ -320,6 +381,7 @@ describe("loadPushedProblems", () => {
     seedSection("egress", hoursAgo(0.1), { failedRun: true, lastOk: hoursAgo(1.1) });
     seedSection("storage", hoursAgo(1));
     seedWebsite(hoursAgo(1));
+    seedRecordings(hoursAgo(1));
     expect(await loadPushedProblems(asD1(engine), NOW, true)).toEqual([]);
   });
 
@@ -327,6 +389,7 @@ describe("loadPushedProblems", () => {
     seedSection("egress", hoursAgo(0.1), { failedRun: true, lastOk: hoursAgo(30) });
     seedSection("storage", hoursAgo(1));
     seedWebsite(hoursAgo(1));
+    seedRecordings(hoursAgo(1));
     expect(await loadPushedProblems(asD1(engine), NOW, true)).toEqual([
       { section: "egress", problem: "stale", detail: "last success 30h ago" },
     ]);
@@ -336,6 +399,7 @@ describe("loadPushedProblems", () => {
     seedSection("egress", hoursAgo(0.1), { failedRun: true });
     seedSection("storage", hoursAgo(1));
     seedWebsite(hoursAgo(1));
+    seedRecordings(hoursAgo(1));
     expect(await loadPushedProblems(asD1(engine), NOW, true)).toEqual([
       { section: "egress", problem: "stale", detail: "no successful run yet" },
     ]);
@@ -353,6 +417,7 @@ describe("loadPushedProblems", () => {
     });
     seedSection("storage", hoursAgo(1));
     seedWebsite(hoursAgo(1));
+    seedRecordings(hoursAgo(1));
     expect(await loadPushedProblems(asD1(engine), NOW, true)).toEqual([
       { section: "egress", problem: "code_stale", detail: "egress.collector.code_stale" },
     ]);
@@ -362,6 +427,7 @@ describe("loadPushedProblems", () => {
     seedSection("egress", hoursAgo(1), { raw: "{not json" });
     seedSection("storage", hoursAgo(1));
     seedWebsite(hoursAgo(1));
+    seedRecordings(hoursAgo(1));
     const problems = await loadPushedProblems(asD1(engine), NOW, true);
     expect(problems.map((p) => p.problem)).toEqual(["unreadable"]);
   });
@@ -370,6 +436,7 @@ describe("loadPushedProblems", () => {
     seedSection("egress", hoursAgo(1));
     seedSection("storage", hoursAgo(1));
     seedWebsite(hoursAgo(1));
+    seedRecordings(hoursAgo(1));
     seedSection("qa", hoursAgo(900), { failedRun: true, lastOk: null });
     engine.query("UPDATE ingested_sections SET section_json = ? WHERE key = 'qa'").run(
       JSON.stringify({
@@ -540,6 +607,7 @@ describe("Umami liveness over HTTP", () => {
       seedSection("egress", new Date().toISOString());
       seedSection("storage", new Date().toISOString());
       seedWebsite(new Date().toISOString());
+      seedRecordings(new Date().toISOString());
     };
 
     test("200 in production when every source is delivering", async () => {
@@ -618,6 +686,7 @@ describe("Umami liveness over HTTP", () => {
       seedSection("egress", new Date().toISOString());
       seedSection("storage", new Date().toISOString());
       seedWebsite(new Date().toISOString());
+      seedRecordings(new Date().toISOString());
       const res = await call(production());
       expect(res.status).toBe(503);
       const body = (await res.json()) as { series_behind: { key: string; latest: null }[] };
@@ -631,6 +700,7 @@ describe("Umami liveness over HTTP", () => {
       seedSeries(freshDay());
       seedSection("egress", new Date().toISOString());
       seedSection("storage", new Date().toISOString());
+      seedRecordings(new Date().toISOString());
       const res = await call(production());
       expect(res.status).toBe(503);
       expect(await res.json()).toMatchObject({
@@ -646,6 +716,7 @@ describe("Umami liveness over HTTP", () => {
       seedSection("egress", new Date().toISOString(), { lastOk: hoursAgo(80) });
       seedSection("storage", new Date().toISOString());
       seedWebsite(new Date().toISOString());
+      seedRecordings(new Date().toISOString());
       const res = await call(production());
       expect(res.status).toBe(503);
       expect(await res.json()).toMatchObject({

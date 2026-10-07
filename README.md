@@ -327,7 +327,7 @@ An index must be `format_version` 3, and its own `store_count` must match the st
 | `recordings.recordings` | `count` | measured recordings, each store once; `total` adds unmeasured and failed or pending recordings listed by the indexes read, and is omitted when any dataset could not be read |
 | `recordings.datasets` | `datasets` | public datasets with at least one measured recording; `total` is every public dataset, and the tile warns when an index could not be read |
 | `recordings.collector.errors` | `errors` | `0` after a successful run; a failed run replaces the section with this metric alone, at `1` and severity `error`, with a generic hint |
-| `recordings.collector.code_stale` | `errors` | present only while the checkout on nemaring has been unable to update for a day; it shows on the tile and in the journal only, because `recordings` is not judged by `/health` |
+| `recordings.collector.code_stale` | `errors` | present only while the checkout on nemaring has been unable to update for a day; it shows on the tile and in the journal, and `/health` goes red and the health monitor opens an alert, like the other collectors |
 
 `channel_hours` carries, per modality, the exact channel-count bins (`hours` and `recordings` at each count) and `dataset_peaks` (datasets whose largest recording in that modality has exactly that many channels).
 It holds no dataset identifiers, and the whole section is tens of kilobytes.
@@ -369,9 +369,9 @@ The first run reads every index (about 0.5 GB); on 2026-10-06 that took 26 to 42
 **Schedule and health.**
 The timer fires three times a day, at 06:50, 12:50 and 18:50 UTC, all after the :40 end of the hourly `nemar-db` export, and the service restarts itself 55 minutes after a failed run (limited to three starts in five hours).
 A failed run replaces the section with the error status, so one run a day would leave the explorer blank for up to a day; three runs and a retry make that a matter of hours.
-`recordings` is not judged by `/observability/health` or the health monitor, so a failed run, or `recordings.collector.code_stale`, shows only on the dashboard tile and in the journal (`journalctl -u nemar-observability-recordings`).
-Adding `recordings` to `EXPECTED_SECTION_MAX_AGE_MS` in `src/lib/freshness.ts` is the follow-up, once it has run successfully in production.
-With successful runs every 6 to 12 hours, the 26-hour allowance the other collectors have tolerates a missed run or two (about 24 hours without a success) and goes red on a third.
+`recordings` is judged by `/observability/health` and the health monitor like the other collectors (`EXPECTED_SECTION_MAX_AGE_MS` in `src/lib/freshness.ts`): it goes red when the section has never arrived in production, has had no successful run for 26 hours, or reports `recordings.collector.code_stale`.
+A single failed run replaces the tile with the error status but does not turn health red; read it with `journalctl -u nemar-observability-recordings`.
+With successful runs every 6 to 12 hours, the 26-hour allowance tolerates a missed run or two (about 24 hours without a success) and goes red on a third.
 
 ## Installing the collectors on nemaring
 
@@ -414,7 +414,7 @@ It resets rather than pulls, so a dirty tree, a stray local commit, or another b
 The update service is the only unit that can write to the checkout and it holds no secrets; the collectors, which hold the AWS key and the ingest tokens, cannot write to it.
 A failed update does not block the collection.
 It records when the failures began in `/var/lib/nemar-observability/update-failed-since` (the update service's systemd `StateDirectory`, outside the checkout), and once that is a day old each collector publishes an error metric (`egress.collector.code_stale`, `storage.collector.code_stale`, `recordings.collector.code_stale`).
-For egress and storage that turns `/observability/health` red and opens a health-alert issue; `recordings` is not judged by health, so its metric shows only on the dashboard tile and in the journal.
+For each of them that turns `/observability/health` red and opens a health-alert issue, and the metric also shows on the dashboard tile.
 The next successful update clears it.
 Only a change under `ops/systemd/` needs `sudo /opt/nemar-observability/ops/install-units.sh` again.
 The update trusts `main` with the collectors' secrets exactly as the Worker deploy does, so keep branch protection (green CI) on `main`.
@@ -520,7 +520,7 @@ The timer runs three times a day, at 06:50, 12:50 and 18:50 UTC with up to 2 min
 A failed run is tried again 55 minutes later, at most three starts in five hours.
 If a run keeps failing, `sudo systemctl disable --now nemar-observability-recordings.timer` stops it until the cause is fixed.
 Code updates need no further step: every run first starts the update service, like the other collectors, and publishes `recordings.collector.code_stale` once the checkout has been unable to update for a day.
-That metric, and a failed run, show only on the dashboard tile and in the journal: `recordings` is not judged by `/health`, so nothing opens a health-alert issue for it.
+That metric turns `/health` red and opens a health-alert issue like the other collectors; a single failed run shows on the dashboard tile and in the journal, and only 26 hours without a success turns health red.
 Only a change under `ops/systemd/` needs `install-units.sh` again.
 
 ## Development
