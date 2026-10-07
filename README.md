@@ -298,7 +298,8 @@ A later run sends `If-None-Match`; on `304` (or a `200` with the same ETag) the 
 A cached summary is reused only when that ETag check itself succeeded.
 If the check fails (an HTTP error, a timeout, malformed or truncated JSON, an index that belongs to another dataset, a limit broken), the dataset is counted in `datasets_unavailable` for that run and its old summary is not shown as fresh; the entry stays on disk for the next successful check.
 An index that was readable on an earlier run and is missing now (S3 answers 403 or 404) is unavailable too, a regression, and not "no Zarr copy".
-Only a network failure, a timeout, a 5xx or 429, or a download that ends early is retried: each index is tried up to three times, with a 2 s and then a 4 s pause.
+Only a network failure, a timeout, a 5xx, a 408 or 429 (the server asking to be tried again), or a download that ends early is retried: each index is tried up to three times, with a 2 s and then a 4 s pause.
+Other 4xx answers are final.
 A bad document, a broken size or time limit, and an unexpected error are final for the run (a retry would download up to 300 MB again); an unexpected error is logged with its name and stack.
 The cache is only an optimization.
 Deleting it, or any file in it, costs one re-download.
@@ -309,7 +310,7 @@ Under systemd the state directory is `/var/lib/nemar-observability-recordings` (
 **Failure behavior.**
 A run fails, and publishes the generic error status the same way the other collectors do, when the catalog cannot be read in full or looks incomplete, when no index could be read, when more than a tenth of the indexes could not be read, when the unreadable indexes held more than a tenth of the hours the cache last knew for them (one dataset can hold most of the hours, so the count alone is not enough; a first run has no cache and is judged by count only), or when nothing was measured.
 A smaller number of unreadable indexes still publishes: they are counted in `datasets_unavailable`, the hours and datasets tiles turn to `warn`, and the recordings total is withheld.
-The push itself is tried up to four times (pauses of 5, 15 and 45 seconds) after a network failure, a 5xx or a 429, and only those outcomes are called "the write outcome may be unknown", so a run that ends that way publishes no error status that could overwrite a stored section.
+The push itself is tried up to four times (pauses of 5, 15 and 45 seconds) after a network failure, a 5xx or a 429 (it does not retry a 408), and only those outcomes are called "the write outcome may be unknown", so a run that ends that way publishes no error status that could overwrite a stored section.
 A 4xx is a definite refusal: nothing was stored, the first 500 characters of the response are logged (a 422 lists the schema issues), and the failure status is tried.
 The report is built before the push and nothing after a successful push can throw, so an error can no longer replace a section that was just stored.
 
@@ -318,7 +319,7 @@ The report is built before the push and nothing after a successful push can thro
 It never reads the ingest token, never posts, and never publishes a failure status.
 
 ```bash
-bun scripts/push-zarr-recordings.ts --dry-run --out /tmp/recordings.json
+bun scripts/push-zarr-recordings.ts --dry-run --out "$(mktemp -d)/recordings.json"
 ```
 
 The first run reads every index (about 0.5 GB); on 2026-10-06 that took 26 to 42 seconds on a laptop, and a run against a warm cache about 14 to 18 seconds.
@@ -335,7 +336,8 @@ With successful runs every 6 to 12 hours, the 26-hour allowance the other collec
 The egress and storage collectors run through `ops/with-collector-secrets.sh`, which injects the existing read-only Infisical path `prod:/observability/egress` using the existing token file `$HOME/.config/infisical/nemar-observability-egress.token`.
 The storage collector reuses that path's `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, and `AWS_REGION`; no new AWS key or IAM change is needed.
 The wrapper removes the other collectors' ingest tokens from each child's environment.
-Which collector may see which secret is one table, `ops/collector-profiles.sh`, which the wrapper sources and `test/collector-env.test.ts` runs under real bash.
+Which collector is denied which known secret is one table, `ops/collector-profiles.sh`, which the wrapper sources and `test/collector-env.test.ts` runs under real bash, and also runs the whole wrapper with stand-in tools.
+It is a deny-list of the known ingest tokens and AWS keys, not an allow-list: a new secret added to that Infisical path reaches all three collectors until it is listed in the table.
 The recordings collector runs through the same wrapper; it needs no AWS key and the wrapper removes it from that child as well (see "Installing the recordings collector" below).
 
 A human must first create one new secret, in two places, with a fresh random value (for example `openssl rand -hex 32`):
@@ -346,7 +348,7 @@ A human must first create one new secret, in two places, with a fresh random val
 Then, on nemaring, install the units once.
 Never run `git` as root in the checkout: the services pull as `yahya`, and root-owned objects make that pull fail.
 `ops/install-units.sh` repairs the ownership, installs every collector's units, and enables every timer, the recordings timer included.
-On a fresh host, create the recordings token first (steps 2 and 3 of "Installing the recordings collector" below), or its first runs fail in the journal with a missing-token error and publish nothing.
+On a fresh host, create the recordings token and the Worker secret first (steps 3 and 4 of "Installing the recordings collector" below, which must in turn wait for the merged wrapper), or its first runs fail in the journal with a missing-token error and publish nothing.
 
 ```bash
 # Fresh host only: /opt is root-owned, so create the directory for yahya first.
@@ -384,22 +386,37 @@ It is not hourly because S3 publishes a day's size some time during the next UTC
 
 Merging this change does not start the new collector: its service and timer exist only in the repository until a person installs them on nemaring, and the collector posts only once it has its token.
 Two other things do go live on merge.
-`ops/with-collector-secrets.sh` and the new `ops/collector-profiles.sh` are shared with the egress and storage collectors, which update themselves to `origin/main` before every run, so the new wrapper starts running them at their next run after the merge (egress at :15, storage at 08:45 or 14:45).
-Egress and storage should see exactly the environment they saw before, which is tested under bash 3.2 and 5, but step 6 below is to check that on the host.
+`ops/with-collector-secrets.sh` and the new `ops/collector-profiles.sh` are shared with the egress and storage collectors, which update themselves to `origin/main` before every run, so the new wrapper starts running them at their next run after the merge: egress at the next :15, within the hour, and storage at its next 08:45 or 14:45.
+Egress and storage should see exactly the environment they saw before, which is tested under bash 3.2 and 5, but step 2 is to check that on the host, right after the merge.
 And the Worker deploy runs for any merge to `main`.
 
 Do these in order.
-Until steps 2 and 3 are done, the recordings timer must not be enabled, so do not run `install-units.sh` before them: it enables every timer, and a recordings run without its token fails in the journal and publishes nothing.
+The order matters in two places.
+The token must not exist in Infisical before the new wrapper is live (step 3 after step 2): the old wrapper hides only the egress and storage tokens from each other, so it would hand a `OBS_RECORDINGS_INGEST_TOKEN` that already exists to the egress and storage processes, which have no use for it.
+And do not run `install-units.sh` before the token and the Worker secret exist (steps 3 and 4): it enables every timer, and a recordings run without its token fails in the journal and publishes nothing.
 
 1. **Make sure the Worker that knows `channel_hours` is deployed first.**
    That is the Worker with the contract from #108.
    An older Worker's section schema is not strict about that field, so it answers 200 and silently drops the payload.
    Merge #108 and wait for its deploy job (it ends by checking `/health`) before the first push.
-2. **Create the ingest token and store it in Infisical.**
+2. **Merge this change, wait for nemaring to update itself, and check egress and storage straight away.**
+   The checkout updates at the next collector run (egress at :15), so after the merge:
+
+   ```bash
+   # The merge commit once the update has run (before it, the previous commit):
+   git -C /opt/nemar-observability log -1 --oneline
+   # After the next :15: the update line, then egress ending in "[s3-egress] posted ...":
+   journalctl -u nemar-observability-update.service -u nemar-observability-egress.service -n 40 --no-pager
+   # After the next 08:45 or 14:45 UTC: storage ending in "[s3-storage] posted ...":
+   journalctl -u nemar-observability-storage.service -n 20 --no-pager
+   ```
+
+   If either does not end with its usual `posted` line, stop here: the new wrapper is the first suspect (the profile table is `ops/collector-profiles.sh`), and nothing else below has been started.
+3. **Create the ingest token and store it in Infisical**, now that the new wrapper is live.
    Generate a fresh value (for example `openssl rand -hex 32`).
    In Infisical project `nemar` (ID `817f7473-a318-4e99-9cf4-a89db057f5fc`), environment `prod`, path `/observability/egress`, add `OBS_RECORDINGS_INGEST_TOKEN`.
    The same read-only token file as the other collectors reads it; no new token file, AWS key, or IAM change is needed.
-3. **Add the same value under key `recordings` in the production Worker secret `OBS_INGEST_TOKENS_JSON`.**
+4. **Add the same value under key `recordings` in the production Worker secret `OBS_INGEST_TOKENS_JSON`.**
    The secret is one JSON object, `wrangler secret put` replaces it whole, and Cloudflare cannot read the old value back, so the command below rebuilds it from the tokens Infisical holds.
    It writes exactly four keys, `egress`, `storage`, `recordings` and `website`, and removes any other key the secret has now; if you know of another pusher with a token in it, add it to the command first.
    The values must be distinct: with a duplicate the Worker answers 503 to every pusher, so the command refuses to send duplicates or a missing token.
@@ -424,8 +441,8 @@ Until steps 2 and 3 are done, the recordings timer must not be enabled, so do no
    unset TOKENS_JSON
    ```
 
-4. **Install the units on nemaring**, once this change is on `main` and steps 1 to 3 are done.
-   The checkout updates itself at the next collector run, or pull it now; never run `git` as root there.
+5. **Install the units on nemaring**, once steps 1 to 4 are done.
+   The checkout is already current from step 2; never run `git` as root there.
    `ops/install-units.sh` installs the recordings service and timer next to the others and enables the timer; it leaves a timer you disabled on purpose disabled.
 
    ```bash
@@ -433,28 +450,27 @@ Until steps 2 and 3 are done, the recordings timer must not be enabled, so do no
    sudo /opt/nemar-observability/ops/install-units.sh
    ```
 
-5. **Optional check without any secret.**
+6. **Optional check without any secret.**
    A dry run reads the public catalog and indexes and prints the totals; it posts nothing.
    It fills its own cache under `~/.cache/nemar-observability/recordings`, not the service's.
+   The output goes to a file in yahya's home directory, not a fixed path in `/tmp`, which another user could have pre-made as a symlink (the file is written through symlinks).
 
    ```bash
    sudo -u yahya env HOME=/home/yahya \
      PATH=/home/yahya/.local/bin:/home/yahya/.bun/bin:/usr/local/bin:/usr/bin:/bin \
      /home/yahya/.bun/bin/bun /opt/nemar-observability/scripts/push-zarr-recordings.ts \
-     --dry-run --out /tmp/recordings.json
+     --dry-run --out /home/yahya/recordings-dry-run.json
    ```
 
-6. **Start the first run** (it reads every index once, about 25 to 40 seconds with a good connection) and read the journal.
+7. **Start the first run** (it reads every index once, about 25 to 40 seconds with a good connection) and read the journal.
    A good run ends with `posted N modalities`.
-   Then read the journals of the egress and storage services: their next runs after the merge use the new wrapper, and each must still end with its usual `posted` line.
 
    ```bash
    sudo systemctl start nemar-observability-recordings.service
    journalctl -u nemar-observability-recordings.service -n 80 --no-pager
-   journalctl -u nemar-observability-egress.service -u nemar-observability-storage.service -n 40 --no-pager
    ```
 
-7. **Confirm the section.**
+8. **Confirm the section.**
    The snapshot picks up a push at the next hourly cron (:47).
    Look for section `recordings` with a `channel_hours` payload in `GET /observability/api/snapshot?cb=$(date +%s)`.
 

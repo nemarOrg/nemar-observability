@@ -14,7 +14,10 @@
 // section's ingest token: no AWS credentials, and nothing is read that is not
 // anonymously public.
 //
-//   bun scripts/push-zarr-recordings.ts --dry-run --out /tmp/recordings.json
+//   bun scripts/push-zarr-recordings.ts --dry-run --out "$(mktemp -d)/recordings.json"
+//
+// (--out is written through symlinks, so give it a fresh directory, not a fixed
+// path in a shared one.)
 //
 // `--dry-run` computes and prints everything and writes the payload to --out,
 // but never reads the ingest token, never posts, and never publishes a failure

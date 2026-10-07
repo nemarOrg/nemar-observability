@@ -15,12 +15,18 @@ Group=yahya
 Environment=HOME=/home/yahya
 Environment=PATH=/home/yahya/.local/bin:/home/yahya/.bun/bin:/usr/local/bin:/usr/bin:/bin
 WorkingDirectory=/opt/nemar-observability
-# A failed run (catalog unreachable, too many indexes unreadable) is tried again
-# after 55 minutes. A run that starts at :50 fails at about :51 or a few minutes
-# later, so the retry starts at about :46 to :56, after the :10 to :40 window in
-# which the hourly nemar-db export locks the database the catalog reads (half an
-# hour would land inside it). It exits non-zero only after it has published the
-# error status, so a retry that succeeds replaces it.
+# A failed run is tried again 55 minutes after it failed. The usual failure is
+# the catalog being unreachable, which a run that starts at :50 reports at about
+# :51 to :56 (it waits out up to 5 minutes of lock first), so the retry starts at
+# about :46 to :51, after the :10 to :40 window in which the hourly nemar-db
+# export locks the database the catalog reads (half an hour would land inside
+# it). A failure after T minutes retries at :(45+T), so a run that fails late,
+# after 25 to 55 minutes (a hung or slow read of the indexes), retries inside
+# that window; its catalog fetch then waits out the lock for up to 5 minutes and,
+# if the lock outlasts that, fails fast and uses one of the three starts the
+# limit below allows. The next timer slot is always clear of the window. It exits
+# non-zero only after it has published the error status, so a retry that
+# succeeds replaces it.
 Restart=on-failure
 RestartSec=55min
 # A hard stop for a hung run; the next timer slot starts a fresh one. How long a
