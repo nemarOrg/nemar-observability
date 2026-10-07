@@ -120,6 +120,7 @@ function attachCursor(frame, count, api) {
   frame.wrap.addEventListener("focus", function () { show(active >= 0 ? active : api.initial(), true); });
   frame.wrap.addEventListener("blur", hide);
   frame.wrap.addEventListener("keydown", function (event) {
+    if (event.altKey || event.ctrlKey || event.metaKey) return;
     let next = active < 0 ? api.initial() : active;
     if (event.key === "ArrowRight") next = Math.min(count - 1, next + 1);
     else if (event.key === "ArrowLeft") next = Math.max(0, next - 1);

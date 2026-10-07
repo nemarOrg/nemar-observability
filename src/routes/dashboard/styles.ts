@@ -552,7 +552,8 @@ main > section { scroll-margin-top: calc(var(--topbar-h) + 16px); padding-top: v
 .hours-foot { margin-top: var(--space-4); padding-top: var(--space-1); border-top: 1px solid var(--border); }
 .hours-foot .fine:first-of-type { margin-top: var(--space-3); }
 .hours-table .is-below th, .hours-table .is-below td { color: var(--text-3); }
-.hours-table .hours-cut th { padding: 5px 12px; background: var(--hours-band); color: var(--text); font-size: var(--fs-xs); font-weight: 600; }
+.hours-caption { padding: 8px 12px; caption-side: top; color: var(--text-3); font-size: var(--fs-xs); text-align: left; }
+.hours-table .hours-cut td { padding: 5px 12px; background: var(--hours-band); color: var(--text); font-size: var(--fs-xs); font-weight: 600; }
 @media (min-width: 600px) and (max-width: 899px) {
   .hours-readout { display: grid; grid-template-columns: minmax(0, 1fr) minmax(220px, 280px); align-content: start; gap: 6px var(--space-6); }
   .hours-readout > * { grid-column: 1; }
@@ -639,6 +640,7 @@ main > section { scroll-margin-top: calc(var(--topbar-h) + 16px); padding-top: v
   .hours-tab { min-width: 64px; padding: 8px 10px 9px; }
   .hours-panel { padding: 16px; }
   .hours-value { font-size: 34px; }
+  .hours-table th, .hours-table td { padding-left: 8px; padding-right: 8px; }
 }
 @media (max-width: 420px) {
   .range-summary { display: none; }

@@ -46,7 +46,7 @@ function scheduleHoursHash() {
   }, 250);
 }
 window.addEventListener("hashchange", function () {
-  if (hoursView.nodes && applyHoursHash(location.hash)) updateHours(false);
+  if (hoursView.nodes && applyHoursHash(location.hash)) updateHours(false, true);
 });
 
 function renderRecordedHours(snap) {
@@ -123,6 +123,7 @@ function buildHoursExplorer() {
     return tab;
   });
   tablist.addEventListener("keydown", function (event) {
+    if (event.altKey || event.ctrlKey || event.metaKey) return;
     const index = nodes.tabs.indexOf(document.activeElement);
     if (index < 0) return;
     const count = nodes.tabs.length;
@@ -147,7 +148,7 @@ function buildHoursExplorer() {
     button.addEventListener("click", function () {
       if (view.measure === measure) return;
       view.measure = measure;
-      updateHours(true);
+      updateHours(true, true);
     });
     measures.appendChild(button);
     return button;
@@ -239,6 +240,7 @@ function buildHoursExplorer() {
     setHoursMin(next);
   });
   range.addEventListener("keydown", function (event) {
+    if (event.altKey || event.ctrlKey || event.metaKey) return;
     const stops = hoursStops();
     let next = null;
     if (event.key === "ArrowRight" || event.key === "ArrowUp") next = stepStop(stops, view.min, 1);
@@ -256,9 +258,11 @@ function buildHoursExplorer() {
   const foot = el("div", "hours-foot");
   nodes.details = disclosure("Show exact values", "values");
   const table = el("table", "data-table hours-table");
+  // The datasets column holds dataset peaks, so the caption says how they count.
+  table.appendChild(el("caption", "hours-caption", "Each dataset is counted once, at the channel count of its largest recording."));
   const thead = el("thead");
   const hr = el("tr");
-  [["Channels", ""], ["Hours", "num"], ["Recordings", "num"], ["Datasets with this as their largest", "num"]].forEach(function (h) {
+  [["Channels", ""], ["Hours", "num"], ["Recordings", "num"], ["Datasets", "num"]].forEach(function (h) {
     hr.appendChild(scoped(el("th", h[1] || null, h[0]), "col"));
   });
   thead.appendChild(hr);
@@ -271,6 +275,11 @@ function buildHoursExplorer() {
   foot.appendChild(nodes.details);
   hoursSourceNotes(view.found).forEach(function (text) { foot.appendChild(el("p", "fine", text)); });
   panel.appendChild(foot);
+  // Focus stays on a tab or the measure toggle while the readout changes below
+  // it, so the new answer is read out once, politely.
+  nodes.live = el("p", "sr-only hours-live");
+  nodes.live.setAttribute("aria-live", "polite");
+  panel.appendChild(nodes.live);
   card.appendChild(panel);
   view.nodes = nodes;
   return card;
@@ -287,7 +296,7 @@ function hoursSourceNotes(found) {
 function selectHoursModality(key) {
   if (hoursView.key === key) return;
   hoursView.key = key;
-  updateHours(true);
+  updateHours(true, true);
 }
 function setHoursMin(channels) {
   const nodes = hoursView.nodes;
@@ -301,8 +310,8 @@ function setHoursMin(channels) {
 }
 
 // Everything that follows the view, in one place, so the readout, slider,
-// chart, and table never disagree.
-function updateHours(fromUser) {
+// chart, and table never disagree. announce reads the new answer aloud.
+function updateHours(fromUser, announce) {
   const view = hoursView;
   const nodes = view.nodes;
   if (!nodes) return;
@@ -336,6 +345,7 @@ function updateHours(fromUser) {
   nodes.title.textContent = HOURS_CHART_TITLES[view.measure];
   nodes.chart.update();
   fillHoursTable(modality);
+  if (announce) nodes.live.textContent = shown.number + " " + shown.unit + " " + nodes.claim.textContent + ". " + nodes.share.textContent + ".";
   if (fromUser) scheduleHoursHash();
 }
 
@@ -349,7 +359,7 @@ function fillHoursTable(modality) {
   body.textContent = "";
   function divider(text) {
     const tr = el("tr", "hours-cut");
-    const cell = scoped(el("th", null, text), "rowgroup");
+    const cell = el("td", null, text);
     cell.colSpan = 4;
     tr.appendChild(cell);
     body.appendChild(tr);
@@ -390,7 +400,7 @@ function hoursChart() {
     frame.canvas.textContent = "";
     const height = width < 480 ? 180 : 210;
     const max = points.reduce(function (m, p) { return Math.max(m, p.value); }, 0);
-    const scale = niceScale(max, "count", 3);
+    const scale = view.measure === "hours" ? niceScale(max, "count", 3) : countScale(max);
     const tickText = function (t) { return view.measure === "hours" ? humanHours(t) : compact(t); };
     let labelChars = 0;
     scale.ticks.forEach(function (t) { labelChars = Math.max(labelChars, tickText(t).length); });
@@ -510,7 +520,7 @@ function hoursChart() {
   frame.wrap.addEventListener("focus", function () { show(active >= 0 ? active : firstCounted(), true); });
   frame.wrap.addEventListener("blur", hide);
   frame.wrap.addEventListener("keydown", function (event) {
-    if (!points.length) return;
+    if (!points.length || event.altKey || event.ctrlKey || event.metaKey) return;
     let next = active < 0 ? firstCounted() : active;
     if (event.key === "ArrowRight") next = Math.min(points.length - 1, next + 1);
     else if (event.key === "ArrowLeft") next = Math.max(0, next - 1);

@@ -212,7 +212,9 @@ function healthCard(section) {
     list.appendChild(row);
   });
   card.appendChild(list);
-  const hasHours = section.channel_hours !== undefined;
+  // Only the section the explorer is drawing, and only when it can draw it.
+  const drawn = findChannelHours(state.snapshot);
+  const hasHours = drawn.state === "ok" && drawn.section === section;
   if (metrics.some(function (m) { return m.drilldown; }) || hasHours) {
     const foot = el("div", "card-foot");
     // The section behind the recorded-hours explorer points to it.

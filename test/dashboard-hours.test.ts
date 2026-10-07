@@ -57,7 +57,9 @@ function recordingsSection(withHours = true): Section {
   };
 }
 
-async function openPage(section: Section | null, hash = "") {
+// failSnapshotOnce answers the first /snapshot request with a 503, to exercise
+// the error state and Try again; everything else reaches the real Worker.
+async function openPage(section: Section | null, hash = "", failSnapshotOnce = false) {
   const engine = new Database(":memory:");
   for (const migration of MIGRATIONS) engine.run(migration);
   const db = asD1(engine);
@@ -77,8 +79,13 @@ async function openPage(section: Section | null, hash = "") {
   window.addEventListener("unhandledrejection", (event) =>
     errors.push(`unhandled: ${String((event as unknown as { reason?: unknown }).reason)}`),
   );
+  let failures = failSnapshotOnce ? 1 : 0;
   (window as unknown as { fetch: unknown }).fetch = async (input: unknown) => {
-    const response = await worker.fetch(new Request(new URL(String(input), ORIGIN).href), env, ctx);
+    const url = new URL(String(input), ORIGIN);
+    const response =
+      url.pathname.endsWith("/snapshot") && failures-- > 0
+        ? new Response(JSON.stringify({ error: "Service unavailable" }), { status: 503 })
+        : await worker.fetch(new Request(url.href), env, ctx);
     return new window.Response(await response.text(), {
       status: response.status,
       headers: { "content-type": response.headers.get("content-type") ?? "application/json" },
@@ -128,6 +135,29 @@ const at = (m: (typeof sample.modalities)[number], min: number) => ({
   datasets: sum(m.dataset_peaks.filter((p) => p.channels >= min).map((p) => p.datasets)),
 });
 const whole = (n: number) => Math.round(n).toLocaleString("en-US");
+const oneDecimal = (part: number, total: number) =>
+  `${(Math.round((part / total) * 1000) / 10).toLocaleString("en-US")}%`;
+type Range = {
+  value: string;
+  style: { width: string; getPropertyValue(name: string): string };
+  dispatchEvent(e: unknown): void;
+};
+const range = (doc: Doc) => doc.getElementById("hours-min") as unknown as Range;
+// Where the thumb sits on the doubling axis from 1 to 512 channels, as a
+// fraction of its travel: the slider's own value, and the colored track's cut.
+function thumb(doc: Doc) {
+  const r = range(doc);
+  const width = Number.parseFloat(r.style.width);
+  return {
+    value: Number(r.value),
+    cut: (Number.parseFloat(r.style.getPropertyValue("--cut")) - 12) / (width - 24),
+  };
+}
+function expectThumbAt(doc: Doc, min: number) {
+  const t = thumb(doc);
+  expect(t.value).toBe(Math.round(1000 * Math.log2(min)));
+  expect(t.cut).toBeCloseTo(Math.log2(min) / 9, 6);
+}
 
 describe("recorded hours before the collector reports", () => {
   test("no section at all is a quiet not-measured state, and the page is otherwise intact", async () => {
@@ -190,7 +220,7 @@ describe("recorded hours explorer", () => {
     expect(r.value).toBe(`${whole(want.hours)} hours`);
     expect(r.claim).toBe("of EEG recorded with 16 or more channels");
     expect(r.share).toBe(
-      `${(Math.round((want.hours / eeg.hours) * 1000) / 10).toFixed(1)}% of the ${whole(eeg.hours)} EEG hours`,
+      `${oneDecimal(want.hours, eeg.hours)} of the ${whole(eeg.hours)} EEG hours`,
     );
     expect(r.facts).toEqual([
       `Recordings${want.recordings.toLocaleString("en-US")}`,
@@ -224,15 +254,22 @@ describe("recorded hours explorer", () => {
   test("the slider steps through stops with the keyboard and says where it is", async () => {
     const { window, document, errors } = await openPage(recordingsSection());
     // EEG has recordings at 19 channels, the next count above 16.
+    expectThumbAt(document, 16);
     key(document, window, "#hours-min", "ArrowRight");
     expect(readout(document).slider).toBe(`19 or more channels: ${whole(at(eeg, 19).hours)} hours`);
+    expectThumbAt(document, 19);
     key(document, window, "#hours-min", "ArrowLeft");
     key(document, window, "#hours-min", "PageUp");
     expect(readout(document).claim).toBe("of EEG recorded with 32 or more channels");
     expect(readout(document).value).toBe(`${whole(at(eeg, 32).hours)} hours`);
+    expectThumbAt(document, 32);
     key(document, window, "#hours-min", "End");
     // The largest EEG count in the sample is 257 channels, 3.6 hours.
     expect(readout(document).slider).toBe("257 or more channels: 3.6 hours");
+    expectThumbAt(document, 257);
+    // Page Up at the end stays at the end rather than falling back to 256.
+    key(document, window, "#hours-min", "PageUp");
+    expect(readout(document).claim).toBe("of EEG recorded with 257 or more channels");
     key(document, window, "#hours-min", "Home");
     expect(readout(document).slider).toBe(`any number of channels: ${whole(eeg.hours)} hours`);
     expect(readout(document).share).toBe(`100% of the ${whole(eeg.hours)} EEG hours`);
@@ -242,14 +279,44 @@ describe("recorded hours explorer", () => {
 
   test("a step from assistive technology moves to the next stop, not back to the same one", async () => {
     const { window, document } = await openPage(recordingsSection());
-    const range = document.getElementById("hours-min") as unknown as {
-      value: string;
-      dispatchEvent(e: unknown): void;
-    };
+    const r = range(document);
     // One unit up from 16 channels is still nearest to 16; it must not stick there.
-    range.value = String(Number(range.value) + 1);
-    range.dispatchEvent(new window.Event("input", { bubbles: true }));
+    r.value = String(Number(r.value) + 1);
+    r.dispatchEvent(new window.Event("input", { bubbles: true }));
     expect(readout(document).claim).toBe("of EEG recorded with 19 or more channels");
+    expectThumbAt(document, 19);
+  });
+
+  test("a drag lands on the stop nearest the pointer", async () => {
+    const { window, document } = await openPage(recordingsSection());
+    const r = range(document);
+    r.dispatchEvent(new window.Event("pointerdown", { bubbles: true }));
+    // 62 channels sits between the 60 and 63 that EEG has; 63 is nearer on the log axis.
+    r.value = String(Math.round(1000 * Math.log2(62)));
+    r.dispatchEvent(new window.Event("input", { bubbles: true }));
+    expect(readout(document).claim).toBe("of EEG recorded with 63 or more channels");
+    expectThumbAt(document, 63);
+    r.value = String(Math.round(1000 * Math.log2(128)));
+    r.dispatchEvent(new window.Event("input", { bubbles: true }));
+    expect(readout(document).claim).toBe("of EEG recorded with 128 or more channels");
+    r.dispatchEvent(new window.Event("pointerup", { bubbles: true }));
+    // Once released, a one-unit nudge steps again instead of snapping back.
+    r.value = String(Number(r.value) - 1);
+    r.dispatchEvent(new window.Event("input", { bubbles: true }));
+    expect(readout(document).claim).toBe("of EEG recorded with 127 or more channels");
+  });
+
+  test("browser shortcuts with a modifier key are left alone", async () => {
+    const { window, document } = await openPage(recordingsSection());
+    const event = new window.KeyboardEvent("keydown", {
+      key: "ArrowRight",
+      altKey: true,
+      bubbles: true,
+      cancelable: true,
+    });
+    range(document).dispatchEvent(event);
+    expect(event.defaultPrevented).toBe(false);
+    expect(readout(document).claim).toBe("of EEG recorded with 16 or more channels");
   });
 
   test("tabs switch with arrow keys and keep the minimum", async () => {
@@ -264,6 +331,11 @@ describe("recorded hours explorer", () => {
     if (!emg) throw new Error("fixture has no EMG");
     expect(readout(document).value).toBe(`${whole(emg.hours)} hours`);
     expect(readout(document).share).toBe(`100% of the ${whole(emg.hours)} EMG hours`);
+    expectThumbAt(document, 16);
+    // Focus stays on the tab, so the new answer is announced once.
+    expect(text(document, "#hours-panel .hours-live")).toBe(
+      `${whole(emg.hours)} hours of EMG recorded with 16 or more channels. 100% of the ${whole(emg.hours)} EMG hours.`,
+    );
     key(document, window, "[role=tablist]", "End");
     expect(text(document, '[role=tab][aria-selected="true"] .hours-tab-name')).toBe("MEG");
     key(document, window, "[role=tablist]", "ArrowRight");
@@ -277,8 +349,12 @@ describe("recorded hours explorer", () => {
     expect(readout(document).value).toBe(`${at(eeg, 16).datasets} datasets`);
     expect(readout(document).claim).toBe("have EEG recordings with 16 or more channels");
     expect(readout(document).share).toBe(
-      `${Math.round((at(eeg, 16).datasets / eeg.datasets) * 100)}% of the ${eeg.datasets} EEG datasets`,
+      `${oneDecimal(at(eeg, 16).datasets, eeg.datasets)} of the ${eeg.datasets} EEG datasets`,
     );
+    // Gridlines for a count are whole numbers (the tallest peak is 9 datasets).
+    const ticks = all(document, "#channel-hours .chart-tick").map((t) => t.textContent ?? "");
+    expect(ticks.every((t) => /^\d{1,3}(,\d{3})*$/.test(t))).toBe(true);
+    expect(ticks.slice(0, 3)).toEqual(["0", "5", "10"]);
     expect(text(document, ".hours-plot-title")).toBe("Datasets by their largest channel count");
     expect(all(document, "#channel-hours .hours-bar")).toHaveLength(eeg.dataset_peaks.length);
   });
@@ -288,6 +364,7 @@ describe("recorded hours explorer", () => {
     expect(text(document, '[role=tab][aria-selected="true"] .hours-tab-name')).toBe("EMG");
     expect(readout(document).value).toBe("1 dataset");
     expect(readout(document).claim).toBe("has EMG recordings with 32 or more channels");
+    expectThumbAt(document, 32);
     key(document, window, "#hours-min", "ArrowLeft");
     await until(
       () => window.location.hash === "#hours=emg:16:datasets",
@@ -295,10 +372,37 @@ describe("recorded hours explorer", () => {
     );
   });
 
+  test("a link past the largest count keeps its minimum until stepped down", async () => {
+    const { window, document } = await openPage(recordingsSection(), "#hours=eeg:400");
+    expect(readout(document).slider).toBe("400 or more channels: 0 hours");
+    expectThumbAt(document, 400);
+    for (const name of ["ArrowRight", "PageUp"]) {
+      key(document, window, "#hours-min", name);
+      expect(readout(document).claim).toBe("of EEG recorded with 400 or more channels");
+    }
+    key(document, window, "#hours-min", "ArrowLeft");
+    expect(readout(document).claim).toBe("of EEG recorded with 257 or more channels");
+  });
+
   test("a link to a modality that is not present is ignored", async () => {
     const { document } = await openPage(recordingsSection(), "#hours=fnirs:8");
     expect(text(document, '[role=tab][aria-selected="true"] .hours-tab-name')).toBe("EEG");
     expect(readout(document).claim).toBe("of EEG recorded with 16 or more channels");
+  });
+
+  test("a failed snapshot offers Try again, which draws one explorer", async () => {
+    const { document, errors } = await openPage(recordingsSection(), "", true);
+    expect(text(document, "#channel-hours")).toContain("Could not load recorded hours");
+    expect(text(document, "#channel-hours")).toContain("Service unavailable.");
+    (document.querySelector("#channel-hours .button") as unknown as { click(): void }).click();
+    await until(
+      () => document.getElementById("hours-panel") !== null,
+      "the explorer after a retry",
+    );
+    expect(all(document, "#hours-panel")).toHaveLength(1);
+    expect(all(document, "#channel-hours [role=tablist]")).toHaveLength(1);
+    expect(readout(document).claim).toBe("of EEG recorded with 16 or more channels");
+    expect(errors).toEqual([]);
   });
 
   test("the recordings pipeline card formats hours and links to the explorer", async () => {
