@@ -18,9 +18,14 @@ export const SECTION_KEY = "recordings";
 export const SECTION_LABEL = "Recorded data";
 export const SECTION_SOURCE = "nemar-zarr-index";
 
+/** The contract's array bounds (src/lib/schema.ts). */
 const MAX_MODALITIES = 32;
 const MAX_BINS = 1024;
-/** The ingest endpoint rejects bodies over 1 MB; stay well below it. */
+/**
+ * The ingest endpoint rejects bodies over 1,000,000 bytes (MAX_SECTION_BODY_BYTES
+ * in src/routes/api.ts); stay well below it. test/zarr-aggregate.test.ts pushes
+ * bodies of this size and of the Worker's limit through the real Worker.
+ */
 export const MAX_PAYLOAD_BYTES = 900_000;
 
 /** What happened to one public dataset this run. */
@@ -28,8 +33,12 @@ export type DatasetOutcome =
   | { id: string; kind: "summary"; summary: DatasetSummary; from: "cache" | "network" }
   /** No Zarr index exists for the dataset, and none was expected. */
   | { id: string; kind: "absent" }
-  /** A Zarr index should exist or exists, but could not be read this run. */
-  | { id: string; kind: "unavailable"; reason: string };
+  /**
+   * A Zarr index should exist or exists, but could not be read this run.
+   * `lastKnownSeconds` is what the cache held for it before this run (never
+   * shown as a result), so the size of the gap is known.
+   */
+  | { id: string; kind: "unavailable"; reason: string; lastKnownSeconds?: number };
 
 export type RecordingsAggregate = {
   /** Every public dataset in the catalog, scanned or not. */
@@ -39,6 +48,8 @@ export type RecordingsAggregate = {
   fromCache: number;
   fromNetwork: number;
   unavailable: number;
+  /** Seconds the cache last knew for the unavailable datasets (datasets never cached count nothing). */
+  unavailableLastKnownSeconds: number;
   withoutIndex: number;
   /** Datasets with at least one measured recording. */
   contributingDatasets: number;
@@ -57,6 +68,8 @@ export type RecordingsAggregate = {
   excludedStores: number;
   multiGroupStores: number;
   multiModalityStores: number;
+  /** Modalities beyond the contract's 32 whose recordings were counted as unmeasured instead. */
+  droppedModalities: number;
   /** Contract-shaped, largest modality first; empty when nothing was measured. */
   modalities: ChannelHoursModality[];
 };
@@ -91,6 +104,7 @@ export function aggregateOutcomes(
     fromCache: 0,
     fromNetwork: 0,
     unavailable: 0,
+    unavailableLastKnownSeconds: 0,
     withoutIndex: 0,
     contributingDatasets: 0,
     measuredRecordings: 0,
@@ -103,6 +117,7 @@ export function aggregateOutcomes(
     excludedStores: 0,
     multiGroupStores: 0,
     multiModalityStores: 0,
+    droppedModalities: 0,
     modalities: [],
   };
 
@@ -113,6 +128,7 @@ export function aggregateOutcomes(
     }
     if (outcome.kind === "unavailable") {
       aggregate.unavailable += 1;
+      aggregate.unavailableLastKnownSeconds += outcome.lastKnownSeconds ?? 0;
       continue;
     }
     const { summary } = outcome;
@@ -181,6 +197,14 @@ export function aggregateOutcomes(
   aggregate.modalities.sort(
     (left, right) => right.hours - left.hours || left.modality.localeCompare(right.modality),
   );
+  // The contract carries at most 32 modalities. A corrupt or hostile index can
+  // invent names, so the smallest beyond 32 are not shown and their recordings
+  // are counted as unmeasured; that must never fail the whole run.
+  for (const extra of aggregate.modalities.splice(MAX_MODALITIES)) {
+    aggregate.droppedModalities += 1;
+    aggregate.unmeasuredRecordings += extra.recordings;
+    aggregate.modalityRecordings -= extra.recordings;
+  }
   return aggregate;
 }
 
@@ -228,62 +252,163 @@ export function topContributors(
   return result;
 }
 
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === "object" && value !== null && !Array.isArray(value);
+
+const isSafeCount = (value: unknown, minimum: number): value is number =>
+  typeof value === "number" && Number.isSafeInteger(value) && value >= minimum;
+
+const isChannels = (value: unknown): value is number =>
+  typeof value === "number" && Number.isInteger(value) && value >= 1 && value <= MAX_CHANNELS;
+
+const isHours = (value: unknown): value is number =>
+  typeof value === "number" && Number.isFinite(value) && value >= 0;
+
+/** The contract's modality name: a letter, then up to 31 letters, digits, hyphens or underscores. */
+const MODALITY_NAME = /^[A-Za-z][A-Za-z0-9_-]{0,31}$/;
+
+function exactKeys(value: Record<string, unknown>, keys: string[], what: string): void {
+  const extra = Object.keys(value).filter((key) => !keys.includes(key));
+  const missing = keys.filter((key) => !(key in value));
+  if (extra.length > 0 || missing.length > 0) {
+    fail(`${what} must have exactly the keys ${keys.join(", ")}; no section was published`);
+  }
+}
+
 /**
- * The cross-field rules of the `channel_hours` contract, enforced here in plain
- * TypeScript because the collector cannot load zod on a bare checkout. The
- * test suite checks the same payloads against the real SectionIngestSchema.
+ * Every rule of the `channel_hours` contract (ChannelHoursSchema in
+ * src/lib/schema.ts), enforced here in plain TypeScript because the collector
+ * cannot load zod on a bare checkout. It is meant to be exactly as strict as the
+ * schema, no more and no less: test/zarr-aggregate.test.ts runs a table of
+ * payloads through both and requires the same verdict on each.
  */
-export function assertChannelHours(value: ChannelHours): void {
-  if (value.modalities.length < 1 || value.modalities.length > MAX_MODALITIES) {
+export function assertChannelHours(value: unknown): asserts value is ChannelHours {
+  if (!isRecord(value)) fail("channel_hours must be an object; no section was published");
+  exactKeys(
+    value,
+    ["datasets_scanned", "datasets_unavailable", "recordings_unmeasured", "modalities"],
+    "channel_hours",
+  );
+  const { datasets_scanned, datasets_unavailable, recordings_unmeasured, modalities } = value;
+  if (
+    !isSafeCount(datasets_scanned, 0) ||
+    !isSafeCount(datasets_unavailable, 0) ||
+    !isSafeCount(recordings_unmeasured, 0)
+  ) {
+    fail("channel_hours counters must be non-negative safe integers; no section was published");
+  }
+  if (!Array.isArray(modalities) || modalities.length < 1 || modalities.length > MAX_MODALITIES) {
     fail("channel_hours must carry between 1 and 32 modalities; no section was published");
   }
   const names = new Set<string>();
-  for (const modality of value.modalities) {
-    const name = modality.modality.toLowerCase();
-    if (names.has(name) || modality.modality.length < 1) {
-      fail(`channel_hours has a duplicate or empty modality "${modality.modality}"`);
+  for (const modality of modalities) {
+    if (!isRecord(modality)) fail("a channel_hours modality must be an object");
+    exactKeys(
+      modality,
+      ["modality", "hours", "recordings", "datasets", "bins", "dataset_peaks"],
+      "a channel_hours modality",
+    );
+    const { bins, dataset_peaks: peaks } = modality;
+    const name = modality.modality;
+    if (typeof name !== "string" || !MODALITY_NAME.test(name)) {
+      fail(
+        "a channel_hours modality name must be a plain name (a letter, then letters, digits, - or _)",
+      );
     }
-    names.add(name);
-    if (modality.bins.length < 1 || modality.bins.length > MAX_BINS) {
-      fail(`channel_hours modality ${modality.modality} has an unusable number of bins`);
+    if (names.has(name.toLowerCase())) fail(`channel_hours repeats the modality "${name}"`);
+    names.add(name.toLowerCase());
+    if (!isHours(modality.hours) || !isSafeCount(modality.recordings, 0)) {
+      fail(`channel_hours modality ${name} has an invalid hours or recordings total`);
     }
-    if (modality.dataset_peaks.length > MAX_BINS) {
-      fail(`channel_hours modality ${modality.modality} has too many dataset peaks`);
+    if (!isSafeCount(modality.datasets, 0)) {
+      fail(`channel_hours modality ${name} has an invalid datasets total`);
     }
-    const channels = new Set<number>();
+    if (modality.datasets > datasets_scanned) {
+      fail(
+        `channel_hours modality ${name} has ${modality.datasets} datasets, more than the ${datasets_scanned} scanned`,
+      );
+    }
+    if (!Array.isArray(bins) || bins.length < 1 || bins.length > MAX_BINS) {
+      fail(`channel_hours modality ${name} must have between 1 and ${MAX_BINS} bins`);
+    }
+    if (!Array.isArray(peaks) || peaks.length < 1 || peaks.length > MAX_BINS) {
+      fail(`channel_hours modality ${name} must have between 1 and ${MAX_BINS} dataset peaks`);
+    }
+
     let hours = 0;
     let recordings = 0;
-    for (const bin of modality.bins) {
-      if (channels.has(bin.channels) || !Number.isInteger(bin.channels) || bin.channels < 1) {
-        fail(`channel_hours modality ${modality.modality} has an invalid channel count`);
+    let previous = 0;
+    const binRecordings = new Map<number, number>();
+    for (const bin of bins) {
+      if (!isRecord(bin)) fail(`a ${name} bin must be an object`);
+      exactKeys(bin, ["channels", "hours", "recordings"], `a ${name} bin`);
+      if (!isChannels(bin.channels) || !isHours(bin.hours) || !isSafeCount(bin.recordings, 1)) {
+        fail(`channel_hours modality ${name} has an invalid bin`);
       }
-      if (bin.channels > MAX_CHANNELS || !Number.isFinite(bin.hours) || bin.hours < 0) {
-        fail(`channel_hours modality ${modality.modality} has an invalid bin`);
+      if (bin.channels <= previous) {
+        fail(`channel_hours modality ${name} bins must be strictly ascending by channels`);
       }
-      channels.add(bin.channels);
+      previous = bin.channels;
       hours += bin.hours;
       recordings += bin.recordings;
+      binRecordings.set(bin.channels, bin.recordings);
     }
-    const peakChannels = new Set<number>();
     let datasets = 0;
-    for (const peak of modality.dataset_peaks) {
-      if (peakChannels.has(peak.channels) || peak.datasets < 1) {
-        fail(`channel_hours modality ${modality.modality} has an invalid dataset peak`);
+    previous = 0;
+    for (const peak of peaks) {
+      if (!isRecord(peak)) fail(`a ${name} dataset peak must be an object`);
+      exactKeys(peak, ["channels", "datasets"], `a ${name} dataset peak`);
+      if (!isChannels(peak.channels) || !isSafeCount(peak.datasets, 1)) {
+        fail(`channel_hours modality ${name} has an invalid dataset peak`);
       }
-      peakChannels.add(peak.channels);
+      if (peak.channels <= previous) {
+        fail(`channel_hours modality ${name} dataset peaks must be strictly ascending by channels`);
+      }
+      previous = peak.channels;
       datasets += peak.datasets;
+      const inBin = binRecordings.get(peak.channels);
+      if (inBin === undefined) {
+        fail(
+          `channel_hours modality ${name} has a dataset peak at ${peak.channels} channels with no bin`,
+        );
+      }
+      if (peak.datasets > inBin) {
+        fail(
+          `channel_hours modality ${name}: ${peak.datasets} datasets peak at ${peak.channels} channels but the bin holds only ${inBin} recordings`,
+        );
+      }
     }
-    if (recordings !== modality.recordings || datasets !== modality.datasets) {
-      fail(`channel_hours modality ${modality.modality} totals do not match its bins`);
+    const topBin = bins[bins.length - 1].channels;
+    const topPeak = peaks[peaks.length - 1].channels;
+    if (topPeak !== topBin) {
+      fail(
+        `channel_hours modality ${name}: the largest peak (${topPeak} channels) must match the largest bin (${topBin})`,
+      );
+    }
+    if (recordings !== modality.recordings) {
+      fail(
+        `channel_hours modality ${name} recordings must equal the sum over bins (expected ${recordings}, got ${modality.recordings})`,
+      );
     }
     if (Math.abs(hours - modality.hours) > Math.max(1e-6, modality.hours * 1e-9)) {
-      fail(`channel_hours modality ${modality.modality} hours do not match its bins`);
+      fail(
+        `channel_hours modality ${name} hours must equal the sum over bins (expected ${hours}, got ${modality.hours})`,
+      );
+    }
+    if (datasets !== modality.datasets) {
+      fail(
+        `channel_hours modality ${name} datasets must equal the sum over dataset peaks (expected ${datasets}, got ${modality.datasets})`,
+      );
     }
   }
 }
 
 const HOURS_HINT =
   "Summed recording time of converted raw recordings in public datasets. A recording with two signal types counts once here and once under each type below, so the types can add up to more than this total. Derived recordings, and recordings that did not convert or lack a duration or channel count, are left out.";
+
+/** Appended to the hours hint when some public datasets could not be read this run. */
+const hoursShortfall = (unavailable: number) =>
+  ` ${unavailable} public ${unavailable === 1 ? "dataset" : "datasets"} could not be read this run, so these hours may be lower than the true total.`;
 
 /** The section pushed when a run succeeds. */
 export function recordingsSection(
@@ -306,7 +431,7 @@ export function recordingsSection(
   const unconverted = aggregate.failedRecordings + aggregate.pendingRecordings;
   const complete = aggregate.unavailable === 0;
   const recordingsTotal = aggregate.measuredRecordings + aggregate.unmeasuredStores + unconverted;
-  const datasetsSeverity: Severity = complete ? "info" : "warn";
+  const readSeverity: Severity = complete ? "info" : "warn";
 
   return {
     key: SECTION_KEY,
@@ -318,14 +443,14 @@ export function recordingsSection(
         label: "Hours of recorded data",
         value: round4(aggregate.recordedSeconds / 3600),
         unit: "hours",
-        severity: "info",
+        severity: readSeverity,
         breakdown: aggregate.modalities.map((modality) => ({
           label: modality.modality,
           value: modality.hours,
         })),
         breakdown_unit: "hours",
         breakdown_style: "bars",
-        hint: HOURS_HINT,
+        hint: complete ? HOURS_HINT : `${HOURS_HINT}${hoursShortfall(aggregate.unavailable)}`,
       },
       {
         key: "recordings.recordings",
@@ -344,7 +469,7 @@ export function recordingsSection(
         value: aggregate.contributingDatasets,
         total: aggregate.publicDatasets,
         unit: "datasets",
-        severity: datasetsSeverity,
+        severity: readSeverity,
         hint: `Public datasets with at least one measured recording. ${aggregate.withoutIndex} have no Zarr index and ${aggregate.unavailable} could not be read this run.`,
       },
       {
@@ -380,7 +505,16 @@ export function recordingsFailureStatus(now = new Date()): SectionIngest {
   };
 }
 
-/** Fail a run whose payload is too large or whose coverage is too thin to trust. */
+/**
+ * Fail a run whose payload is too large or whose coverage is too thin to trust.
+ *
+ * Coverage is judged two ways, and either failing fails the run: by dataset
+ * count, and by hours. One unreadable dataset can hold most of the hours (as
+ * on005873 holds a fifth of them), so the share of unreadable datasets alone
+ * would pass a run that is missing most of the data. The hours of an unreadable
+ * dataset are what the cache last knew for it; a dataset never cached counts
+ * only by number, so the very first run has only the count to go on.
+ */
 export function assertPublishable(
   aggregate: RecordingsAggregate,
   payload: SectionIngest,
@@ -393,6 +527,16 @@ export function assertPublishable(
   if (aggregate.unavailable > expected * maxUnavailableFraction) {
     fail(
       `${aggregate.unavailable} of ${expected} Zarr indexes could not be read; refusing to publish a section built from too few datasets`,
+    );
+  }
+  const knownSeconds = aggregate.recordedSeconds + aggregate.unavailableLastKnownSeconds;
+  if (
+    aggregate.unavailableLastKnownSeconds > 0 &&
+    aggregate.unavailableLastKnownSeconds > knownSeconds * maxUnavailableFraction
+  ) {
+    const share = Math.round((aggregate.unavailableLastKnownSeconds / knownSeconds) * 100);
+    fail(
+      `the ${aggregate.unavailable} unreadable Zarr indexes held about ${share}% of the hours last time; refusing to publish a section that would miss them`,
     );
   }
   const bytes = new TextEncoder().encode(JSON.stringify(payload)).length;

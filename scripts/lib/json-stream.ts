@@ -6,8 +6,9 @@
 // recordings carry about 2 MB of event metadata each). `JSON.parse` needs the
 // whole text plus the whole object graph in memory, which is a gigabyte-scale
 // peak on a shared 8 GB host. The scanner instead walks the bytes as they
-// arrive and hands the caller one array element at a time, so memory stays at
-// one element (a few MB) plus the stream's chunk buffer, whatever the file size.
+// arrive and hands the caller one array element at a time, so memory per index
+// stays at one element (capped by `maxCaptureBytes`) plus the stream's chunk
+// buffer, whatever the file size.
 //
 // It is not a validator. It tracks only strings, escapes and bracket depth to
 // find where each root-level value and each element of a root-level array begin
@@ -41,6 +42,14 @@ export type RootScanHandlers = {
   onElement?: (key: string, raw: Uint8Array | null) => void;
   /** Largest raw value or element, in bytes, the scanner will buffer. Default 64 MiB. */
   maxCaptureBytes?: number;
+  /**
+   * Deepest container nesting accepted anywhere in the document (the root object
+   * is depth 1). Default 1000. JSON.parse of a deeper captured value could
+   * overflow the stack, and a hostile document can nest to any depth.
+   */
+  maxDepth?: number;
+  /** Most distinct root-level keys accepted; a hostile document could list millions. Default 1000. */
+  maxRootKeys?: number;
 };
 
 export type RootScanResult = {
@@ -82,6 +91,9 @@ const ELEMENT_LITERAL = 15;
 const DONE = 16;
 
 const DEFAULT_MAX_CAPTURE_BYTES = 64 * 1024 * 1024;
+const DEFAULT_MAX_DEPTH = 1000;
+const MAX_KEY_BYTES = 1024;
+const DEFAULT_MAX_ROOT_KEYS = 1000;
 
 function isWhitespace(byte: number): boolean {
   return byte === 0x20 || byte === 0x0a || byte === 0x0d || byte === 0x09;
@@ -115,10 +127,16 @@ export class RootObjectScanner {
   private captureParts: Uint8Array[] = [];
   private captureSize = 0;
   private readonly maxCapture: number;
+  private readonly maxDepth: number;
+  private readonly maxRootKeys: number;
   private readonly counts = new Map<string, number>();
+  /** Root-level keys seen so far. A repeated key is refused: JSON.parse would keep only the last. */
+  private readonly rootKeys = new Set<string>();
 
   constructor(private readonly handlers: RootScanHandlers = {}) {
     this.maxCapture = handlers.maxCaptureBytes ?? DEFAULT_MAX_CAPTURE_BYTES;
+    this.maxDepth = handlers.maxDepth ?? DEFAULT_MAX_DEPTH;
+    this.maxRootKeys = handlers.maxRootKeys ?? DEFAULT_MAX_ROOT_KEYS;
   }
 
   write(chunk: Uint8Array): void {
@@ -178,7 +196,7 @@ export class RootObjectScanner {
           if (byte === QUOTE) {
             this.inString = true;
           } else if (byte === OPEN_BRACE || byte === OPEN_BRACKET) {
-            this.depth += 1;
+            this.deeper();
           } else if (byte === CLOSE_BRACE || byte === CLOSE_BRACKET) {
             this.depth -= 1;
             if (this.depth === 1) this.endRootValue(chunk, i + 1);
@@ -220,7 +238,7 @@ export class RootObjectScanner {
           if (byte === QUOTE) {
             this.inString = true;
           } else if (byte === OPEN_BRACE || byte === OPEN_BRACKET) {
-            this.depth += 1;
+            this.deeper();
           } else if (byte === CLOSE_BRACE || byte === CLOSE_BRACKET) {
             this.depth -= 1;
             if (this.depth === 2) this.endElement(chunk, i + 1);
@@ -244,6 +262,14 @@ export class RootObjectScanner {
       throw new JsonShapeError("the JSON document ends early (truncated)", true);
     }
     return { elementCounts: this.counts };
+  }
+
+  /** One level deeper: refuse nesting past `maxDepth` before anything is buffered for it. */
+  private deeper(): void {
+    this.depth += 1;
+    if (this.depth > this.maxDepth) {
+      throw new JsonShapeError(`the JSON nests deeper than ${this.maxDepth} levels`);
+    }
   }
 
   private startKey(chunk: Uint8Array, i: number, byte: number): void {
@@ -300,11 +326,19 @@ export class RootObjectScanner {
     switch (this.state) {
       case IN_KEY: {
         const raw = this.endCapture(chunk, end);
+        if (raw.length > MAX_KEY_BYTES) throw new JsonShapeError("an object key is too long");
         try {
           this.key = JSON.parse(new TextDecoder().decode(raw)) as string;
         } catch {
           throw new JsonShapeError("an object key is not valid JSON");
         }
+        if (this.rootKeys.has(this.key)) {
+          throw new JsonShapeError(`the root object repeats the key "${this.key.slice(0, 40)}"`);
+        }
+        if (this.rootKeys.size >= this.maxRootKeys) {
+          throw new JsonShapeError(`the root object has more than ${this.maxRootKeys} keys`);
+        }
+        this.rootKeys.add(this.key);
         this.state = AFTER_KEY;
         break;
       }
@@ -373,22 +407,39 @@ export class RootObjectScanner {
 }
 
 /**
+ * The byte stream itself failed (connection reset, timeout abort), as opposed to
+ * its content being unusable or a handler throwing. A caller may retry this; it
+ * must not retry a handler or format error, which asking again cannot fix.
+ */
+export class StreamReadError extends Error {
+  constructor(readonly original: unknown) {
+    super(original instanceof Error ? original.message : "the byte stream failed");
+  }
+}
+
+/**
  * Scan a whole byte stream (for example a `fetch` response body). `onChunk` is
- * called after each chunk arrives, so a caller can run an idle timeout.
+ * called with the size of each chunk as it arrives, so a caller can run an idle
+ * timeout and a byte cap; whatever it throws stops the scan.
  */
 export async function scanRootObject(
   stream: ReadableStream<Uint8Array>,
   handlers: RootScanHandlers = {},
-  onChunk?: () => void,
+  onChunk?: (bytes: number) => void,
 ): Promise<RootScanResult> {
   const scanner = new RootObjectScanner(handlers);
   const reader = stream.getReader();
   try {
     for (;;) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      onChunk?.();
-      scanner.write(value);
+      let chunk: ReadableStreamReadResult<Uint8Array>;
+      try {
+        chunk = await reader.read();
+      } catch (error) {
+        throw new StreamReadError(error);
+      }
+      if (chunk.done) break;
+      onChunk?.(chunk.value.length);
+      scanner.write(chunk.value);
     }
   } catch (error) {
     await reader.cancel().catch(() => undefined);

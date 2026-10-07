@@ -5,10 +5,16 @@
 // built by editing a copy of a real index, and each says so.
 
 import { describe, expect, test } from "bun:test";
+import { JsonShapeError } from "../scripts/lib/json-stream";
 import {
   type DatasetSummary,
   IndexFormatError,
-  SUMMARY_VERSION,
+  MAX_CHANNELS,
+  MAX_DURATION_HOURS,
+  MAX_MODALITIES_PER_STORE,
+  MAX_STORE_ENTRY_BYTES,
+  MAX_STORE_ENTRY_DEPTH,
+  MISC_DATATYPE_FOLDERS,
   groupModality,
   normalizeModality,
   parseDatasetSummary,
@@ -71,8 +77,12 @@ describe("normalizeModality", () => {
     expect(normalizeModality("<img src=x onerror=alert(1)>")).toBeNull();
     expect(normalizeModality("EEG</b>")).toBeNull();
     expect(normalizeModality("-EEG")).toBeNull();
+    expect(normalizeModality("3T")).toBeNull();
+    expect(normalizeModality("EEG EMG")).toBeNull();
+    expect(normalizeModality("EEG+EMG")).toBeNull();
+    expect(normalizeModality("EEG.1")).toBeNull();
     expect(normalizeModality("ECoG-SEEG")).toBe("ECoG-SEEG");
-    expect(normalizeModality("EEG + EMG")).toBe("EEG + EMG");
+    expect(normalizeModality("fNIRS_2")).toBe("fNIRS_2");
     expect(normalizeModality("x".repeat(32))).toBe("x".repeat(32));
   });
 });
@@ -374,6 +384,7 @@ describe("rules for stores the catalog does not yet contain", () => {
   test("an index with no stores still summarizes to an empty dataset", () => {
     const index = copyOf("nm000118");
     index.stores = [];
+    index.store_count = 0;
     expect(summarizeIndex(index, "nm000118")).toMatchObject({
       modalities: [],
       stores: 0,
@@ -415,7 +426,6 @@ describe("cached summaries", () => {
       const summary = summarize(name);
       expect(parseDatasetSummary(JSON.parse(JSON.stringify(summary)))).toEqual(summary);
     }
-    expect(SUMMARY_VERSION).toBe(1);
   });
 
   test("anything with the wrong shape is refused rather than trusted", () => {

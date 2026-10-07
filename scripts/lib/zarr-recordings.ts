@@ -7,15 +7,41 @@
 
 import { JsonShapeError, scanRootObject } from "./json-stream";
 
-/** Bump when the summary rules below change, so cached summaries are rebuilt. */
-export const SUMMARY_VERSION = 1;
+/**
+ * Bump when the summary rules below change, so cached summaries are rebuilt.
+ * test/fixtures/zarr-recordings-expected.json records the version its numbers
+ * were computed under, and a test fails when the two differ.
+ *   2: modality names follow the contract's plain-name rule, case variants in a
+ *      store are one modality, durations over MAX_DURATION_HOURS are unmeasured
+ *      (and counted in `implausible`), and the summary carries `implausible`.
+ */
+export const SUMMARY_VERSION = 2;
 
 const INDEX_FORMAT = "nemar-zarr-index";
+/** The only index format version this collector reads (nemar-cli's generate_zarr.py v3). */
+export const INDEX_FORMAT_VERSION = 3;
 
 /** The contract's bounds (src/lib/schema.ts ChannelHoursSchema). */
 export const MAX_CHANNELS = 100_000;
-const MODALITY_MAX_LENGTH = 32;
-const MODALITY_NAME = /^[A-Za-z0-9][A-Za-z0-9 _+./-]*$/;
+/** Same rule as the contract's modality name; a name outside it cannot be attributed. */
+const MODALITY_NAME = /^[A-Za-z][A-Za-z0-9_-]{0,31}$/;
+/** The contract allows 32 modalities per section; a store naming more is not credible. */
+export const MAX_MODALITIES_PER_STORE = 32;
+/**
+ * A recording longer than this is a corrupt value, not data (the longest real
+ * store is about 158 hours), and is treated as unmeasured instead of adding
+ * years to the total.
+ */
+export const MAX_DURATION_HOURS = 10_000;
+const MAX_DURATION_S = MAX_DURATION_HOURS * 3600;
+/**
+ * Largest single `stores[]` entry the scanner will buffer. The largest real
+ * entries are about 2 MB (nm000229, whose events metadata is large); 16 MiB is
+ * far above that and keeps concurrent streams of hostile input bounded.
+ */
+export const MAX_STORE_ENTRY_BYTES = 16 * 1024 * 1024;
+/** Nesting allowed inside one `stores[]` entry; real entries nest about 6 deep. */
+export const MAX_STORE_ENTRY_DEPTH = 64;
 
 /** The index is readable JSON but not a usable `nemar-zarr-index` for this dataset. */
 export class IndexFormatError extends Error {}
@@ -25,8 +51,9 @@ export type ModalitySummary = { modality: string; bins: BinSummary[] };
 
 /**
  * What one dataset's index contributes. A "recording" here is a (store,
- * modality) pair: a store is one converted recording, and the real catalog has
- * exactly one group, hence one modality, per store.
+ * modality) pair: a store is one converted recording, usually with one group.
+ * (As of 2026-10-06 only on005873 has several: 2,413 stores hold an EEG and an
+ * EMG group, so those are counted once per modality and once overall.)
  */
 export type DatasetSummary = {
   /** Measured recordings by modality and exact channel count, bins ascending by channels. */
@@ -43,6 +70,8 @@ export type DatasetSummary = {
   unmeasuredStores: number;
   /** (store, modality) recordings that converted but lack a usable duration or channel count. */
   unmeasured: number;
+  /** Groups whose duration was over MAX_DURATION_HOURS, treated as missing (a corrupt value). */
+  implausible: number;
   /** Recordings listed in `failures[]`. */
   failed: number;
   /** Recordings listed in `pending[]`. */
@@ -61,26 +90,27 @@ function isObject(value: unknown): value is Record<string, unknown> {
  * The display key of a group's modality, or null when it cannot be one.
  * "IEEG" is shown as "iEEG" (any case of "ieeg" maps there); every other value
  * is kept as given, trimmed. The index is untrusted input and the name is
- * published on a public page, so only plain names qualify: letters, digits,
- * and a few joining characters, starting with a letter or digit, at most 32
- * long. Anything else (empty, markup, control characters) cannot be attributed
- * and the recording counts as unmeasured instead.
+ * published on a public page, so only the contract's plain names qualify (a
+ * letter, then letters, digits, hyphens or underscores, at most 32 long).
+ * Anything else (empty, markup, spaces, control characters) cannot be
+ * attributed and the recording counts as unmeasured instead.
  */
 export function normalizeModality(raw: unknown): string | null {
   if (typeof raw !== "string") return null;
   const value = raw.trim();
-  if (value.length > MODALITY_MAX_LENGTH || !MODALITY_NAME.test(value)) return null;
+  if (!MODALITY_NAME.test(value)) return null;
   return value.toLowerCase() === "ieeg" ? "iEEG" : value;
 }
 
 /**
- * BIDS datatype folders a "MISC" group may be relabeled with. The converter
- * names a group "MISC" when the file's channels have no modality of their own
- * (an ECG recording in an `ecg/` folder), so the folder is the better label.
- * Only signal datatypes qualify: a MISC group in an unrecognized folder (such
- * as `mov/`) stays "MISC", and so does one in a folder like `func/`.
+ * Datatype folders a "MISC" group may be relabeled with. The converter names a
+ * group "MISC" when the file's channels have no modality of their own (an ECG
+ * recording in an `ecg/` folder), so the folder is the better label. Only
+ * signal folders qualify (BIDS datatypes such as `eeg` and `meg`, and the
+ * folders `ecg`, `emg` and `eog` that real datasets use); a MISC group in any
+ * other folder (such as `mov/`, `eye_tracker/` or `func/`) stays "MISC".
  */
-const MISC_DATATYPE_FOLDERS = new Set([
+export const MISC_DATATYPE_FOLDERS = new Set([
   "ecg",
   "eeg",
   "emg",
@@ -115,8 +145,8 @@ function isRawStore(store: Record<string, unknown>): boolean {
   return tree === undefined || tree === null || tree === "raw";
 }
 
-/** `duration_s`: a finite, non-negative number of seconds, or null (never clamped). */
-function validDuration(value: unknown): number | null {
+/** A finite, non-negative number of seconds, or null (never clamped). */
+function validSeconds(value: unknown): number | null {
   return typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : null;
 }
 
@@ -153,7 +183,12 @@ const maxOf = (current: number | null, next: number | null): number | null =>
  *    unmeasured: it is counted in `unmeasured` and left out of every bin.
  *    Unknown is never zero. A store with no group that names a modality is one
  *    unmeasured recording; a group with no modality is ignored when another
- *    group of the same store names one.
+ *    group of the same store names one. Modality names that differ only in case
+ *    are one modality, so "EEG" and "eeg" groups of one store are one stream.
+ *    A store naming more than MAX_MODALITIES_PER_STORE distinct modalities is
+ *    one unmeasured recording.
+ *  - A duration over MAX_DURATION_HOURS is a corrupt value: it is treated as
+ *    missing and counted in `implausible`.
  */
 export class DatasetAccumulator {
   private readonly bins = new Map<string, Map<number, { seconds: number; recordings: number }>>();
@@ -163,6 +198,7 @@ export class DatasetAccumulator {
   private storeSeconds = 0;
   private unmeasuredStores = 0;
   private unmeasured = 0;
+  private implausible = 0;
   private multiGroupStores = 0;
   private multiModalityStores = 0;
 
@@ -180,15 +216,30 @@ export class DatasetAccumulator {
     const groups = Array.isArray(raw.groups) ? raw.groups : [];
     if (groups.length > 1) this.multiGroupStores += 1;
 
-    const perModality = new Map<string, { seconds: number | null; channels: number | null }>();
+    // Keyed by lowercase so case variants are one stream; the display spelling
+    // is the one that sorts first, as in the aggregate.
+    const perModality = new Map<
+      string,
+      { display: string; seconds: number | null; channels: number | null }
+    >();
     for (const group of groups) {
       if (!isObject(group)) continue;
       const modality = groupModality(group, raw.path);
       if (modality === null) continue;
-      const entry = perModality.get(modality) ?? { seconds: null, channels: null };
-      entry.seconds = maxOf(entry.seconds, validDuration(group.duration_s));
+      const key = modality.toLowerCase();
+      const entry = perModality.get(key) ?? { display: modality, seconds: null, channels: null };
+      if (modality < entry.display) entry.display = modality;
+      const duration = group.duration_s;
+      const implausible = typeof duration === "number" && duration > MAX_DURATION_S;
+      if (implausible) this.implausible += 1;
+      entry.seconds = maxOf(entry.seconds, implausible ? null : validSeconds(duration));
       entry.channels = maxOf(entry.channels, validChannels(group.n_channels));
-      perModality.set(modality, entry);
+      perModality.set(key, entry);
+    }
+    if (perModality.size > MAX_MODALITIES_PER_STORE) {
+      this.unmeasured += 1;
+      this.unmeasuredStores += 1;
+      return;
     }
     if (perModality.size > 1) this.multiModalityStores += 1;
     if (perModality.size === 0) {
@@ -197,7 +248,7 @@ export class DatasetAccumulator {
       return;
     }
     let storeSeconds: number | null = null;
-    for (const [modality, { seconds, channels }] of perModality) {
+    for (const { display: modality, seconds, channels } of perModality.values()) {
       if (seconds === null || channels === null) {
         this.unmeasured += 1;
         continue;
@@ -247,6 +298,7 @@ export class DatasetAccumulator {
       storeSeconds: this.storeSeconds,
       unmeasuredStores: this.unmeasuredStores,
       unmeasured: this.unmeasured,
+      implausible: this.implausible,
       failed: declaredCount(counts.failureCount) ?? counts.failuresSeen,
       pending: declaredCount(counts.pendingCount) ?? counts.pendingSeen,
       multiGroupStores: this.multiGroupStores,
@@ -255,23 +307,39 @@ export class DatasetAccumulator {
   }
 }
 
-function checkRoot(root: Map<string, unknown>, expectedId: string, storesSeen: boolean): void {
-  const format = root.get("format");
-  if (format !== undefined && format !== INDEX_FORMAT) {
+/**
+ * Refuse a document that is not a version-3 `nemar-zarr-index` of this dataset,
+ * or whose own `store_count` disagrees with the stores actually listed (a
+ * truncated or corrupt file that still parses).
+ */
+function checkRoot(root: Map<string, unknown>, expectedId: string, storesSeen: number | null) {
+  if (root.get("format") !== INDEX_FORMAT) {
     throw new IndexFormatError(`the document is not a ${INDEX_FORMAT}`);
+  }
+  const version = root.get("format_version");
+  if (version !== INDEX_FORMAT_VERSION) {
+    throw new IndexFormatError(
+      `unsupported index format_version ${JSON.stringify(version)}; this collector reads ${INDEX_FORMAT_VERSION}`,
+    );
   }
   const datasetId = root.get("dataset_id");
   if (datasetId !== undefined && datasetId !== expectedId) {
     throw new IndexFormatError("the index belongs to a different dataset");
   }
-  if (!storesSeen) throw new IndexFormatError("the index has no stores list");
+  if (storesSeen === null) throw new IndexFormatError("the index has no stores list");
+  const declared = root.get("store_count");
+  if (typeof declared === "number" && declared !== storesSeen) {
+    throw new IndexFormatError(
+      `the index declares ${declared} stores but lists ${storesSeen}; it may be truncated`,
+    );
+  }
 }
 
 /** Summarize an index that is already parsed (small documents and tests). */
 export function summarizeIndex(index: unknown, expectedId: string): DatasetSummary {
   if (!isObject(index)) throw new IndexFormatError("the index is not a JSON object");
   const root = new Map<string, unknown>(Object.entries(index));
-  checkRoot(root, expectedId, Array.isArray(index.stores));
+  checkRoot(root, expectedId, Array.isArray(index.stores) ? index.stores.length : null);
   const accumulator = new DatasetAccumulator();
   for (const store of index.stores as unknown[]) accumulator.add(store);
   return accumulator.summary({
@@ -282,18 +350,26 @@ export function summarizeIndex(index: unknown, expectedId: string): DatasetSumma
   });
 }
 
-const ROOT_SCALARS = new Set(["format", "dataset_id", "failure_count", "pending_count"]);
+const ROOT_SCALARS = new Set([
+  "format",
+  "format_version",
+  "dataset_id",
+  "store_count",
+  "failure_count",
+  "pending_count",
+]);
 
 /**
  * Summarize an index from its byte stream without holding the document in
- * memory: each `stores[]` entry is parsed on its own and dropped, so a 300 MB
- * index costs a few megabytes. Throws IndexFormatError or JsonShapeError for a
+ * memory: each `stores[]` entry is parsed on its own and dropped, so memory per
+ * index is bounded by the largest single entry (at most MAX_STORE_ENTRY_BYTES)
+ * whatever the file size. Throws IndexFormatError or JsonShapeError for a
  * document that is not a usable index, and lets stream errors through.
  */
 export async function summarizeIndexStream(
   stream: ReadableStream<Uint8Array>,
   expectedId: string,
-  onChunk?: () => void,
+  onChunk?: (bytes: number) => void,
 ): Promise<DatasetSummary> {
   const accumulator = new DatasetAccumulator();
   const root = new Map<string, unknown>();
@@ -310,6 +386,8 @@ export async function summarizeIndexStream(
         }
       },
       wantElements: (key) => key === "stores",
+      maxCaptureBytes: MAX_STORE_ENTRY_BYTES,
+      maxDepth: MAX_STORE_ENTRY_DEPTH + 2,
       onElement: (key, raw) => {
         if (key !== "stores" || raw === null) return;
         let store: unknown;
@@ -323,7 +401,7 @@ export async function summarizeIndexStream(
     },
     onChunk,
   );
-  checkRoot(root, expectedId, scan.elementCounts.has("stores"));
+  checkRoot(root, expectedId, scan.elementCounts.get("stores") ?? null);
   return accumulator.summary({
     failureCount: root.get("failure_count"),
     pendingCount: root.get("pending_count"),
@@ -341,6 +419,7 @@ export function parseDatasetSummary(value: unknown): DatasetSummary | null {
     "measuredStores",
     "unmeasuredStores",
     "unmeasured",
+    "implausible",
     "failed",
     "pending",
     "multiGroupStores",
@@ -357,21 +436,23 @@ export function parseDatasetSummary(value: unknown): DatasetSummary | null {
     if (modality === null || modality !== entry.modality || seen.has(modality)) return null;
     seen.add(modality);
     const bins: BinSummary[] = [];
-    const channelsSeen = new Set<number>();
+    let previous = 0;
     for (const bin of entry.bins) {
       if (!isObject(bin)) return null;
       const channels = validChannels(bin.channels);
-      const seconds = validDuration(bin.seconds);
+      const seconds = validSeconds(bin.seconds);
       const recordings = declaredCount(bin.recordings);
-      if (channels === null || seconds === null || recordings === null) return null;
-      if (channelsSeen.has(channels)) return null;
-      channelsSeen.add(channels);
+      if (channels === null || seconds === null || recordings === null || recordings < 1) {
+        return null;
+      }
+      if (channels <= previous) return null; // bins are strictly ascending
+      previous = channels;
       bins.push({ channels, seconds, recordings });
     }
     if (bins.length === 0) return null;
     modalities.push({ modality, bins });
   }
-  const storeSeconds = validDuration(value.storeSeconds);
+  const storeSeconds = validSeconds(value.storeSeconds);
   if (storeSeconds === null) return null;
   return {
     modalities,
@@ -381,6 +462,7 @@ export function parseDatasetSummary(value: unknown): DatasetSummary | null {
     storeSeconds,
     unmeasuredStores: value.unmeasuredStores as number,
     unmeasured: value.unmeasured as number,
+    implausible: value.implausible as number,
     failed: value.failed as number,
     pending: value.pending as number,
     multiGroupStores: value.multiGroupStores as number,

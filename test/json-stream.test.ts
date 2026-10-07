@@ -83,6 +83,8 @@ describe("RootObjectScanner on real indexes", () => {
 describe("RootObjectScanner on awkward documents", () => {
   // Braces, brackets, quotes, colons, commas and backslashes inside strings, a
   // multi-byte character, nested containers, every literal, and loose whitespace.
+  // Characters are built from code points so the source stays plain ASCII.
+  const cp = (...points: number[]) => String.fromCodePoint(...points);
   const tricky = [
     "\n  {\n",
     '  "a{": "x}[,]:\\"y\\\\",\n',
@@ -90,8 +92,8 @@ describe("RootObjectScanner on awkward documents", () => {
     '  "t":true,"f":false,"z":null,\n',
     '  "list" : [ 1 , "two", {"k": [ "}" , {"deep": "\\"{"} ]}, [ ], [[]], true, null ] ,\n',
     '  "empty": [],\n',
-    '  "obj": {"in": ["a", {"b": "c"}], "s": "café 中文 😀"},\n',
-    '  "stores": [ {"p": "a\\"b"} , {"p": "é"} ]\n',
+    `  "obj": {"in": ["a", {"b": "c"}], "s": "caf${cp(0xe9)} ${cp(0x4e2d, 0x6587)} ${cp(0x1f600)}"},\n`,
+    `  "stores": [ {"p": "a\\"b"} , {"p": "${cp(0xe9)}"} ]\n`,
     "}\n  ",
   ].join("");
   const bytes = new TextEncoder().encode(tricky);

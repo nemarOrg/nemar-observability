@@ -1,4 +1,5 @@
 {
+ "summary_version": 2,
  "modalities": {
   "ECG": {
    "hours": 23.6486,
@@ -161,5 +162,5 @@
  "dedup_hours": 206.8024,
  "measured": 230,
  "unconverted": 8,
- "_derivation": "Computed with an independent Python implementation (no shared code) over the seven fixtures in test/fixtures/zarr-index taken together: raw stores only, each group attributed to its own modality (MISC groups by datatype folder), max duration and max channels per store and modality, hours rounded to 4 decimals, dataset peak = largest channel count per dataset and modality."
+ "_derivation": "Computed with an independent Python implementation (no shared code) over the seven fixtures in test/fixtures/zarr-index taken together: raw stores only, each group attributed to its own modality (MISC groups by datatype folder), max duration and max channels per store and modality, hours rounded to 4 decimals, dataset peak = largest channel count per dataset and modality. summary_version is the SUMMARY_VERSION these rules correspond to; a test fails when scripts/lib/zarr-recordings.ts moves on, so the numbers are re-derived deliberately."
 }
