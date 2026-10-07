@@ -2,6 +2,7 @@
 // Expected values come from the channel-hours fixture.
 
 import { afterEach, describe, expect, test } from "bun:test";
+import { readFileSync, readdirSync } from "node:fs";
 import { Window } from "happy-dom";
 import { CHANNELS_JS } from "../src/routes/dashboard/channels";
 import { CHARTS_JS } from "../src/routes/dashboard/charts";
@@ -425,7 +426,28 @@ describe("pure pieces", () => {
     expect(measureFigure("hours", 1)).toEqual({ number: "1", unit: "hour" });
   });
 
-  test("the test helper runs every module the page runs", () => {
+  // The expected set comes from the source: a client module that says in its
+  // opening comment that it works "with no DOM access" is one the pure tests
+  // must run. A new pure module left out of PURE_MODULES fails here.
+  test("the test helper runs every module that declares itself DOM-free, as the page does", async () => {
+    const dir = new URL("../src/routes/dashboard/", import.meta.url);
+    const declared: string[] = [];
+    for (const file of readdirSync(dir).filter((f) => f.endsWith(".ts"))) {
+      const source = readFileSync(new URL(file, dir), "utf8");
+      const opening = source
+        .split("\n")
+        .filter((line, i, lines) => lines.slice(0, i + 1).every((l) => l.startsWith("//")))
+        .map((line) => line.replace(/^\/\/\s?/, ""))
+        .join(" ")
+        .replace(/\s+/g, " ");
+      if (!opening.includes("with no DOM access")) continue;
+      const mod = (await import(new URL(file, dir).href)) as Record<string, unknown>;
+      for (const [name, value] of Object.entries(mod)) {
+        if (name.endsWith("_JS") && typeof value === "string") declared.push(value);
+      }
+    }
+    expect(declared.length).toBeGreaterThanOrEqual(7);
+    expect(new Set(PURE_MODULES)).toEqual(new Set(declared));
     for (const part of PURE_MODULES) expect(CLIENT_JS).toContain(part);
   });
 });
