@@ -57,7 +57,7 @@ export function codeStaleMetrics(sectionKey: string, since: string | null) {
       label: "Collector code updates",
       value: 1,
       unit: "errors",
-      severity: "error",
+      severity: "error" as const,
       hint: `The collector has not been able to update its code since ${since}. Data is still being collected; repair the checkout on nemaring (see the README).`,
     },
   ];

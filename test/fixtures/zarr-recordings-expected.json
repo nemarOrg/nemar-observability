@@ -1,0 +1,165 @@
+{
+ "modalities": {
+  "ECG": {
+   "hours": 23.6486,
+   "recordings": 2,
+   "datasets": 1,
+   "bins": [
+    {
+     "channels": 1,
+     "hours": 23.6486,
+     "recordings": 2
+    }
+   ],
+   "dataset_peaks": [
+    {
+     "channels": 1,
+     "datasets": 1
+    }
+   ]
+  },
+  "EEG": {
+   "hours": 71.5401,
+   "recordings": 15,
+   "datasets": 2,
+   "bins": [
+    {
+     "channels": 2,
+     "hours": 23.6486,
+     "recordings": 2
+    },
+    {
+     "channels": 6,
+     "hours": 45.7575,
+     "recordings": 4
+    },
+    {
+     "channels": 8,
+     "hours": 2.134,
+     "recordings": 9
+    }
+   ],
+   "dataset_peaks": [
+    {
+     "channels": 6,
+     "datasets": 1
+    },
+    {
+     "channels": 8,
+     "datasets": 1
+    }
+   ]
+  },
+  "EMG": {
+   "hours": 133.8522,
+   "recordings": 106,
+   "datasets": 2,
+   "bins": [
+    {
+     "channels": 1,
+     "hours": 23.6486,
+     "recordings": 2
+    },
+    {
+     "channels": 6,
+     "hours": 46.2522,
+     "recordings": 4
+    },
+    {
+     "channels": 16,
+     "hours": 63.9514,
+     "recordings": 100
+    }
+   ],
+   "dataset_peaks": [
+    {
+     "channels": 6,
+     "datasets": 1
+    },
+    {
+     "channels": 16,
+     "datasets": 1
+    }
+   ]
+  },
+  "MEG": {
+   "hours": 13.8339,
+   "recordings": 105,
+   "datasets": 2,
+   "bins": [
+    {
+     "channels": 321,
+     "hours": 0.125,
+     "recordings": 2
+    },
+    {
+     "channels": 325,
+     "hours": 0.1614,
+     "recordings": 4
+    },
+    {
+     "channels": 395,
+     "hours": 13.1967,
+     "recordings": 96
+    },
+    {
+     "channels": 415,
+     "hours": 0.3508,
+     "recordings": 3
+    }
+   ],
+   "dataset_peaks": [
+    {
+     "channels": 395,
+     "datasets": 1
+    },
+    {
+     "channels": 415,
+     "datasets": 1
+    }
+   ]
+  },
+  "iEEG": {
+   "hours": 5.626,
+   "recordings": 5,
+   "datasets": 1,
+   "bins": [
+    {
+     "channels": 135,
+     "hours": 0.9065,
+     "recordings": 1
+    },
+    {
+     "channels": 178,
+     "hours": 0.9671,
+     "recordings": 1
+    },
+    {
+     "channels": 192,
+     "hours": 1.3786,
+     "recordings": 1
+    },
+    {
+     "channels": 194,
+     "hours": 1.1464,
+     "recordings": 1
+    },
+    {
+     "channels": 206,
+     "hours": 1.2274,
+     "recordings": 1
+    }
+   ],
+   "dataset_peaks": [
+    {
+     "channels": 206,
+     "datasets": 1
+    }
+   ]
+  }
+ },
+ "dedup_hours": 206.8024,
+ "measured": 230,
+ "unconverted": 8,
+ "_derivation": "Computed with an independent Python implementation (no shared code) over the seven fixtures in test/fixtures/zarr-index taken together: raw stores only, each group attributed to its own modality (MISC groups by datatype folder), max duration and max channels per store and modality, hours rounded to 4 decimals, dataset peak = largest channel count per dataset and modality."
+}
