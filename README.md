@@ -256,6 +256,7 @@ Indexes are streamed (`scripts/lib/json-stream.ts`): each `stores[]` entry is pa
 - Only raw recordings: a store flagged `derived`, or from a source tree other than `raw`, is skipped.
 - Each group is attributed to its own modality (`EEG`, `MEG`, `iEEG`, `EMG`, and so on; `IEEG` is shown as `iEEG`).
   A group named `MISC` takes the uppercased BIDS datatype folder of the recording's path when that folder is a signal datatype (`ecg/` gives `ECG`); in any other folder, such as `eye_tracker/`, it stays `MISC`.
+  The index is untrusted input and the name is published, so only plain names (letters, digits, and a few joining characters, at most 32 long) are accepted; any other value cannot be attributed and counts as unmeasured.
 - Within one store and one modality the duration is the longest group's and the channel count the largest group's, never a sum, because the groups of a store are concurrent streams of one recording (the same rule as nemar-cli's `aggregateRecordingStats`).
   A store with two modalities is counted once under each, and once in the headline.
 - A recording with no usable duration or channel count is **unmeasured**: it is counted in `channel_hours.recordings_unmeasured` and left out of every bin.

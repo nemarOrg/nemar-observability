@@ -68,6 +68,11 @@ describe("normalizeModality", () => {
     expect(normalizeModality(7)).toBeNull();
     expect(normalizeModality("x".repeat(33))).toBeNull();
     expect(normalizeModality("EE\nG")).toBeNull();
+    expect(normalizeModality("<img src=x onerror=alert(1)>")).toBeNull();
+    expect(normalizeModality("EEG</b>")).toBeNull();
+    expect(normalizeModality("-EEG")).toBeNull();
+    expect(normalizeModality("ECoG-SEEG")).toBe("ECoG-SEEG");
+    expect(normalizeModality("EEG + EMG")).toBe("EEG + EMG");
     expect(normalizeModality("x".repeat(32))).toBe("x".repeat(32));
   });
 });

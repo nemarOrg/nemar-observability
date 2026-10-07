@@ -15,6 +15,7 @@ const INDEX_FORMAT = "nemar-zarr-index";
 /** The contract's bounds (src/lib/schema.ts ChannelHoursSchema). */
 export const MAX_CHANNELS = 100_000;
 const MODALITY_MAX_LENGTH = 32;
+const MODALITY_NAME = /^[A-Za-z0-9][A-Za-z0-9 _+./-]*$/;
 
 /** The index is readable JSON but not a usable `nemar-zarr-index` for this dataset. */
 export class IndexFormatError extends Error {}
@@ -59,17 +60,16 @@ function isObject(value: unknown): value is Record<string, unknown> {
 /**
  * The display key of a group's modality, or null when it cannot be one.
  * "IEEG" is shown as "iEEG" (any case of "ieeg" maps there); every other value
- * is kept as given, trimmed. Values that are empty, over 32 characters, or hold
- * control characters are not modality names and cannot be attributed.
+ * is kept as given, trimmed. The index is untrusted input and the name is
+ * published on a public page, so only plain names qualify: letters, digits,
+ * and a few joining characters, starting with a letter or digit, at most 32
+ * long. Anything else (empty, markup, control characters) cannot be attributed
+ * and the recording counts as unmeasured instead.
  */
 export function normalizeModality(raw: unknown): string | null {
   if (typeof raw !== "string") return null;
   const value = raw.trim();
-  if (value.length === 0 || value.length > MODALITY_MAX_LENGTH) return null;
-  for (let i = 0; i < value.length; i += 1) {
-    const code = value.charCodeAt(i);
-    if (code < 0x20 || code === 0x7f) return null;
-  }
+  if (value.length > MODALITY_MAX_LENGTH || !MODALITY_NAME.test(value)) return null;
   return value.toLowerCase() === "ieeg" ? "iEEG" : value;
 }
 
