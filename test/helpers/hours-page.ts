@@ -95,6 +95,12 @@ export async function openPage(section: Section | null, hash = "", options: Open
   window.addEventListener("unhandledrejection", (event) =>
     errors.push(`unhandled: ${String((event as unknown as { reason?: unknown }).reason)}`),
   );
+  // What the page logs with console.error, so a test can check that a failure
+  // was reported and not only shown.
+  const logged: string[] = [];
+  (window as unknown as { console: { error: (...args: unknown[]) => void } }).console.error = (
+    ...args: unknown[]
+  ) => logged.push(args.map((a) => (a instanceof Error ? a.message : String(a))).join(" "));
   let failures = options.failSnapshotOnce ? 1 : 0;
   (window as unknown as { fetch: unknown }).fetch = async (input: unknown) => {
     const url = new URL(String(input), ORIGIN);
@@ -118,7 +124,7 @@ export async function openPage(section: Section | null, hash = "", options: Open
     () => document.getElementById("channel-hours")?.getAttribute("aria-busy") !== "true",
     "the explorer to settle",
   );
-  return { window, document, errors };
+  return { window, document, errors, logged };
 }
 
 export async function until(check: () => boolean, what: string, ms = 4000) {

@@ -99,46 +99,62 @@ function ascending(items) {
   for (let i = 1; i < items.length; i++) if (!(items[i].channels > items[i - 1].channels)) return false;
   return true;
 }
-function validModality(m, scanned) {
-  if (!isObject(m) || !onlyKeys(m, ["modality", "hours", "recordings", "datasets", "bins", "dataset_peaks"])) return false;
-  if (typeof m.modality !== "string" || !MODALITY_NAME.test(m.modality)) return false;
-  if (!isAmount(m.hours) || !isCount(m.recordings) || !isCount(m.datasets) || m.datasets > scanned) return false;
-  if (!Array.isArray(m.bins) || m.bins.length < 1 || m.bins.length > 1024) return false;
-  if (!Array.isArray(m.dataset_peaks) || m.dataset_peaks.length < 1 || m.dataset_peaks.length > 1024) return false;
-  const binsOk = m.bins.every(function (b) {
-    return isObject(b) && onlyKeys(b, ["channels", "hours", "recordings"]) && isChannels(b.channels) && isAmount(b.hours) && isCount(b.recordings) && b.recordings >= 1;
+// The first rule a modality breaks, in words for the console, or "" if none.
+function modalityProblem(m, scanned) {
+  if (!isObject(m)) return "is not an object";
+  if (!onlyKeys(m, ["modality", "hours", "recordings", "datasets", "bins", "dataset_peaks"])) return "has a field the schema does not allow";
+  if (typeof m.modality !== "string" || !MODALITY_NAME.test(m.modality)) return "has a name that is not a plain name";
+  if (!isAmount(m.hours) || !isCount(m.recordings) || !isCount(m.datasets)) return "has a total that is not a valid count or amount";
+  if (m.datasets > scanned) return "has more datasets than were scanned";
+  if (!Array.isArray(m.bins) || m.bins.length < 1 || m.bins.length > 1024) return "has no bins, or more than 1,024";
+  if (!Array.isArray(m.dataset_peaks) || m.dataset_peaks.length < 1 || m.dataset_peaks.length > 1024) return "has no dataset peaks, or more than 1,024";
+  const badBin = m.bins.findIndex(function (b) {
+    return !(isObject(b) && onlyKeys(b, ["channels", "hours", "recordings"]) && isChannels(b.channels) && isAmount(b.hours) && isCount(b.recordings) && b.recordings >= 1);
   });
-  const peaksOk = m.dataset_peaks.every(function (p) {
-    return isObject(p) && onlyKeys(p, ["channels", "datasets"]) && isChannels(p.channels) && isCount(p.datasets) && p.datasets >= 1;
+  if (badBin >= 0) return "has an invalid bin at position " + badBin;
+  const badPeak = m.dataset_peaks.findIndex(function (p) {
+    return !(isObject(p) && onlyKeys(p, ["channels", "datasets"]) && isChannels(p.channels) && isCount(p.datasets) && p.datasets >= 1);
   });
-  if (!binsOk || !peaksOk || !ascending(m.bins) || !ascending(m.dataset_peaks)) return false;
+  if (badPeak >= 0) return "has an invalid dataset peak at position " + badPeak;
+  if (!ascending(m.bins)) return "has bins out of ascending channel order";
+  if (!ascending(m.dataset_peaks)) return "has dataset peaks out of ascending channel order";
   const binRecordings = Object.create(null);
   let hours = 0; let recordings = 0; let datasets = 0;
   m.bins.forEach(function (b) { hours += b.hours; recordings += b.recordings; binRecordings[b.channels] = b.recordings; });
   for (let i = 0; i < m.dataset_peaks.length; i++) {
     const peak = m.dataset_peaks[i];
     const inBin = binRecordings[peak.channels];
-    if (inBin === undefined || peak.datasets > inBin) return false;
+    if (inBin === undefined) return "has a dataset peak at " + peak.channels + " channels with no bin there";
+    if (peak.datasets > inBin) return "has more datasets peaking at " + peak.channels + " channels than recordings there";
     datasets += peak.datasets;
   }
   // Both lists ascend, so their last entries are the largest counts.
-  if (m.bins[m.bins.length - 1].channels !== m.dataset_peaks[m.dataset_peaks.length - 1].channels) return false;
-  return recordings === m.recordings && datasets === m.datasets && Math.abs(hours - m.hours) <= Math.max(1e-6, m.hours * 1e-9);
+  if (m.bins[m.bins.length - 1].channels !== m.dataset_peaks[m.dataset_peaks.length - 1].channels) return "has a largest dataset peak that is not its largest bin";
+  if (recordings !== m.recordings) return "has a recordings total that is not the sum of its bins";
+  if (datasets !== m.datasets) return "has a datasets total that is not the sum of its dataset peaks";
+  if (Math.abs(hours - m.hours) > Math.max(1e-6, m.hours * 1e-9)) return "has an hours total that is not the sum of its bins";
+  return "";
 }
-function validChannelHours(payload) {
-  if (!isObject(payload) || !onlyKeys(payload, ["datasets_scanned", "datasets_unavailable", "recordings_unmeasured", "modalities"])) return false;
-  if (!isCount(payload.datasets_scanned) || !isCount(payload.datasets_unavailable) || !isCount(payload.recordings_unmeasured)) return false;
-  if (!Array.isArray(payload.modalities) || payload.modalities.length < 1 || payload.modalities.length > 32) return false;
+// The first rule the payload breaks, or "" when it passes every check. The
+// page logs this when it declines to draw, so the cause is in the console.
+function channelHoursProblem(payload) {
+  if (!isObject(payload)) return "the payload is not an object";
+  if (!onlyKeys(payload, ["datasets_scanned", "datasets_unavailable", "recordings_unmeasured", "modalities"])) return "the payload has a field the schema does not allow";
+  if (!isCount(payload.datasets_scanned) || !isCount(payload.datasets_unavailable) || !isCount(payload.recordings_unmeasured)) return "a payload count is not a whole, safe, non-negative number";
+  if (!Array.isArray(payload.modalities) || payload.modalities.length < 1 || payload.modalities.length > 32) return "the payload has no modalities, or more than 32";
   const seen = Object.create(null);
-  return payload.modalities.every(function (m) {
-    if (!validModality(m, payload.datasets_scanned)) return false;
+  for (let i = 0; i < payload.modalities.length; i++) {
+    const m = payload.modalities[i];
+    const problem = modalityProblem(m, payload.datasets_scanned);
+    if (problem) return "modality " + i + " " + problem;
     // Names are unique regardless of case: EEG and eeg are one modality.
     const key = m.modality.toLowerCase();
-    if (seen[key]) return false;
+    if (seen[key]) return "modality " + i + " repeats the name " + m.modality;
     seen[key] = true;
-    return true;
-  });
+  }
+  return "";
 }
+function validChannelHours(payload) { return channelHoursProblem(payload) === ""; }
 // Where the payload is: only the section the Zarr indexer pushes (key
 // recordings), because the explorer names its source; another section that
 // happens to carry channel_hours is not shown. The state says what the page
@@ -149,7 +165,8 @@ function findChannelHours(snap) {
   const section = sections.find(function (s) { return isObject(s) && s.key === "recordings"; });
   if (!section) return { state: "missing", section: null, payload: null };
   if (section.channel_hours === undefined) return { state: "no-payload", section: section, payload: null };
-  if (!validChannelHours(section.channel_hours)) return { state: "invalid", section: section, payload: null };
+  const problem = channelHoursProblem(section.channel_hours);
+  if (problem) return { state: "invalid", section: section, payload: null, problem: problem };
   return { state: "ok", section: section, payload: section.channel_hours };
 }
 // Modalities by hours, most first (ties by name, ignoring case), each with a lowercase key for

@@ -22,6 +22,7 @@ const {
   hoursTableRows,
   findChannelHours,
   validChannelHours,
+  channelHoursProblem,
   prepareModalities,
   atLeast,
   channelSeries,
@@ -37,6 +38,7 @@ const {
   hoursHash,
 } = clientLogic([
   "validChannelHours",
+  "channelHoursProblem",
   "partShare",
   "hoursDataNotices",
   "thresholdText",
@@ -352,6 +354,32 @@ describe("the page's check matches the server's schema", () => {
   test("the real sample passes both", () => {
     expect(ChannelHoursSchema.safeParse(sample).success).toBe(true);
     expect(validChannelHours(sample)).toBe(true);
+    expect(channelHoursProblem(sample)).toBe("");
+  });
+
+  test("a refused payload comes with the first rule it breaks, for the console", () => {
+    const reason = (mutate: (v: Loose) => void) => {
+      const v = clone();
+      mutate(v);
+      return channelHoursProblem(v);
+    };
+    expect(
+      reason((v) => {
+        v.modalities[0].bins.reverse();
+      }),
+    ).toBe("modality 0 has bins out of ascending channel order");
+    expect(
+      reason((v) => {
+        v.modalities.push({ ...structuredClone(v.modalities[0]), modality: "eeg" });
+      }),
+    ).toBe(`modality ${sample.modalities.length} repeats the name eeg`);
+    expect(reason(set(["modalities", eegIndex, "dataset_peaks", 0, "channels"], 1))).toBe(
+      `modality ${eegIndex} has a dataset peak at 1 channels with no bin there`,
+    );
+    expect(reason(set(["datasets_scanned"], "64"))).toBe(
+      "a payload count is not a whole, safe, non-negative number",
+    );
+    expect(channelHoursProblem(null)).toBe("the payload is not an object");
   });
 
   for (const [name, mutate] of cases) {

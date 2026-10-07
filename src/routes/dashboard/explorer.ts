@@ -79,11 +79,17 @@ window.addEventListener("hashchange", function () {
 });
 // A failure after the explorer has drawn (a step, a tab, a resize) replaces it
 // with a plain error in its own block; the rest of the page stays as it is.
+// Try again draws the same data afresh, with the view the reader had chosen.
 function failHoursExplorer(err) {
   console.error("[ui] recorded hours display failed:", err);
   hoursView.nodes = null;
   const root = document.getElementById("channel-hours");
-  if (root) stateMessage(root, "error", "Could not display recorded hours", "Something went wrong while drawing them. The rest of the page is shown.");
+  if (!root) return;
+  const found = hoursView.found;
+  const retry = found ? function () {
+    try { drawRecordedHours(root, found); } catch (again) { failHoursExplorer(again); }
+  } : null;
+  stateMessage(root, "error", "Could not display recorded hours", "Something went wrong while drawing them. The rest of the page is shown.", retry);
 }
 
 function renderRecordedHours(snap) {
@@ -99,6 +105,7 @@ function renderRecordedHours(snap) {
     return;
   }
   if (found.state === "invalid") {
+    console.error("[ui] recorded hours not shown, the payload fails a check: " + found.problem);
     stateMessage(root, "error", "Could not display recorded hours", "The latest snapshot holds them in a form this page does not recognize.");
     return;
   }

@@ -190,8 +190,12 @@ describe("payloads the checks refuse", () => {
     const corrupt = structuredClone(sample);
     corrupt.modalities[0].bins.reverse();
     snap.sections.push({ ...recordingsSection(true), channel_hours: corrupt });
-    const { document, errors } = await openPage(null, "", { snapshotBody: snap });
+    const { document, errors, logged } = await openPage(null, "", { snapshotBody: snap });
     expect(text(document, "#channel-hours")).toContain("Could not display recorded hours");
+    // The console says which check failed.
+    expect(logged).toContain(
+      "[ui] recorded hours not shown, the payload fails a check: modality 0 has bins out of ascending channel order",
+    );
     expect(document.querySelector("#channel-hours [role=tablist]")).toBeNull();
     await until(() => text(document, "#catalog").includes("Recording modality"), "the catalog");
     expect(document.getElementById("card-zarr")).not.toBeNull();

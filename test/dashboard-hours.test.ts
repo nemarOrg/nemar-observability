@@ -304,7 +304,7 @@ describe("recorded hours explorer", () => {
   });
 
   test("a failure while redrawing stays in the explorer, and the address still follows", async () => {
-    const { window, document, errors } = await openPage(recordingsSection());
+    const { window, document, errors, logged } = await openPage(recordingsSection());
     await until(() => document.getElementById("card-recordings") !== null, "the recordings card");
     // happy-dom keeps the page script's functions private, so the fault goes
     // into something the redraw touches: the slider's setAttribute, which the
@@ -320,9 +320,16 @@ describe("recorded hours explorer", () => {
     // The rest of the page is untouched, and nothing escaped as an uncaught error.
     expect(document.getElementById("card-recordings")).not.toBeNull();
     expect(errors).toEqual([]);
+    expect(logged).toContain("[ui] recorded hours display failed: injected for this test");
     // The address update was scheduled before the drawing failed, so it still
     // lands once its 250 ms debounce runs out.
     await until(() => window.location.hash === "#hours=eeg:19", "the address to follow the view");
+    // Try again draws afresh (the injected fault went with the old slider) and
+    // keeps the view the reader had chosen.
+    (document.querySelector("#channel-hours .button") as unknown as { click(): void }).click();
+    expect(document.querySelector("#channel-hours [role=tablist]")).not.toBeNull();
+    expect(readout(document).claim).toBe("of EEG recorded with 19 or more channels");
+    expect(errors).toEqual([]);
   });
 
   test("End goes to the largest count the selected modality has", async () => {
@@ -424,10 +431,13 @@ describe("recorded hours explorer", () => {
     expect(shown).not.toMatch(JARGON);
     expect(shown).not.toMatch(EXPLORER_JARGON);
     // Every string the explorer's script can put on the page, including notices
-    // and empty states that this view does not show.
-    const literals = [...(CHANNELS_JS + EXPLORER_JS).matchAll(/"((?:[^"\\\n]|\\.){12,})"/g)].map(
-      (m) => m[1],
-    );
+    // and empty states that this view does not show. The payload checks' reasons
+    // go only to the console, for developers, in the payload's own terms, so
+    // that block is left out.
+    const consoleOnly = /function modalityProblem[\s\S]*?function validChannelHours/;
+    expect(CHANNELS_JS).toMatch(consoleOnly);
+    const readerCode = CHANNELS_JS.replace(consoleOnly, "") + EXPLORER_JS;
+    const literals = [...readerCode.matchAll(/"((?:[^"\\\n]|\\.){12,})"/g)].map((m) => m[1]);
     // Words with spaces; not log lines, and not code caught between two
     // string literals on one line.
     const prose = literals.filter(
