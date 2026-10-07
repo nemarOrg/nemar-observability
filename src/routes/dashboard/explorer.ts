@@ -1,4 +1,5 @@
-// The recorded-hours explorer under the pipeline cards: one tab per modality, a
+// The recorded-hours explorer in the catalog ("What does NEMAR hold?"), between
+// the catalog cards and the Dataset size card: one tab per modality, a
 // minimum-channels slider that sits on the chart's own channel axis, a
 // readout that answers "how much at N or more channels" in words, and the
 // distribution of hours, recordings, or datasets over exact channel counts.
@@ -6,8 +7,9 @@
 // Every number comes from channels.ts (tested without a DOM); this module only
 // draws. The view (modality, minimum, measure) is kept in the address as
 // #hours=eeg:16 so it can be shared; nothing is stored in the browser. The
-// card carries the modality's tone, which styles.ts turns into the accent of
-// its tabs, meter, chart, and slider.
+// modality is also what the Dataset size card follows (see syncSizeCard in
+// snapshot.ts), and the card carries the modality's tone, which styles.ts turns
+// into the accent of its tabs, meter, chart, and slider.
 //
 // Part of the inlined client script (see client.ts): a String.raw template, so
 // no backticks and no dollar-brace sequences.
@@ -24,7 +26,7 @@ const HOURS_THUMB_RADIUS = 12;
 // The view. The minimum is kept when the tab changes, on purpose (16 or more
 // EEG, then 16 or more EMG), so it can fall between the new tab's stops; the
 // stepping in channels.ts copes with a value that is not a stop.
-const hoursView = { modalities: [], axisMax: 512, key: null, min: DEFAULT_MIN_CHANNELS, measure: "hours", found: null, nodes: null, hashTimer: null, scrolled: false, linkNote: "" };
+const hoursView = { modalities: [], axisMax: 512, key: null, min: DEFAULT_MIN_CHANNELS, measure: "hours", found: null, nodes: null, hashTimer: null, scrolled: false, linkNote: "", linkedView: false };
 
 function hoursModality() {
   return hoursView.modalities.find(function (m) { return m.key === hoursView.key; }) || hoursView.modalities[0];
@@ -37,10 +39,14 @@ function hoursPosition(channels) { return Math.round(1000 * Math.log2(Math.max(1
 // recording of that type has; the view shown instead is stated, and the
 // address is set to it.
 function applyHoursHash(hash) {
+  // linkedView: the address named a type this snapshot has, so the Dataset size
+  // card opens on that type; any other address leaves it on All.
+  hoursView.linkedView = false;
   const parsed = parseHoursHash(hash);
   if (!parsed) return "none";
   if (!parsed.valid || !hoursView.modalities.some(function (m) { return m.key === parsed.modality; })) return "unavailable";
   hoursView.key = parsed.modality;
+  hoursView.linkedView = true;
   hoursView.measure = parsed.measure;
   // More channels than any recording of this type has: show the largest count
   // that occurs instead of an empty view, and say so.
@@ -416,6 +422,8 @@ function drawHoursView(announce) {
   nodes.details.querySelector("summary").textContent = "Show exact values (" + plural(hoursTableRows(modality).length, "channel count", "channel counts") + ")";
   if (nodes.details.open) fillHoursTable(modality);
   if (announce) nodes.live.textContent = hoursAnnouncement(shown, nodes.claim.textContent, nodes.share.textContent);
+  // The Dataset size card follows the chosen type.
+  syncSizeCard();
 }
 
 function renderHoursNotices() {

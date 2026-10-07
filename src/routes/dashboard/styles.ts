@@ -545,8 +545,13 @@ main > section { scroll-margin-top: calc(var(--topbar-h) + 16px); padding-top: v
    pair on both surfaces (3:1 against the card, normal-vision and color-vision
    separation above the floors). Position against the rule, the shaded band,
    and the table's divider row carry the same split without color. */
-.hours-block { margin-top: var(--space-6); }
+.hours-block { margin-top: var(--space-5); }
 .hours-block > .subsection-head { margin-top: 0; }
+.catalog-size { margin-top: var(--space-5); }
+.catalog-size:empty { margin-top: 0; }
+.size-top { margin: 0 -20px var(--space-4); padding: 0 20px; border-bottom: 1px solid var(--border); }
+.size-note { margin: 0 0 var(--space-3); color: var(--text-2); font-size: var(--fs-sm); }
+.size-note[hidden], .size-block[hidden] { display: none; }
 .hours-block .hours-scope { flex-basis: 100%; max-width: 75ch; color: var(--text-2); }
 .hours-card { padding: 0; }
 .hours-top { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: var(--space-2) var(--space-4); padding: 10px 20px 0; border-bottom: 1px solid var(--border); }
@@ -713,6 +718,8 @@ main > section { scroll-margin-top: calc(var(--topbar-h) + 16px); padding-top: v
   .geo-side .hbar { grid-template-columns: minmax(0, 1fr) auto; }
   .map-scale { flex-basis: 100%; max-width: none; }
   .hours-top { flex-direction: column; align-items: stretch; padding: 6px 12px 0; border-bottom: 0; }
+  .size-top { margin: 0 -16px var(--space-3); padding: 6px 12px 0; border-bottom: 0; }
+  .size-tabs .hours-tab { min-width: 0; padding-left: 8px; padding-right: 8px; }
   .hours-tabs { margin-bottom: 0; box-shadow: inset 0 -1px 0 var(--border); }
   .hours-measures { align-self: flex-start; margin: var(--space-3) 4px 0; }
   .hours-tab { min-width: 64px; padding: 8px 10px 9px; }

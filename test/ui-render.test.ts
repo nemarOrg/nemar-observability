@@ -111,13 +111,22 @@ describe("dashboard shell", () => {
     expect(CLIENT_JS).toContain('removeAttribute("data-theme")');
   });
 
-  test("recorded hours by channel count sit under the pipeline cards and start busy", () => {
-    const pipelines = html.slice(html.indexOf('<section id="pipelines"'), html.indexOf("</main>"));
-    expect(pipelines.indexOf('id="sections"')).toBeLessThan(
-      pipelines.indexOf('id="recorded-hours"'),
+  test("recorded hours by channel count sit in the catalog, between its cards and the size card, and start busy", () => {
+    const datasets = html.slice(
+      html.indexOf('<section id="datasets"'),
+      html.indexOf('<section id="pipelines"'),
     );
-    expect(pipelines).toContain("<h3>Recorded hours by channel count</h3>");
-    expect(pipelines).toContain('<div id="channel-hours" aria-busy="true">');
+    const at = (id: string) => datasets.indexOf(`id="${id}"`);
+    expect(at("catalog")).toBeGreaterThan(-1);
+    expect(at("catalog")).toBeLessThan(at("recorded-hours"));
+    expect(at("recorded-hours")).toBeLessThan(at("catalog-size"));
+    expect(datasets).toContain("<h3>Recorded hours by channel count</h3>");
+    expect(datasets).toContain('<div id="channel-hours" aria-busy="true">');
+    // Gone from the pipeline section, whose intro no longer promises it.
+    const pipelines = html.slice(html.indexOf('<section id="pipelines"'), html.indexOf("</main>"));
+    expect(pipelines).not.toContain('id="recorded-hours"');
+    expect(pipelines).not.toContain('id="channel-hours"');
+    expect(pipelines).not.toContain("recorded hours");
     // The view is shared through the address only; nothing is stored.
     expect(CLIENT_JS).toContain("history.replaceState");
     expect(CLIENT_JS).not.toContain("sessionStorage");

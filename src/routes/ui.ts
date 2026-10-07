@@ -324,23 +324,11 @@ export function renderDashboardPage(): string {
       <div class="section-head">
         <div>
           <h2 id="datasets-title">What does NEMAR hold?</h2>
-          <p class="section-lede">The public catalog by recording type, license, and size, from the latest hourly snapshot.</p>
+          <p class="section-lede">The public catalog by recording type, license, and size, with the hours of recorded data by channel count, from the latest hourly snapshot.</p>
         </div>
         <div class="section-tools">${CURRENT_STATE}</div>
       </div>
       <div id="catalog">${GRID_SKELETON}</div>
-    </section>
-
-    <section id="pipelines" aria-labelledby="pipelines-title">
-      <div class="section-head">
-        <div>
-          <h2 id="pipelines-title">What is the latest state of datasets and pipelines?</h2>
-          <p class="section-lede">Counts for archive building, Zarr conversion for in-browser viewing, OpenNeuro imports, publication review, and accounts, then the recorded hours in converted datasets by channel count. Admins manage these in the admin portal.</p>
-        </div>
-        <div class="section-tools">${CURRENT_STATE}</div>
-      </div>
-      <p id="health-meta" class="health-meta">Loading the latest snapshot.</p>
-      <div id="sections" class="health-grid">${GRID_SKELETON}</div>
       <div id="recorded-hours" class="hours-block">
         <div class="subsection-head">
           <h3>Recorded hours by channel count</h3>
@@ -349,6 +337,19 @@ export function renderDashboardPage(): string {
         </div>
         <div id="channel-hours" aria-busy="true">${CHART_SKELETON}</div>
       </div>
+      <div id="catalog-size" class="catalog-size"></div>
+    </section>
+
+    <section id="pipelines" aria-labelledby="pipelines-title">
+      <div class="section-head">
+        <div>
+          <h2 id="pipelines-title">What is the latest state of datasets and pipelines?</h2>
+          <p class="section-lede">Counts for archive building, Zarr conversion for in-browser viewing, OpenNeuro imports, publication review, and accounts. Admins manage these in the admin portal.</p>
+        </div>
+        <div class="section-tools">${CURRENT_STATE}</div>
+      </div>
+      <p id="health-meta" class="health-meta">Loading the latest snapshot.</p>
+      <div id="sections" class="health-grid">${GRID_SKELETON}</div>
     </section>
   </main>
   <footer class="site-footer">
