@@ -15,6 +15,7 @@ const {
   measureFigure,
   hoursClaim,
   hoursShareLine,
+  hoursAnnouncement,
   hoursFacts,
   channelHoursText,
   tableHours,
@@ -42,6 +43,7 @@ const {
   "measureFigure",
   "hoursClaim",
   "hoursShareLine",
+  "hoursAnnouncement",
   "hoursFacts",
   "channelHoursText",
   "tableHours",
@@ -572,6 +574,24 @@ describe("words", () => {
     );
     expect(hoursShareLine("hours", 0, 0, "ZERO")).toBe(
       "These ZERO recordings have no recorded duration, so there are no hours to compare.",
+    );
+    // Read aloud: one period at the end whichever shape the share line has.
+    const figure = measureFigure("hours", part.hours);
+    expect(
+      hoursAnnouncement(
+        figure,
+        "of EEG recorded with 16 or more channels",
+        "52.6% of the 4,646 EEG hours",
+      ),
+    ).toBe("2,445 hours of EEG recorded with 16 or more channels. 52.6% of the 4,646 EEG hours.");
+    expect(
+      hoursAnnouncement(
+        measureFigure("hours", 0),
+        "of ZERO recorded with 16 or more channels",
+        hoursShareLine("hours", 0, 0, "ZERO"),
+      ),
+    ).toBe(
+      "0 hours of ZERO recorded with 16 or more channels. These ZERO recordings have no recorded duration, so there are no hours to compare.",
     );
     expect(hoursFacts("hours", part).map((f: { label: string }) => f.label)).toEqual([
       "Recordings",

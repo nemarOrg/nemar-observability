@@ -42,6 +42,12 @@ function hoursShareLine(measure, value, total, name) {
   if (measure === "hours" && total < 0.05) return partShare(value, total) + " of all " + name + " hours, less than 0.1 hours in total";
   return partShare(value, total) + " of the " + whole.number + " " + name + " " + whole.unit;
 }
+// The answer read aloud after a tab or measure change: figure, claim, share.
+// Some share lines are whole sentences already, so no second period is added.
+function hoursAnnouncement(figure, claim, share) {
+  const ending = /[.!?]$/.test(share) ? "" : ".";
+  return figure.number + " " + figure.unit + " " + claim + ". " + share + ending;
+}
 // Channel-hours: channels times hours, a measure of how much signal there is.
 function channelHoursText(n) { return n < 10000 ? num(Math.round(n)) : shortScaled(n); }
 // The two measures the large figure is not showing, then channel-hours.

@@ -434,7 +434,7 @@ function drawHoursView(announce) {
   // The table is rebuilt only while it is open; opening it fills it.
   nodes.details.querySelector("summary").textContent = "Show exact values (" + plural(hoursTableRows(modality).length, "channel count", "channel counts") + ")";
   if (nodes.details.open) fillHoursTable(modality);
-  if (announce) nodes.live.textContent = shown.number + " " + shown.unit + " " + nodes.claim.textContent + ". " + nodes.share.textContent + ".";
+  if (announce) nodes.live.textContent = hoursAnnouncement(shown, nodes.claim.textContent, nodes.share.textContent);
 }
 
 function renderHoursNotices() {

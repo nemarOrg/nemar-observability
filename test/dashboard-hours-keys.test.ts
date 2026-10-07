@@ -278,6 +278,13 @@ describe("edge cases in the data", () => {
       "These Zero recordings have no recorded duration, so there are no hours to compare.",
     );
     expect(text(document, "#recorded-hours")).not.toContain("NaN");
+    // Back to this tab from another: the announcement ends with one period.
+    const tabs = all(document, "[role=tab]") as unknown as { textContent: string; click(): void }[];
+    tabs[0].click();
+    tabs.find((t) => t.textContent.startsWith("Zero"))?.click();
+    expect(text(document, ".hours-live")).toBe(
+      "0 hours of Zero recorded with 16 or more channels. These Zero recordings have no recorded duration, so there are no hours to compare.",
+    );
   });
 });
 
