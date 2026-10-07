@@ -258,6 +258,9 @@ function buildHoursExplorer() {
   // The exact values, and where they come from.
   const foot = el("div", "hours-foot");
   nodes.details = disclosure("Show exact values", "values");
+  nodes.details.addEventListener("toggle", function () {
+    if (nodes.details.open && view.nodes === nodes) fillHoursTable(hoursModality());
+  });
   const table = el("table", "data-table hours-table");
   // The datasets column holds dataset peaks, so the caption says how they count.
   table.appendChild(el("caption", "hours-caption", "Each dataset is counted once, at the channel count of its largest recording."));
@@ -356,7 +359,9 @@ function updateHours(fromUser, announce) {
   nodes.range.setAttribute("aria-valuetext", thresholdText(view.min) + ": " + measureText(view.measure, value));
   nodes.title.textContent = HOURS_CHART_TITLES[view.measure];
   nodes.chart.update();
-  fillHoursTable(modality);
+  // The table is rebuilt only while it is open; opening it fills it.
+  nodes.details.querySelector("summary").textContent = "Show exact values (" + plural(hoursTableRows(modality).length, "channel count", "channel counts") + ")";
+  if (nodes.details.open) fillHoursTable(modality);
   if (announce) nodes.live.textContent = shown.number + " " + shown.unit + " " + nodes.claim.textContent + ". " + nodes.share.textContent + ".";
   if (fromUser) scheduleHoursHash();
 }
@@ -366,7 +371,6 @@ function updateHours(fromUser, announce) {
 function fillHoursTable(modality) {
   const nodes = hoursView.nodes;
   const rows = hoursTableRows(modality);
-  nodes.details.querySelector("summary").textContent = "Show exact values (" + plural(rows.length, "channel count", "channel counts") + ")";
   const body = nodes.tbody;
   body.textContent = "";
   function divider(text) {

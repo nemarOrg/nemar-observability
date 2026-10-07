@@ -128,6 +128,10 @@ function key(doc: Doc, window: Window, selector: string, name: string) {
     new window.KeyboardEvent("keydown", { key: name, bubbles: true, cancelable: true }),
   );
 }
+// Opens Show exact values the way a reader does, by clicking its summary.
+function openTable(doc: Doc) {
+  (doc.querySelector(".hours-foot summary") as unknown as { click(): void }).click();
+}
 const sum = (list: number[]) => list.reduce((s, v) => s + v, 0);
 const eeg = sample.modalities[0];
 const at = (m: (typeof sample.modalities)[number], min: number) => ({
@@ -253,6 +257,9 @@ describe("recorded hours explorer", () => {
     expect(text(document, ".hours-foot summary")).toBe(
       `Show exact values (${eeg.bins.length} channel counts)`,
     );
+    // Closed, the table is not built; opening it fills it for the current view.
+    expect(all(document, ".hours-table tbody tr")).toHaveLength(0);
+    openTable(document);
     expect(all(document, ".hours-table tbody tr:not(.hours-cut)")).toHaveLength(eeg.bins.length);
     expect(all(document, ".hours-table .is-below")).toHaveLength(
       eeg.bins.filter((b) => b.channels < 16).length,
