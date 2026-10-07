@@ -551,23 +551,34 @@ describe("the shareable view", () => {
   test("round-trips through the address", () => {
     const view = { modality: "ieeg", min: 64, measure: "datasets" };
     expect(hoursHash(view)).toBe("#hours=ieeg:64:datasets");
-    expect(parseHoursHash(hoursHash(view))).toEqual(view);
+    expect(parseHoursHash(hoursHash(view))).toEqual({ valid: true, ...view });
     expect(hoursHash({ modality: "eeg", min: 16, measure: "hours" })).toBe("#hours=eeg:16");
-    expect(parseHoursHash("#hours=EEG:16")).toEqual({ modality: "eeg", min: 16, measure: "hours" });
+    // Modality and measure are read without regard to case.
+    expect(parseHoursHash("#hours=EEG:16:Hours")).toEqual({
+      valid: true,
+      modality: "eeg",
+      min: 16,
+      measure: "hours",
+    });
   });
 
-  test("anything malformed is ignored as a whole", () => {
+  test("an address that is not an explorer link is left alone", () => {
+    for (const hash of ["", "#pipelines", "#recorded-hours", "#hour=eeg:16"]) {
+      expect(parseHoursHash(hash)).toBeNull();
+    }
+  });
+
+  test("an explorer link that cannot be read is reported as such, as a whole", () => {
     for (const hash of [
-      "",
-      "#pipelines",
       "#hours=eeg",
       "#hours=eeg:0",
       "#hours=eeg:16:bytes",
+      "#hours=eeg:16:minutes",
       "#hours=:16",
       "#hours=eeg:-4",
       "#hours=%E0%A4%A:16",
     ]) {
-      expect(parseHoursHash(hash)).toBeNull();
+      expect(parseHoursHash(hash)).toEqual({ valid: false });
     }
   });
 });

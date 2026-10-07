@@ -411,10 +411,42 @@ describe("recorded hours explorer", () => {
     expectThumbAt(document, 32);
   });
 
-  test("a link to a modality that is not present is ignored", async () => {
-    const { document } = await openPage(recordingsSection(), "#hours=fnirs:8");
-    expect(text(document, '[role=tab][aria-selected="true"] .hours-tab-name')).toBe("EEG");
+  test("a link this snapshot cannot show says so, and the address shows what is shown", async () => {
+    for (const hash of [
+      "#hours=nope:16",
+      "#hours=eeg:0",
+      "#hours=eeg:16:minutes",
+      "#hours=%E0%A4%A:16",
+      "#hours=eeg",
+    ]) {
+      const { window, document } = await openPage(recordingsSection(), hash);
+      expect(text(document, '[role=tab][aria-selected="true"] .hours-tab-name')).toBe("EEG");
+      expect(readout(document).claim).toBe("of EEG recorded with 16 or more channels");
+      expect(text(document, ".hours-notices")).toBe(
+        "This link's view is not available. Showing EEG, 16 or more channels.",
+      );
+      expect(window.location.hash).toBe("#hours=eeg:16");
+    }
+  });
+
+  test("a link asking for more channels than the axis holds states the minimum shown", async () => {
+    const { window, document } = await openPage(recordingsSection(), "#hours=eeg:100000");
+    expect(readout(document).claim).toBe("of EEG recorded with 512 or more channels");
+    expect(text(document, ".hours-notices")).toBe(
+      "This link's view is not available. Showing EEG, 512 or more channels.",
+    );
+    expect(window.location.hash).toBe("#hours=eeg:512");
+    // The note lasts until the reader moves on.
+    key(document, window, "#hours-min", "ArrowLeft");
+    expect(text(document, ".hours-notices")).toBe("");
+    expect(q(document, ".hours-notices").getAttribute("hidden")).not.toBeNull();
+  });
+
+  test("case does not matter in a link, and a good link shows no notice", async () => {
+    const { window, document } = await openPage(recordingsSection(), "#hours=EEG:16:Hours");
     expect(readout(document).claim).toBe("of EEG recorded with 16 or more channels");
+    expect(text(document, ".hours-notices")).toBe("");
+    expect(window.location.hash).toBe("#hours=EEG:16:Hours");
   });
 
   test("a failed snapshot offers Try again, which draws one explorer", async () => {

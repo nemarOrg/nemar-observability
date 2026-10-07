@@ -529,6 +529,10 @@ main > section { scroll-margin-top: calc(var(--topbar-h) + 16px); padding-top: v
 .hours-tab[aria-selected="true"] .hours-tab-total { color: var(--text-2); }
 .hours-measures { margin-bottom: 10px; }
 .hours-panel { padding: 20px; }
+.hours-notices { display: grid; gap: var(--space-2); margin-bottom: var(--space-4); }
+.hours-notices[hidden] { display: none; }
+.hours-notice { display: flex; align-items: flex-start; gap: var(--space-2); padding: 10px 12px; border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--surface-2); color: var(--text); font-size: var(--fs-sm); line-height: 1.45; box-shadow: inset 3px 0 0 var(--warn); }
+.hours-notice .icon { margin-top: 2px; color: var(--text-2); }
 .hours-body { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--space-5); }
 .hours-readout { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
 .hours-value { font-size: 40px; font-weight: 600; letter-spacing: -0.03em; line-height: 1.05; overflow-wrap: anywhere; }

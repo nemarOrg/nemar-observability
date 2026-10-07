@@ -19,34 +19,59 @@ const HOURS_CHART_TITLES = {
 };
 // The thumb is 24px wide; its center travels the track from 12px in at either end.
 const HOURS_THUMB_RADIUS = 12;
-const hoursView = { modalities: [], axisMax: 512, key: null, min: DEFAULT_MIN_CHANNELS, measure: "hours", found: null, nodes: null, hashTimer: null, scrolled: false };
+// The view. The minimum is kept when the tab changes, on purpose (16 or more
+// EEG, then 16 or more EMG), so it can fall between the new tab's stops; the
+// stepping in channels.ts copes with a value that is not a stop.
+const hoursView = { modalities: [], axisMax: 512, key: null, min: DEFAULT_MIN_CHANNELS, measure: "hours", found: null, nodes: null, hashTimer: null, scrolled: false, linkNote: "" };
 
 function hoursModality() {
   return hoursView.modalities.find(function (m) { return m.key === hoursView.key; }) || hoursView.modalities[0];
 }
 function hoursStops() { return channelStops(hoursModality(), hoursView.axisMax); }
 function hoursPosition(channels) { return Math.round(1000 * Math.log2(Math.max(1, channels))); }
-// Applies a #hours= view when it names a modality that is present. A hash for
-// another modality, or one that does not parse, is ignored as a whole.
+// Applies a #hours= link to the view. "none": the address is not an explorer
+// link. "applied": shown as asked. "unavailable": the link names no modality
+// in this snapshot, does not parse, or asks for more channels than the axis
+// holds; the view shown instead is stated, and the address is set to it.
 function applyHoursHash(hash) {
   const parsed = parseHoursHash(hash);
-  if (!parsed || !hoursView.modalities.some(function (m) { return m.key === parsed.modality; })) return false;
+  if (!parsed) return "none";
+  if (!parsed.valid || !hoursView.modalities.some(function (m) { return m.key === parsed.modality; })) return "unavailable";
   hoursView.key = parsed.modality;
-  hoursView.min = Math.min(parsed.min, hoursView.axisMax);
   hoursView.measure = parsed.measure;
-  return true;
+  if (parsed.min > hoursView.axisMax) {
+    hoursView.min = hoursView.axisMax;
+    return "unavailable";
+  }
+  hoursView.min = parsed.min;
+  return "applied";
 }
+function noteHoursLink(status) {
+  hoursView.linkNote = "";
+  if (status !== "unavailable") return;
+  hoursView.linkNote = "This link's view is not available. Showing " + hoursModality().name + ", " + thresholdText(hoursView.min) + ".";
+  writeHoursHash();
+}
+function currentHoursHash() { return hoursHash({ modality: hoursView.key, min: hoursView.min, measure: hoursView.measure }); }
+// Replaced, not pushed: moving the slider should not fill the back button.
+function writeHoursHash() {
+  const next = currentHoursHash();
+  if (location.hash === next) return;
+  try { history.replaceState(null, "", next); } catch (err) { console.error("[ui] could not put this view in the address:", err); }
+}
+// Debounced while the slider moves: browsers limit how often the address may change.
 function scheduleHoursHash() {
   clearTimeout(hoursView.hashTimer);
-  hoursView.hashTimer = setTimeout(function () {
-    const next = hoursHash({ modality: hoursView.key, min: hoursView.min, measure: hoursView.measure });
-    if (location.hash === next) return;
-    // Replaced, not pushed: moving the slider should not fill the back button.
-    try { history.replaceState(null, "", next); } catch (err) { console.error("[ui] could not put this view in the address:", err); }
-  }, 250);
+  hoursView.hashTimer = setTimeout(writeHoursHash, 250);
 }
 window.addEventListener("hashchange", function () {
-  if (hoursView.nodes && applyHoursHash(location.hash)) updateHours(false, true);
+  // The page's own address writes describe the view already shown (and some
+  // environments report them as hash changes).
+  if (!hoursView.nodes || location.hash === currentHoursHash()) return;
+  const status = applyHoursHash(location.hash);
+  if (status === "none") return;
+  noteHoursLink(status);
+  updateHours(false, true);
 });
 
 function renderRecordedHours(snap) {
@@ -74,8 +99,9 @@ function renderRecordedHours(snap) {
   if (!hoursView.modalities.some(function (m) { return m.key === hoursView.key; })) hoursView.key = hoursView.modalities[0].key;
   if (CHANNEL_MEASURES.indexOf(hoursView.measure) < 0) hoursView.measure = "hours";
   root.appendChild(buildHoursExplorer());
+  noteHoursLink(linked);
   updateHours(false);
-  if (linked && !hoursView.scrolled) {
+  if (linked !== "none" && !hoursView.scrolled) {
     hoursView.scrolled = true;
     revealHoursFromLink();
   }
@@ -161,6 +187,10 @@ function buildHoursExplorer() {
   panel.id = "hours-panel";
   panel.setAttribute("role", "tabpanel");
   nodes.panel = panel;
+  // Notices about the view or the data sit above the answer, in plain words.
+  nodes.notices = el("div", "hours-notices");
+  nodes.notices.hidden = true;
+  panel.appendChild(nodes.notices);
   const body = el("div", "hours-body");
 
   // The answer, in words and figures.
@@ -339,6 +369,9 @@ function updateHours(fromUser, announce) {
     }
   });
   nodes.measures.forEach(function (button) { button.setAttribute("aria-pressed", String(button.dataset.measure === view.measure)); });
+  // A note about a link that could not be shown lasts until the reader moves on.
+  if (fromUser) view.linkNote = "";
+  renderHoursNotices();
 
   const part = atLeast(modality, view.min);
   // The denominator is summed the same way as the part, so "any number" is 100%.
@@ -364,6 +397,19 @@ function updateHours(fromUser, announce) {
   if (nodes.details.open) fillHoursTable(modality);
   if (announce) nodes.live.textContent = shown.number + " " + shown.unit + " " + nodes.claim.textContent + ". " + nodes.share.textContent + ".";
   if (fromUser) scheduleHoursHash();
+}
+
+function renderHoursNotices() {
+  const box = hoursView.nodes.notices;
+  const notes = hoursView.linkNote ? [hoursView.linkNote] : [];
+  box.textContent = "";
+  box.hidden = notes.length === 0;
+  notes.forEach(function (text) {
+    const note = el("p", "hours-notice");
+    note.appendChild(icon("info"));
+    note.appendChild(el("span", null, text));
+    box.appendChild(note);
+  });
 }
 
 // Rows for every channel count, with a labeled divider where the minimum

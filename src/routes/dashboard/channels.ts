@@ -256,17 +256,28 @@ function nearestStop(stops, channels) {
 }
 
 // ---------- recorded hours: shareable view ----------
-// #hours=eeg:16 or #hours=ieeg:64:datasets. A part that does not parse makes
-// the whole hash ignored rather than half applied.
+// #hours=eeg:16 or #hours=ieeg:64:datasets, matched without regard to case.
+// null means the address is not an explorer link at all; { valid: false } means
+// it is one that cannot be read, so the page can say so instead of quietly
+// showing something else. A part that does not parse invalidates the whole link
+// rather than half applying it.
 function parseHoursHash(hash) {
-  const match = /^#hours=([^:]+):(\d{1,6})(?::([a-z]+))?$/.exec(String(hash || ""));
-  if (!match) return null;
+  const text = String(hash || "");
+  if (text.indexOf("#hours=") !== 0) return null;
+  const invalid = { valid: false };
+  const match = /^#hours=([^:]+):(\d{1,6})(?::([A-Za-z]+))?$/.exec(text);
+  if (!match) return invalid;
   let key;
-  try { key = decodeURIComponent(match[1]).toLowerCase(); } catch (err) { return null; }
+  try {
+    key = decodeURIComponent(match[1]).toLowerCase();
+  } catch (err) {
+    console.warn("[ui] a #hours= link has a malformed escape:", err);
+    return invalid;
+  }
   const min = Number(match[2]);
-  const measure = match[3] || "hours";
-  if (!key || min < 1 || CHANNEL_MEASURES.indexOf(measure) < 0) return null;
-  return { modality: key, min: min, measure: measure };
+  const measure = (match[3] || "hours").toLowerCase();
+  if (!key || min < 1 || CHANNEL_MEASURES.indexOf(measure) < 0) return invalid;
+  return { valid: true, modality: key, min: min, measure: measure };
 }
 function hoursHash(view) {
   return "#hours=" + encodeURIComponent(view.modality) + ":" + view.min + (view.measure && view.measure !== "hours" ? ":" + view.measure : "");
