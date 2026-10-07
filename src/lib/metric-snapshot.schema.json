@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://dashboard.nemar.org/observability/metric-snapshot.schema.json",
   "title": "NEMAR MetricSnapshot",
-  "description": "Versioned contract for the NEMAR observability dashboard. Mirror of src/lib/schema.ts (Zod is the SOURCE OF TRUTH; this file is documentation). The push endpoint (/api/sections/:key) expects a $defs/sectionIngest body (a section WITHOUT updated_at, which the server stamps). Note: Zod strips unknown fields rather than rejecting them, so a payload with extra fields is accepted (the extras dropped) even though additionalProperties is false here.",
+  "description": "Versioned contract for the NEMAR observability dashboard. Mirror of src/lib/schema.ts (Zod is the SOURCE OF TRUTH; this file is documentation). The push endpoint (/api/sections/:key) expects a $defs/sectionIngest body (a section WITHOUT updated_at, which the server stamps). Note: Zod strips unknown fields at the section and metric level rather than rejecting them, so a payload with extra fields there is accepted (the extras dropped) even though additionalProperties is false here. The exceptions are `daily_series` and `channel_hours` with everything nested inside them, which are strict: an unknown key is rejected with 422 (an unknown key could be a dataset identifier). A producer that adds a field to `channel_hours` needs the Worker deployed first.",
   "type": "object",
   "required": ["schema_version", "generated_at", "sections"],
   "additionalProperties": false,
@@ -39,38 +39,38 @@
       "type": "object", "required": ["channels", "hours", "recordings"], "additionalProperties": false,
       "properties": {
         "channels": { "type": "integer", "minimum": 1, "maximum": 100000, "description": "Exact channel count of the recordings in this bin." },
-        "hours": { "type": "number", "minimum": 0, "description": "Summed recording time, in hours." },
-        "recordings": { "type": "integer", "minimum": 0 }
+        "hours": { "type": "number", "minimum": 0, "description": "Summed recording time, in hours. Zero is legal (a measured recording can have no duration)." },
+        "recordings": { "type": "integer", "minimum": 1, "maximum": 9007199254740991, "description": "Bins are sparse: only channel counts that occur are present." }
       }
     },
     "channelHoursDatasetPeak": {
       "type": "object", "required": ["channels", "datasets"], "additionalProperties": false,
       "properties": {
         "channels": { "type": "integer", "minimum": 1, "maximum": 100000 },
-        "datasets": { "type": "integer", "minimum": 1, "description": "Datasets whose largest recording in this modality has exactly this many channels." }
+        "datasets": { "type": "integer", "minimum": 1, "maximum": 9007199254740991, "description": "Datasets whose largest recording in this modality has exactly this many channels." }
       }
     },
     "channelHoursModality": {
       "type": "object",
-      "description": "Cross-field rules also enforced by the Zod validator: channel counts are unique within bins and within dataset_peaks, hours equals the sum over bins, recordings equals the sum over bins, and datasets equals the sum over dataset_peaks.",
+      "description": "Cross-field rules also enforced by the Zod validator: bins and dataset_peaks are strictly ascending by channels (so counts are unique); every dataset peak has a bin at its channel count and holds no more datasets than that bin has recordings; the largest peak and the largest bin are at the same channel count; recordings equals the sum over bins; hours equals the sum over bins within max(1e-6, hours * 1e-9) (round each bin first, then sum the rounded bins); datasets equals the sum over dataset_peaks.",
       "required": ["modality", "hours", "recordings", "datasets", "bins", "dataset_peaks"], "additionalProperties": false,
       "properties": {
-        "modality": { "type": "string", "minLength": 1, "maxLength": 32, "description": "Stable key and display name, e.g. EEG, iEEG, MEG, EMG. Unique per section, case-insensitive." },
+        "modality": { "type": "string", "pattern": "^[A-Za-z][A-Za-z0-9_-]{0,31}$", "description": "Stable key and display name, e.g. EEG, iEEG, MEG, EMG: a plain name. Unique per section, case-insensitive." },
         "hours": { "type": "number", "minimum": 0 },
-        "recordings": { "type": "integer", "minimum": 0 },
-        "datasets": { "type": "integer", "minimum": 0 },
+        "recordings": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
+        "datasets": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
         "bins": { "type": "array", "minItems": 1, "maxItems": 1024, "items": { "$ref": "#/$defs/channelHoursBin" } },
-        "dataset_peaks": { "type": "array", "maxItems": 1024, "items": { "$ref": "#/$defs/channelHoursDatasetPeak" } }
+        "dataset_peaks": { "type": "array", "minItems": 1, "maxItems": 1024, "items": { "$ref": "#/$defs/channelHoursDatasetPeak" } }
       }
     },
     "channelHours": {
       "type": "object",
-      "description": "Recorded hours by channel count, per modality, over public datasets only (no dataset identifiers). Recordings that lack a duration or channel count are counted in recordings_unmeasured and left out of every bin.",
+      "description": "Recorded hours by channel count, per modality, over public datasets only (no dataset identifiers). Recordings that lack a duration or channel count are counted in recordings_unmeasured and left out of every bin. Modality names are unique case-insensitively and no modality may report more datasets than datasets_scanned. The array bounds are headroom: the 1 MB push body cap is the effective size limit.",
       "required": ["datasets_scanned", "datasets_unavailable", "recordings_unmeasured", "modalities"], "additionalProperties": false,
       "properties": {
-        "datasets_scanned": { "type": "integer", "minimum": 0 },
-        "datasets_unavailable": { "type": "integer", "minimum": 0 },
-        "recordings_unmeasured": { "type": "integer", "minimum": 0 },
+        "datasets_scanned": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
+        "datasets_unavailable": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
+        "recordings_unmeasured": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
         "modalities": { "type": "array", "minItems": 1, "maxItems": 32, "items": { "$ref": "#/$defs/channelHoursModality" } }
       }
     },
