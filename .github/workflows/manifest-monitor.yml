@@ -46,7 +46,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: oven-sh/setup-bun@v2
         with:
-          bun-version: latest
+          bun-version: 1.4.3
 
       # No `bun install`: check-manifests.ts imports nothing outside node:fs
       # and the Bun runtime, so the monitor keeps working even if a dependency
