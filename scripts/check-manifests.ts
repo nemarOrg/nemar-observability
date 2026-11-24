@@ -92,7 +92,7 @@ export function verdictFor(checked: number, problems: Problem[]): ManifestVerdic
       "",
       ...lines,
       "",
-      "Remediation: `nemar admin doctor fix missing-manifest` (nemarOrg/nemar-cli#1130),",
+      "Remediation: `nemar admin dataset doctor fix missing-manifest --apply` (nemarOrg/nemar-cli#1130),",
       "then re-run this workflow to confirm recovery and auto-close this issue.",
     ].join("\n"),
   };
