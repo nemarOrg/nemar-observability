@@ -109,7 +109,7 @@ describe("verdictFor", () => {
     expect(v.summary).toBe("2 of 754 public datasets have an unservable version index");
     expect(v.detail).toContain("`nm000225@v1.1.0`: HTTP 404 (Version not published)");
     expect(v.detail).toContain("`nm000250@v1.0.1`: HTTP 404");
-    expect(v.detail).toContain("nemar admin doctor fix missing-manifest");
+    expect(v.detail).toContain("nemar admin dataset doctor fix missing-manifest --apply");
   });
 
   test("a failed landing is reported without a version, with the API's reason", () => {
